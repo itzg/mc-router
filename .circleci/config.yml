@@ -31,7 +31,9 @@ jobs:
       - checkout
 
       - run: make install-dep
-      - run: docker login -u $DOCKER_USER -p $DOCKER_PASSWORD
+
+      - setup_remote_docker
+      - run: echo $DOCKER_PASSWORD | docker login -u $DOCKER_USER --password-stdin
       - run: make release
 
 workflows:
@@ -41,10 +43,12 @@ workflows:
       - build:
           filters:
             tags:
-              ignore: /.*/
-  tagged:
+              ignore: /^\d+\.\d+\.\d+/
+  release:
     jobs:
       - release:
           filters:
             tags:
-              only: /.*/
+              only: /^\d+\.\d+\.\d+/
+            branches:
+              ignore: /.*/
