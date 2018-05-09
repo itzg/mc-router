@@ -44,7 +44,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	c := make(chan os.Signal, 1)
-	signal.Notify(c)
+	signal.Notify(c, os.Interrupt)
 
 	server.Routes.RegisterAll(*mappings)
 
