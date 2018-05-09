@@ -9,6 +9,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"fmt"
 )
 
 var (
@@ -18,10 +19,27 @@ var (
 		String()
 	mappings = kingpin.Flag("mapping", "Mapping of external hostname to internal server host:port").
 		StringMap()
+	versionFlag = kingpin.Flag("version", "Output version and exit").
+		Bool()
 )
+
+var (
+	version = "dev"
+	commit = "none"
+	date = "unknown"
+)
+
+func showVersion()  {
+	fmt.Printf("%v, commit %v, built at %v", version, commit, date)
+}
 
 func main() {
 	kingpin.Parse()
+
+	if *versionFlag {
+		showVersion()
+		os.Exit(0)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 

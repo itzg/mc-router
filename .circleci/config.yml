@@ -1,0 +1,50 @@
+# Golang CircleCI 2.0 configuration file
+#
+# Check https://circleci.com/docs/2.0/language-go/ for more details
+version: 2
+
+defaults: &defaults
+  docker:
+    # specify the version
+    - image: circleci/golang:1.10
+
+    # Specify service dependencies here if necessary
+    # CircleCI maintains a library of pre-built images
+    # documented at https://circleci.com/docs/2.0/circleci-images/
+    # - image: circleci/postgres:9.4
+
+  working_directory: /go/src/github.com/itzg/mc-router
+
+
+jobs:
+  build:
+    <<: *defaults
+    steps:
+      - checkout
+
+      - run: make install-dep
+      - run: make test
+
+  release:
+    <<: *defaults
+    steps:
+      - checkout
+
+      - run: make install-dep
+      - run: docker login -u $DOCKER_USER -p $DOCKER_PASSWORD
+      - run: make release
+
+workflows:
+  version: 2
+  incremental:
+    jobs:
+      - build:
+          filters:
+            tags:
+              ignore: /.*/
+  tagged:
+    jobs:
+      - release:
+          filters:
+            tags:
+              only: /.*/

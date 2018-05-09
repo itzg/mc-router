@@ -1,0 +1,43 @@
+project_name: mc-router
+release:
+  github:
+    owner: itzg
+    name: mc-router
+brew:
+  install: bin.install "mc-router"
+builds:
+- goos:
+  - linux
+  - darwin
+  - windows
+  goarch:
+  - amd64
+  - "386"
+  goarm:
+  - "6"
+  main: cmd/mc-router/main.go
+  binary: mc-router
+  env:
+    - CGO_ENABLED=0
+archive:
+  format: tar.gz
+  name_template: '{{ .Binary }}_{{.Version}}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{
+    .Arm }}{{ end }}'
+  files:
+  - licence*
+  - LICENCE*
+  - license*
+  - LICENSE*
+  - readme*
+  - README*
+  - changelog*
+  - CHANGELOG*
+snapshot:
+  name_template: SNAPSHOT-{{ .Commit }}
+dockers:
+  - goos: linux
+    goarch: amd64
+    image: itzg/mc-router
+    tag_templates:
+    - "{{.Tag}}"
+    - latest
