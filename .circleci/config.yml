@@ -22,7 +22,19 @@ jobs:
     steps:
       - checkout
 
+      - restore_cache:
+          keys:
+            - cache-{{ arch }}-{{ .Branch }}-{{ checksum "Gopkg.lock" }}
+            - cache-{{ arch }}-{{ .Branch }}
+            - cache
+
       - run: make install-dep
+
+      - save_cache:
+          key: cache-{{ arch }}-{{ .Branch }}-{{ checksum "Gopkg.lock" }}
+          paths:
+            - vendor
+
       - run: make test
 
   release:
