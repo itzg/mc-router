@@ -41,7 +41,10 @@ kubectl apply -f https://raw.githubusercontent.com/itzg/mc-router/master/docs/k8
 
 ![](docs/example-deployment.drawio.png)
 
-**Note**: this deployment assumes two persistent volume claims: `mc-stable` and `mc-snapshot`
+#### Notes
+* This deployment assumes two persistent volume claims: `mc-stable` and `mc-snapshot`
+* I extended the allowed node port range by adding `--service-node-port-range=25000-32767` 
+  to `/etc/kubernetes/manifests/kube-apiserver.yaml` 
 
 ## Coming Soon
 
