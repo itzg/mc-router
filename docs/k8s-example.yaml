@@ -1,0 +1,133 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-router
+spec:
+  type: NodePort
+  ports:
+  - targetPort: web
+    name: web
+    port: 8080
+    nodePort: 25580
+  - targetPort: proxy
+    name: proxy
+    port: 25565
+    nodePort: 25565
+  selector:
+    run: mc-router
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    run: mc-router
+  name: mc-router
+spec:
+  selector:
+    matchLabels:
+      run: mc-router
+  template:
+    metadata:
+      labels:
+        run: mc-router
+    spec:
+      containers:
+      - image: itzg/mc-router:1.0.1
+        name: mc-router
+        args: ["--api-binding", ":8080"]
+        ports:
+        - name: proxy
+          containerPort: 25565
+        - name: web
+          containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-stable
+spec:
+  ports:
+  - port: 25565
+  selector:
+    run: mc-stable
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    run: mc-stable
+  name: mc-stable
+spec:
+  selector:
+    matchLabels:
+      run: mc-stable
+  template:
+    metadata:
+      labels:
+        run: mc-stable
+    spec:
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - image: itzg/minecraft-server
+        name: mc-stable
+        env:
+        - name: EULA
+          value: "TRUE"
+        ports:
+        - containerPort: 25565
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: mc-stable
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-snapshot
+spec:
+  ports:
+  - port: 25565
+  selector:
+    run: mc-snapshot
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    run: mc-snapshot
+  name: mc-snapshot
+spec:
+  selector:
+    matchLabels:
+      run: mc-snapshot
+  template:
+    metadata:
+      labels:
+        run: mc-snapshot
+    spec:
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - image: itzg/minecraft-server
+        name: mc-snapshot
+        env:
+        - name: EULA
+          value: "TRUE"
+        - name: VERSION
+          value: "SNAPSHOT"
+        ports:
+        - containerPort: 25565
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: mc-snapshot
