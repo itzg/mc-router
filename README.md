@@ -28,3 +28,22 @@ Flags:
 
 * `DELETE /routes/{serverAddress}`
   Deletes an existing route for the given `serverAddress`
+  
+## Example kubernetes deployment
+
+[These deployments](docs/k8s-example.yaml) declare an `mc-router` that exposes a node port service 
+on the standard Minecraft server port 25565. Two "backend" Minecraft servers are declared as example
+where users can choose stable/vanilla or snapshot simply based on the hostname they used.
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/itzg/mc-router/master/docs/k8s-example.yaml
+```
+
+![](docs/example-deployment.drawio.png)
+
+**Note**: this deployment assumes two persistent volume claims: `mc-stable` and `mc-snapshot`
+
+## Coming Soon
+
+* Make `mc-router` kubernetes service aware. It would watch for backend instances with well known annotations
+  and dynamically create/remove routes accordingly
