@@ -24,10 +24,10 @@ jobs:
             - cache
 
       - run:
-          name: install glide
+          name: Install glide
           command: curl https://glide.sh/get | sh
       - run:
-          name: install dependencies
+          name: Install dependencies
           command: glide install
 
       - save_cache:
@@ -43,10 +43,10 @@ jobs:
       - checkout
 
       - run:
-          name: install glide
+          name: Install glide
           command: curl https://glide.sh/get | sh
       - run:
-          name: install dependencies
+          name: Install dependencies
           command: glide install
 
       - setup_remote_docker
