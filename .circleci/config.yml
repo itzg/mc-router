@@ -24,11 +24,11 @@ jobs:
             - cache
 
       - run:
-          name: Install glide
-          command: curl https://glide.sh/get | sh
+          name: Install dependency management
+          command: make install-dep-mgmt
       - run:
           name: Install dependencies
-          command: glide install
+          command: make vendor
 
       - save_cache:
           key: cache-{{ arch }}-{{ .Branch }}-{{ checksum "glide.lock" }}
@@ -43,11 +43,11 @@ jobs:
       - checkout
 
       - run:
-          name: Install glide
-          command: curl https://glide.sh/get | sh
+          name: Install dependency management
+          command: make install-dep-mgmt
       - run:
           name: Install dependencies
-          command: glide install
+          command: make vendor
 
       - setup_remote_docker
       - run: echo $DOCKER_PASSWORD | docker login -u $DOCKER_USER --password-stdin
