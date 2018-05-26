@@ -1,0 +1,16 @@
+package: github.com/itzg/mc-router
+import:
+- package: github.com/alecthomas/kingpin
+  version: ^2.2.6
+- package: github.com/gorilla/mux
+  version: ^1.6.2
+- package: github.com/pkg/errors
+  version: ^0.8.0
+- package: github.com/sirupsen/logrus
+  version: ^1.0.5
+- package: k8s.io/client-go
+  version: ^7.0.0
+  subpackages:
+  - kubernetes
+  - tools/cache
+  - tools/clientcmd

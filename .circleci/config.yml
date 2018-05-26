@@ -24,14 +24,16 @@ jobs:
 
       - restore_cache:
           keys:
-            - cache-{{ arch }}-{{ .Branch }}-{{ checksum "Gopkg.lock" }}
+            - cache-{{ arch }}-{{ .Branch }}-{{ checksum "glide.lock" }}
             - cache-{{ arch }}-{{ .Branch }}
             - cache
 
-      - run: make install-dep
+      - run:
+          name: install dependencies
+          command: glide install
 
       - save_cache:
-          key: cache-{{ arch }}-{{ .Branch }}-{{ checksum "Gopkg.lock" }}
+          key: cache-{{ arch }}-{{ .Branch }}-{{ checksum "glide.lock" }}
           paths:
             - vendor
 
@@ -42,7 +44,9 @@ jobs:
     steps:
       - checkout
 
-      - run: make install-dep
+      - run:
+          name: install dependencies
+          command: glide install
 
       - setup_remote_docker
       - run: echo $DOCKER_PASSWORD | docker login -u $DOCKER_USER --password-stdin
