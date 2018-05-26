@@ -22,6 +22,7 @@ var (
 	versionFlag = kingpin.Flag("version", "Output version and exit").
 			Bool()
 	kubeConfigFile = kingpin.Flag("kube-config", "The path to a kubernetes configuration file").String()
+	inKubeCluster  = kingpin.Flag("in-kube-cluster", "Use in-cluster kubernetes config").Bool()
 )
 
 var (
@@ -55,11 +56,21 @@ func main() {
 		server.StartApiServer(*apiBinding)
 	}
 
-	err := server.K8sWatcher.Start(*kubeConfigFile)
-	if err != nil {
-		logrus.WithError(err).Warn("Skipping kubernetes integration")
-	} else {
-		defer server.K8sWatcher.Stop()
+	var err error
+	if *inKubeCluster {
+		err = server.K8sWatcher.StartInCluster()
+		if err != nil {
+			logrus.WithError(err).Warn("Unable to start k8s integration")
+		} else {
+			defer server.K8sWatcher.Stop()
+		}
+	} else if *kubeConfigFile != "" {
+		err := server.K8sWatcher.StartWithConfig(*kubeConfigFile)
+		if err != nil {
+			logrus.WithError(err).Warn("Unable to start k8s integration")
+		} else {
+			defer server.K8sWatcher.Stop()
+		}
 	}
 
 	<-c

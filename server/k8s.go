@@ -6,13 +6,15 @@ import (
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"net"
 )
 
 type IK8sWatcher interface {
-	Start(kubeConfigFile string) error
+	StartWithConfig(kubeConfigFile string) error
+	StartInCluster() error
 	Stop()
 }
 
@@ -22,12 +24,25 @@ type k8sWatcherImpl struct {
 	stop chan struct{}
 }
 
-func (w *k8sWatcherImpl) Start(kubeConfigFile string) error {
+func (w *k8sWatcherImpl) StartInCluster() error {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return errors.Wrap(err, "Unable to load in-cluster config")
+	}
+
+	return w.startWithLoadedConfig(config)
+}
+
+func (w *k8sWatcherImpl) StartWithConfig(kubeConfigFile string) error {
 	config, err := clientcmd.BuildConfigFromFlags("", kubeConfigFile)
 	if err != nil {
 		return errors.Wrap(err, "Could not load kube config file")
 	}
 
+	return w.startWithLoadedConfig(config)
+}
+
+func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config) error {
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return errors.Wrap(err, "Could not create kube clientset")
