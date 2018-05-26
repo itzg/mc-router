@@ -123,7 +123,7 @@ kind: Service
 metadata:
   name: mc-snapshot
   annotations:
-    "mc-router.itzg.me/externalServerName": "mc-snapshot.your.domain"
+    "mc-router.itzg.me/externalServerName": "snapshot.your.domain"
 spec:
   ports:
   - port: 25565

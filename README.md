@@ -31,22 +31,20 @@ Flags:
   
 ## Example kubernetes deployment
 
-[These deployments](docs/k8s-example.yaml) declare an `mc-router` that exposes a node port service 
-on the standard Minecraft server port 25565. Two "backend" Minecraft servers are declared as example
-where users can choose stable/vanilla or snapshot simply based on the hostname they used.
+[This example deployment](docs/k8s-example-auto.yaml) 
+* Declares an `mc-router` service that exposes a node port 25565
+* Declares a service account with access to watch and list services
+* Declares `--in-kube-cluster` in the `mc-router` container arguments
+* Two "backend" Minecraft servers are declared each with an 
+  `"mc-router.itzg.me/externalServerName"` annotation that declares their external server name
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/itzg/mc-router/master/docs/k8s-example.yaml
+kubectl apply -f https://raw.githubusercontent.com/itzg/mc-router/master/docs/k8s-example-auto.yaml
 ```
 
-![](docs/example-deployment.drawio.png)
+![](docs/example-deployment-auto.drawio.png)
 
 #### Notes
 * This deployment assumes two persistent volume claims: `mc-stable` and `mc-snapshot`
 * I extended the allowed node port range by adding `--service-node-port-range=25000-32767` 
   to `/etc/kubernetes/manifests/kube-apiserver.yaml` 
-
-## Coming Soon
-
-* Make `mc-router` kubernetes service aware. It would watch for backend instances with well known annotations
-  and dynamically create/remove routes accordingly

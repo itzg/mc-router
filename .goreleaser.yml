@@ -45,3 +45,4 @@ changelog:
   filters:
     exclude:
       - '^ci:'
+      - '^docs:'
