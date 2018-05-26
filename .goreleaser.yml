@@ -41,3 +41,7 @@ dockers:
     tag_templates:
     - "{{.Tag}}"
     - latest
+changelog:
+  filters:
+    exclude:
+      - '^ci:'
