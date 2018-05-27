@@ -29,6 +29,32 @@ Flags:
 * `DELETE /routes/{serverAddress}`
   Deletes an existing route for the given `serverAddress`
   
+## Using kubernetes service auto-discovery
+
+When running `mc-router` as a kubernetes pod and you pass the `--in-kube-cluster` command-line argument, then
+it will automatically watch for any services annotated with `mc-router.itzg.me/externalServerName`. The value
+of the annotation will be registered as the external hostname Minecraft clients would used to connect to the
+routed service. The service's clusterIP and target port are used as the routed backend.
+
+For example, start `mc-router`'s container spec with
+
+```yaml
+image: itzg/mc-router
+name: mc-router
+args: ["--in-kube-cluster"]
+```
+
+and configure the backend minecraft server's service with the annotation:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-forge
+  annotations:
+    "mc-router.itzg.me/externalServerName": "external.host.name"
+```
+
 ## Example kubernetes deployment
 
 [This example deployment](docs/k8s-example-auto.yaml) 
