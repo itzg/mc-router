@@ -1,14 +1,6 @@
-hash: d0042501db8c547ec44ff6828ff8b0c7d08561d95311f4c62cf8014e6a02e97e
-updated: 2018-05-26T11:09:13.8257578-05:00
+hash: 6d3afa029b5a24a153f556f8a2ca493f4f1de4c41f438d2309a32a922e2d9408
+updated: 2018-05-27T14:41:00.6804253-05:00
 imports:
-- name: github.com/alecthomas/kingpin
-  version: 947dcec5ba9c011838740e680966fd7087a71d0d
-- name: github.com/alecthomas/template
-  version: a0175ee3bccc567396460bf5acd36800cb10c49c
-  subpackages:
-  - parse
-- name: github.com/alecthomas/units
-  version: 2efee857e7cfd4f3d0138cc3cbb1b4966962b93a
 - name: github.com/davecgh/go-spew
   version: 782f4967f2dc4564575ca782fe2d04090b5faca8
   subpackages:
@@ -59,14 +51,13 @@ imports:
 - name: github.com/spf13/pflag
   version: 4c012f6dcd9546820e378d0bdda4d8fc772cdfea
 - name: golang.org/x/crypto
-  version: a3beeb748656e13e54256fd2cde19e058f41f60f
+  version: ab813273cd59e1333f7ae7bff5d027d4aadf528c
   subpackages:
   - ssh/terminal
 - name: golang.org/x/net
   version: 1c05540f6879653db88113bc4a2b70aec4bd491f
   subpackages:
   - context
-  - context/ctxhttp
   - http2
   - http2/hpack
   - idna
@@ -126,17 +117,10 @@ imports:
 - name: k8s.io/apimachinery
   version: 302974c03f7e50f16561ba237db776ab93594ef6
   subpackages:
-  - pkg/api/equality
   - pkg/api/errors
   - pkg/api/meta
   - pkg/api/resource
-  - pkg/api/testing
-  - pkg/api/testing/fuzzer
-  - pkg/api/testing/roundtrip
-  - pkg/apimachinery
-  - pkg/apimachinery/announced
-  - pkg/apimachinery/registered
-  - pkg/apis/meta/fuzzer
+  - pkg/api/resource
   - pkg/apis/meta/internalversion
   - pkg/apis/meta/v1
   - pkg/apis/meta/v1/unstructured
@@ -146,6 +130,8 @@ imports:
   - pkg/fields
   - pkg/labels
   - pkg/runtime
+  - pkg/runtime
+  - pkg/runtime/schema
   - pkg/runtime/schema
   - pkg/runtime/serializer
   - pkg/runtime/serializer/json
@@ -155,29 +141,24 @@ imports:
   - pkg/runtime/serializer/versioning
   - pkg/selection
   - pkg/types
+  - pkg/types
   - pkg/util/cache
   - pkg/util/clock
   - pkg/util/diff
   - pkg/util/errors
   - pkg/util/framer
-  - pkg/util/httpstream
-  - pkg/util/httpstream/spdy
+  - pkg/util/intstr
   - pkg/util/intstr
   - pkg/util/json
-  - pkg/util/mergepatch
   - pkg/util/net
-  - pkg/util/remotecommand
   - pkg/util/runtime
   - pkg/util/sets
-  - pkg/util/strategicpatch
   - pkg/util/validation
   - pkg/util/validation/field
   - pkg/util/wait
   - pkg/util/yaml
   - pkg/version
   - pkg/watch
-  - third_party/forked/golang/json
-  - third_party/forked/golang/netutil
   - third_party/forked/golang/reflect
 - name: k8s.io/client-go
   version: 23781f4d6632d88e869066eaebb743857aa1ef9b
