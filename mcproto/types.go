@@ -1,29 +1,30 @@
 package mcproto
 
 import (
-	"errors"
 	"bytes"
-	"strings"
+	"errors"
 	"io"
+	"strings"
 )
 
 type Frame struct {
-	Length int
+	Length  int
 	Payload []byte
 }
 
 type Packet struct {
-	Length int
+	Length   int
 	PacketID int
-	Data []byte
+	Data     []byte
 }
 
 const PacketIdHandshake = 0x00
+
 type Handshake struct {
 	ProtocolVersion int
-	ServerAddress string
-	ServerPort uint16
-	NextState int
+	ServerAddress   string
+	ServerPort      uint16
+	NextState       int
 }
 
 type ByteReader interface {
@@ -43,11 +44,11 @@ func ReadVarInt(reader io.Reader) (int, error) {
 			continue
 		}
 		value := b[0] & 0x7F
-		result |= int(value) << (7*numRead)
+		result |= int(value) << (7 * numRead)
 
 		numRead++
 
-		if b[0] & 0x80 == 0 {
+		if b[0]&0x80 == 0 {
 			return result, nil
 		}
 	}
@@ -89,7 +90,7 @@ func ReadUnsignedShort(reader io.Reader) (uint16, error) {
 		return 0, err
 	}
 
-	return (uint16(upper[0])<<8) | uint16(lower[0]), nil
+	return (uint16(upper[0]) << 8) | uint16(lower[0]), nil
 }
 
 func ReadFrame(reader io.Reader) (*Frame, error) {
@@ -124,7 +125,7 @@ func ReadPacket(reader io.Reader) (*Packet, error) {
 		return nil, err
 	}
 
-	packet := &Packet{Length:frame.Length}
+	packet := &Packet{Length: frame.Length}
 
 	remainder := bytes.NewBuffer(frame.Payload)
 

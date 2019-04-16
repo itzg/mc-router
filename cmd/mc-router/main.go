@@ -83,8 +83,9 @@ func parseMappings(val string) map[string]string {
 			keyValue := strings.Split(part, "=")
 			if len(keyValue) == 2 {
 				result[keyValue[0]] = keyValue[1]
+			} else {
+				logrus.WithField("part", part).Fatal("Invalid part of mapping")
 			}
-			logrus.WithField("part", part).Fatal("Invalid part of mapping")
 		}
 	}
 
