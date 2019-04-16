@@ -1,13 +1,6 @@
-test: vendor
+test:
 	go test ./...
 
-vendor:
-	glide install
-
 .PHONY: release
-release: vendor
+release:
 	curl -sL https://git.io/goreleaser | bash
-
-.PHONY: install-dep-mgmt
-install-dep-mgmt:
-	curl https://glide.sh/get | sh

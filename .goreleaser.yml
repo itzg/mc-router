@@ -3,6 +3,9 @@ release:
   github:
     owner: itzg
     name: mc-router
+before:
+  hooks:
+    - go mod download
 brew:
   install: bin.install "mc-router"
 builds:

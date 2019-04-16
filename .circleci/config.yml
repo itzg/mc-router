@@ -6,10 +6,7 @@ version: 2
 defaults: &defaults
   docker:
     # specify the version
-    - image: circleci/golang:1.10
-
-  working_directory: /go/src/github.com/itzg/mc-router
-
+    - image: circleci/golang:1.12
 
 jobs:
   build:
@@ -19,35 +16,21 @@ jobs:
 
       - restore_cache:
           keys:
-            - cache-{{ arch }}-{{ .Branch }}-{{ checksum "glide.lock" }}
+            - cache-{{ arch }}-{{ .Branch }}-{{ checksum "go.sum" }}
             - cache-{{ arch }}-{{ .Branch }}
             - cache
 
-      - run:
-          name: Install dependency management
-          command: make install-dep-mgmt
-      - run:
-          name: Install dependencies
-          command: make vendor
+      - run: make test
 
       - save_cache:
-          key: cache-{{ arch }}-{{ .Branch }}-{{ checksum "glide.lock" }}
+          key: cache-{{ arch }}-{{ .Branch }}-{{ checksum "go.sum" }}
           paths:
-            - vendor
-
-      - run: make test
+            - /go/pkg
 
   release:
     <<: *defaults
     steps:
       - checkout
-
-      - run:
-          name: Install dependency management
-          command: make install-dep-mgmt
-      - run:
-          name: Install dependencies
-          command: make vendor
 
       - setup_remote_docker
       - run: echo $DOCKER_PASSWORD | docker login -u $DOCKER_USER --password-stdin
