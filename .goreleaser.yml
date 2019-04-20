@@ -15,35 +15,27 @@ builds:
   - windows
   goarch:
   - amd64
-  - "386"
   goarm:
   - "6"
   main: cmd/mc-router/main.go
   binary: mc-router
   env:
     - CGO_ENABLED=0
-archive:
-  format: tar.gz
-  name_template: '{{ .Binary }}_{{.Version}}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{
-    .Arm }}{{ end }}'
-  files:
-  - licence*
-  - LICENCE*
-  - license*
-  - LICENSE*
-  - readme*
-  - README*
-  - changelog*
-  - CHANGELOG*
+archives:
+  - id: tar_gz
+    format: tar.gz
+    name_template: '{{ .Binary }}_{{.Version}}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}'
+    files:
+    - LICENSE*
+    - README*
 snapshot:
   name_template: SNAPSHOT-{{ .Commit }}
 dockers:
-  - goos: linux
+  - image_templates:
+      - "itzg/mc-router:latest"
+      - "itzg/mc-router:{{.Tag}}"
+    goos: linux
     goarch: amd64
-    image: itzg/mc-router
-    tag_templates:
-    - "{{.Tag}}"
-    - latest
 changelog:
   filters:
     exclude:
