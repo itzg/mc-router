@@ -37,13 +37,6 @@ spec:
           value: "TRUE"
         ports:
         - containerPort: 25565
-        volumeMounts:
-        - name: data
-          mountPath: /data
-      volumes:
-      - name: data
-        persistentVolumeClaim:
-          claimName: mc-stable
 ---
 apiVersion: v1
 kind: Service
@@ -85,10 +78,3 @@ spec:
           value: "SNAPSHOT"
         ports:
         - containerPort: 25565
-        volumeMounts:
-        - name: data
-          mountPath: /data
-      volumes:
-      - name: data
-        persistentVolumeClaim:
-          claimName: mc-snapshot
