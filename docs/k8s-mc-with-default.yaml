@@ -1,0 +1,94 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-stable
+  annotations:
+    "mc-router.itzg.me/defaultServer": "mc.your.domain"
+spec:
+  ports:
+  - port: 25565
+  selector:
+    run: mc-stable
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    run: mc-stable
+  name: mc-stable
+spec:
+  selector:
+    matchLabels:
+      run: mc-stable
+  template:
+    metadata:
+      labels:
+        run: mc-stable
+    spec:
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - image: itzg/minecraft-server
+        name: mc-stable
+        env:
+        - name: EULA
+          value: "TRUE"
+        ports:
+        - containerPort: 25565
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: mc-stable
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-snapshot
+  annotations:
+    "mc-router.itzg.me/externalServerName": "snapshot.your.domain"
+spec:
+  ports:
+  - port: 25565
+  selector:
+    run: mc-snapshot
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    run: mc-snapshot
+  name: mc-snapshot
+spec:
+  selector:
+    matchLabels:
+      run: mc-snapshot
+  template:
+    metadata:
+      labels:
+        run: mc-snapshot
+    spec:
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - image: itzg/minecraft-server
+        name: mc-snapshot
+        env:
+        - name: EULA
+          value: "TRUE"
+        - name: VERSION
+          value: "SNAPSHOT"
+        ports:
+        - containerPort: 25565
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: mc-snapshot

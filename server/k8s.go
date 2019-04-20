@@ -12,6 +12,11 @@ import (
 	"net"
 )
 
+const (
+	AnnotationExternalServerName = "mc-router.itzg.me/externalServerName"
+	AnnotationDefaultServer      = "mc-router.itzg.me/defaultServer"
+)
+
 type IK8sWatcher interface {
 	StartWithConfig(kubeConfigFile string) error
 	StartInCluster() error
@@ -65,7 +70,11 @@ func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config) error {
 				if routableService != nil {
 					logrus.WithField("routableService", routableService).Debug("ADD")
 
-					Routes.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint)
+					if routableService.externalServiceName != "" {
+						Routes.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint)
+					} else {
+						Routes.SetDefaultRoute(routableService.containerEndpoint)
+					}
 				}
 			},
 			DeleteFunc: func(obj interface{}) {
@@ -73,7 +82,11 @@ func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config) error {
 				if routableService != nil {
 					logrus.WithField("routableService", routableService).Debug("DELETE")
 
-					Routes.DeleteMapping(routableService.externalServiceName)
+					if routableService.externalServiceName != "" {
+						Routes.DeleteMapping(routableService.externalServiceName)
+					} else {
+						Routes.SetDefaultRoute("")
+					}
 				}
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
@@ -85,8 +98,12 @@ func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config) error {
 						"new": newRoutableService,
 					}).Debug("UPDATE")
 
-					Routes.DeleteMapping(oldRoutableService.externalServiceName)
-					Routes.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint)
+					if oldRoutableService.externalServiceName != "" && newRoutableService.externalServiceName != "" {
+						Routes.DeleteMapping(oldRoutableService.externalServiceName)
+						Routes.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint)
+					} else {
+						Routes.SetDefaultRoute(newRoutableService.containerEndpoint)
+					}
 				}
 			},
 		},
@@ -116,22 +133,28 @@ func extractRoutableService(obj interface{}) *routableService {
 		return nil
 	}
 
-	if externalServiceName, exists := service.Annotations["mc-router.itzg.me/externalServerName"]; exists {
-		clusterIp := service.Spec.ClusterIP
-		port := "25565"
-		for _, p := range service.Spec.Ports {
-			if p.Port == 25565 {
-				if p.TargetPort.String() != "" {
-					port = p.TargetPort.String()
-				}
-			}
-		}
-		rs := &routableService{
-			externalServiceName: externalServiceName,
-			containerEndpoint:   net.JoinHostPort(clusterIp, port),
-		}
-		return rs
+	if externalServiceName, exists := service.Annotations[AnnotationExternalServerName]; exists {
+		return buildDetails(service, externalServiceName)
+	} else if _, exists := service.Annotations[AnnotationDefaultServer]; exists {
+		return buildDetails(service, "")
 	}
 
 	return nil
+}
+
+func buildDetails(service *v1.Service, externalServiceName string) *routableService {
+	clusterIp := service.Spec.ClusterIP
+	port := "25565"
+	for _, p := range service.Spec.Ports {
+		if p.Port == 25565 {
+			if p.TargetPort.String() != "" {
+				port = p.TargetPort.String()
+			}
+		}
+	}
+	rs := &routableService{
+		externalServiceName: externalServiceName,
+		containerEndpoint:   net.JoinHostPort(clusterIp, port),
+	}
+	return rs
 }

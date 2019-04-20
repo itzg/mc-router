@@ -1,11 +1,11 @@
 package server
 
 import (
-	"sync"
-	"net/http"
 	"encoding/json"
-	"github.com/sirupsen/logrus"
 	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
+	"net/http"
+	"sync"
 )
 
 func init() {
@@ -15,6 +15,9 @@ func init() {
 	apiRoutes.Path("/routes").Methods("POST").
 		Headers("Content-Type", "application/json").
 		HandlerFunc(routesCreateHandler)
+	apiRoutes.Path("/defaultRoute").Methods("POST").
+		Headers("Content-Type", "application/json").
+		HandlerFunc(routesSetDefault)
 	apiRoutes.Path("/routes/{serverAddress}").Methods("DELETE").HandlerFunc(routesDeleteHandler)
 }
 
@@ -43,7 +46,7 @@ func routesDeleteHandler(writer http.ResponseWriter, request *http.Request) {
 func routesCreateHandler(writer http.ResponseWriter, request *http.Request) {
 	var definition = struct {
 		ServerAddress string
-		Backend string
+		Backend       string
 	}{}
 
 	defer request.Body.Close()
@@ -60,6 +63,25 @@ func routesCreateHandler(writer http.ResponseWriter, request *http.Request) {
 	writer.WriteHeader(http.StatusCreated)
 }
 
+func routesSetDefault(writer http.ResponseWriter, request *http.Request) {
+	var body = struct {
+		Backend string
+	}{}
+
+	defer request.Body.Close()
+
+	decoder := json.NewDecoder(request.Body)
+	err := decoder.Decode(&body)
+	if err != nil {
+		logrus.WithError(err).Error("Unable to parse request")
+		writer.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	Routes.SetDefaultRoute(body.Backend)
+	writer.WriteHeader(http.StatusOK)
+}
+
 type IRoutes interface {
 	RegisterAll(mappings map[string]string)
 	// FindBackendForServerAddress returns the host:port for the external server address, if registered.
@@ -68,6 +90,7 @@ type IRoutes interface {
 	GetMappings() map[string]string
 	DeleteMapping(serverAddress string) bool
 	CreateMapping(serverAddress string, backend string)
+	SetDefaultRoute(backend string)
 }
 
 var Routes IRoutes = &routesImpl{}
@@ -81,7 +104,16 @@ func (r *routesImpl) RegisterAll(mappings map[string]string) {
 
 type routesImpl struct {
 	sync.RWMutex
-	mappings   map[string]string
+	mappings     map[string]string
+	defaultRoute string
+}
+
+func (r *routesImpl) SetDefaultRoute(backend string) {
+	r.defaultRoute = backend
+
+	logrus.WithFields(logrus.Fields{
+		"backend": backend,
+	}).Info("Using default route")
 }
 
 func (r *routesImpl) FindBackendForServerAddress(serverAddress string) string {
@@ -89,9 +121,14 @@ func (r *routesImpl) FindBackendForServerAddress(serverAddress string) string {
 	defer r.RUnlock()
 
 	if r.mappings == nil {
-		return ""
+		return r.defaultRoute
 	} else {
-		return r.mappings[serverAddress]
+
+		if route, exists := r.mappings[serverAddress]; exists {
+			return route
+		} else {
+			return r.defaultRoute
+		}
 	}
 }
 
@@ -125,7 +162,7 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string) {
 
 	logrus.WithFields(logrus.Fields{
 		"serverAddress": serverAddress,
-		"backend": backend,
+		"backend":       backend,
 	}).Info("Creating route")
 	r.mappings[serverAddress] = backend
 }

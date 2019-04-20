@@ -25,16 +25,24 @@ Flags:
   "backend": "HOST:PORT"
 }
 ```
-
+* `POST /defaultRoute`
+  Registers a default route to the given backend. JSON body is structured as:
+```json
+{
+  "backend": "HOST:PORT"
+}
+```
 * `DELETE /routes/{serverAddress}`
   Deletes an existing route for the given `serverAddress`
   
 ## Using kubernetes service auto-discovery
 
 When running `mc-router` as a kubernetes pod and you pass the `--in-kube-cluster` command-line argument, then
-it will automatically watch for any services annotated with `mc-router.itzg.me/externalServerName`. The value
-of the annotation will be registered as the external hostname Minecraft clients would used to connect to the
-routed service. The service's clusterIP and target port are used as the routed backend.
+it will automatically watch for any services annotated with 
+- `mc-router.itzg.me/externalServerName` : The value of the annotation will be registered as the external hostname Minecraft clients would used to connect to the
+   routed service. The service's clusterIP and target port are used as the routed backend.
+- `mc-router.itzg.me/defaultServer` : The service's clusterIP and target port are used as the default if
+  no other `externalServiceName` annotations applies.
 
 For example, start `mc-router`'s container spec with
 
