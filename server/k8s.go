@@ -10,6 +10,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"net"
+	"strconv"
 )
 
 const (
@@ -146,10 +147,8 @@ func buildDetails(service *v1.Service, externalServiceName string) *routableServ
 	clusterIp := service.Spec.ClusterIP
 	port := "25565"
 	for _, p := range service.Spec.Ports {
-		if p.Port == 25565 {
-			if p.TargetPort.String() != "" {
-				port = p.TargetPort.String()
-			}
+		if p.Name == "mc-router" {
+			port = strconv.Itoa(int(p.Port))
 		}
 	}
 	rs := &routableService{
