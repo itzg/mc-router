@@ -5,6 +5,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 	"net/http"
+	"strings"
 	"sync"
 )
 
@@ -95,6 +96,14 @@ type IRoutes interface {
 
 var Routes IRoutes = &routesImpl{}
 
+func NewRoutes() IRoutes {
+	r := &routesImpl{
+		mappings: make(map[string]string),
+	}
+
+	return r
+}
+
 func (r *routesImpl) RegisterAll(mappings map[string]string) {
 	r.Lock()
 	defer r.Unlock()
@@ -120,11 +129,13 @@ func (r *routesImpl) FindBackendForServerAddress(serverAddress string) string {
 	r.RLock()
 	defer r.RUnlock()
 
+	addressParts := strings.Split(serverAddress, `\x00`)
+
 	if r.mappings == nil {
 		return r.defaultRoute
 	} else {
 
-		if route, exists := r.mappings[serverAddress]; exists {
+		if route, exists := r.mappings[addressParts[0]]; exists {
 			return route
 		} else {
 			return r.defaultRoute
