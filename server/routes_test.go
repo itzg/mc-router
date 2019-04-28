@@ -34,7 +34,7 @@ func Test_routesImpl_FindBackendForServerAddress(t *testing.T) {
 				serverAddress: "forge.my.domain", backend: "backend:25566",
 			},
 			args: args{
-				serverAddress: `forge.my.domain\x00FML2\x00`,
+				serverAddress: "forge.my.domain\x00FML2\x00",
 			},
 			want: "backend:25566",
 		},

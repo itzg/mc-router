@@ -129,7 +129,7 @@ func (r *routesImpl) FindBackendForServerAddress(serverAddress string) string {
 	r.RLock()
 	defer r.RUnlock()
 
-	addressParts := strings.Split(serverAddress, `\x00`)
+	addressParts := strings.Split(serverAddress, "\x00")
 
 	if r.mappings == nil {
 		return r.defaultRoute
