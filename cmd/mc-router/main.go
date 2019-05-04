@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 )
@@ -20,6 +21,7 @@ var (
 	versionFlag    = flag.Bool("version", false, "Output version and exit")
 	kubeConfigFile = flag.String("kube-config", "", "The path to a kubernetes configuration file")
 	inKubeCluster  = flag.Bool("in-kube-cluster", false, "Use in-cluster kubernetes config")
+	cpuProfile     = flag.String("cpu-profile", "", "Enables CPU profiling and writes to given path")
 )
 
 var (
@@ -38,6 +40,20 @@ func main() {
 	if *versionFlag {
 		showVersion()
 		os.Exit(0)
+	}
+
+	if *cpuProfile != "" {
+		cpuProfileFile, err := os.Create(*cpuProfile)
+		if err != nil {
+			logrus.WithError(err).Fatal("trying to create cpu profile file")
+		}
+
+		logrus.Info("Starting cpu profiling")
+		err = pprof.StartCPUProfile(cpuProfileFile)
+		if err != nil {
+			logrus.WithError(err).Fatal("trying to start cpu profile")
+		}
+		defer pprof.StopCPUProfile()
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
