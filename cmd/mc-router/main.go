@@ -48,7 +48,7 @@ func main() {
 			logrus.WithError(err).Fatal("trying to create cpu profile file")
 		}
 
-		logrus.WithField("file", cpuProfileFile).Info("Starting cpu profiling")
+		logrus.WithField("file", *cpuProfileFile).Info("Starting cpu profiling")
 		err = pprof.StartCPUProfile(cpuProfileFile)
 		if err != nil {
 			logrus.WithError(err).Fatal("trying to start cpu profile")
