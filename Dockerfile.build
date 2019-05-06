@@ -1,0 +1,18 @@
+FROM golang:1.12 AS builder
+
+ENV CGO_ENABLED=0
+
+WORKDIR /build
+
+COPY go.mod /build/go.mod
+RUN go mod download
+
+COPY cmd /build/cmd
+COPY pkg /build/pkg
+RUN go build -o mc-router cmd/mc-router/main.go
+
+FROM scratch
+
+COPY --from=builder /build/mc-router /bin/mc-router
+
+ENTRYPOINT ["/bin/mc-router"]

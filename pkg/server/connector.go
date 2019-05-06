@@ -3,7 +3,7 @@ package server
 import (
 	"net"
 	"github.com/sirupsen/logrus"
-	"github.com/itzg/mc-router/mcproto"
+	"github.com/itzg/mc-router/pkg/mcproto"
 	"context"
 	"io"
 	"bytes"

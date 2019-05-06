@@ -4,7 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/itzg/mc-router/server"
+	"github.com/itzg/mc-router/pkg/server"
 	"github.com/sirupsen/logrus"
 	"net"
 	"os"
