@@ -124,11 +124,10 @@ func pumpConnections(ctx context.Context, frontendConn, backendConn net.Conn) {
 	for {
 		select {
 		case err := <-errors:
-			if err != io.EOF {
-				logrus.WithError(err).Error("Error observed on connection relay")
+			if err == io.EOF {
+				return
 			}
-
-			return
+			logrus.WithError(err).Error("Error observed on connection relay")
 
 		case <-ctx.Done():
 			return
