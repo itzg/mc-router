@@ -1,0 +1,93 @@
+---
+
+- name: Prepare
+  hosts: k8s
+  gather_facts: no
+  vars:
+    kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
+  tasks:
+    - name: delete the kubeconfig if present
+      file:
+        path: '{{ kubeconfig }}'
+        state: absent
+      delegate_to: localhost
+
+    - name: Fetch the kubeconfig
+      fetch:
+        dest: '{{ kubeconfig }}'
+        flat: yes
+        src: /root/.kube/config
+
+    - name: Change the kubeconfig port to the proper value
+      replace:
+        regexp: 8443
+        replace: "{{ lookup('env', 'KIND_PORT') }}"
+        path: '{{ kubeconfig }}'
+      delegate_to: localhost
+
+    - name: Wait for the Kubernetes API to become available (this could take a minute)
+      uri:
+        url: "https://localhost:8443/apis"
+        status_code: 200
+        validate_certs: no
+      register: result
+      until: (result.status|default(-1)) == 200
+      retries: 60
+      delay: 5
+
+- name: Prepare operator resources
+  hosts: localhost
+  connection: local
+  vars:
+    ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    deploy_dir: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}/deploy"
+  tasks:
+  - name: Ensure specified namespace is present
+    k8s:
+      api_version: v1
+      kind: Namespace
+      name: '{{ namespace }}'
+
+  - name: Create RBAC resources and Service
+    k8s:
+      namespace: '{{ namespace }}'
+      definition:
+      - apiVersion: v1
+        kind: ServiceAccount
+        metadata:
+          name: mc-router
+      - apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRole
+        metadata:
+          name: services-watcher
+        rules:
+        - apiGroups: [""]
+          resources: ["services"]
+          verbs: ["watch","list"]
+      - apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: mc-router-services-watcher
+        subjects:
+        - kind: ServiceAccount
+          name: mc-router
+          namespace: '{{ namespace }}'
+        roleRef:
+          kind: ClusterRole
+          name: services-watcher
+          apiGroup: rbac.authorization.k8s.io
+      - apiVersion: v1
+        kind: Service
+        metadata:
+          name: mc-router
+        spec:
+          type: NodePort
+          ports:
+          - targetPort: web
+            name: web
+            port: 8080
+          - targetPort: proxy
+            name: proxy
+            port: 25565
+          selector:
+            run: mc-router

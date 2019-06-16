@@ -1,12 +1,13 @@
 package server
 
 import (
-	"net"
-	"github.com/sirupsen/logrus"
-	"github.com/itzg/mc-router/mcproto"
+	"bytes"
 	"context"
 	"io"
-	"bytes"
+	"net"
+
+	"github.com/itzg/mc-router/pkg/mcproto"
+	"github.com/sirupsen/logrus"
 )
 
 type IConnector interface {
@@ -123,11 +124,10 @@ func pumpConnections(ctx context.Context, frontendConn, backendConn net.Conn) {
 	for {
 		select {
 		case err := <-errors:
-			if err != io.EOF {
-				logrus.WithError(err).Error("Error observed on connection relay")
+			if err == io.EOF {
+				return
 			}
-
-			return
+			logrus.WithError(err).Error("Error observed on connection relay")
 
 		case <-ctx.Done():
 			return
@@ -136,9 +136,30 @@ func pumpConnections(ctx context.Context, frontendConn, backendConn net.Conn) {
 }
 
 func pumpFrames(incoming io.Reader, outgoing io.Writer, errors chan<- error, from, to string) {
-	amount, err := io.Copy(outgoing, incoming)
-	if err != nil {
-		errors <- err
+	for {
+		inspectionBuffer := new(bytes.Buffer)
+
+		inspectionReader := io.TeeReader(incoming, inspectionBuffer)
+
+		packet, err := mcproto.ReadPacket(inspectionReader)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to read packet")
+			errors <- err
+			continue
+		}
+		amount, err := io.Copy(outgoing, inspectionBuffer)
+		if err != nil {
+			errors <- err
+			continue
+		}
+		logrus.WithFields(logrus.Fields{
+			"PacketID":     packet.PacketID,
+			"PacketLength": packet.Length,
+			"from":         from,
+			"to":           to,
+			"amount":       amount,
+		}).Info("Proxied packet")
 	}
-	logrus.WithField("amount", amount).Infof("Finished relay %s->%s", from, to)
+
+	logrus.Infof("Finished relay %s->%s", from, to)
 }

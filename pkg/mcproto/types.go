@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
 type Frame struct {
@@ -38,6 +40,12 @@ func ReadVarInt(reader io.Reader) (int, error) {
 	for numRead <= 5 {
 		n, err := reader.Read(b)
 		if err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"b":       b,
+				"numRead": numRead,
+				"result":  result,
+				"n":       n,
+			}).Infof("")
 			return 0, err
 		}
 		if n == 0 {
@@ -131,6 +139,7 @@ func ReadPacket(reader io.Reader) (*Packet, error) {
 
 	packet.PacketID, err = ReadVarInt(remainder)
 	if err != nil {
+		logrus.WithField("remainder", remainder.String()).Info("Failed to find PacketID")
 		return nil, err
 	}
 

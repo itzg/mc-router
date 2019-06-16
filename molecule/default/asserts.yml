@@ -1,0 +1,44 @@
+---
+
+- name: Verify
+  hosts: localhost
+  connection: local
+  vars:
+    ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    deploy_dir: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}/deploy"
+  tasks:
+  - block:
+    - name: Assert that an address has been set on the custom resource
+      assert:
+        that: custom_resource.0.status.address is defined
+      vars:
+        custom_resource: "{{ q('k8s',
+          api_version='games.fabianism.us/v1alpha1',
+          kind='Minecraft',
+          resource_name='example-minecraft',
+          namespace=namespace
+        )}}"
+
+    - name: Store address
+      set_fact:
+        address: "{{ q('k8s',
+          api_version='games.fabianism.us/v1alpha1',
+          kind='Minecraft',
+          resource_name='example-minecraft',
+          namespace=namespace
+        ).0.status.address}}"
+    rescue:
+    - name: Output CR
+      debug: var=custom_resource
+      vars:
+        custom_resource: "{{ q('k8s',
+          api_version='games.fabianism.us/v1alpha1',
+          kind='Minecraft',
+          resource_name='example-minecraft',
+          namespace=namespace
+        )}}"
+
+    - fail:
+        msg: "Failed in asserts.yml"
+
+- import_playbook: '{{ playbook_dir }}/../default/asserts.yml'

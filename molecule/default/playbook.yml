@@ -1,0 +1,81 @@
+---
+
+- name: Build Controller in Kubernetes docker container
+  hosts: k8s
+  vars:
+    image_name: games.fabianism.us/mc-router:testing
+  tasks:
+  # using command so we don't need to install any dependencies
+  - name: Get existing image hash
+    command: docker images -q {{image_name}}
+    register: prev_hash
+    changed_when: false
+
+  - name: Build Controller Image
+    command: docker build -f /src/mc-router/Dockerfile.build -t {{ image_name }} /src/mc-router
+    register: build_cmd
+    changed_when: not prev_hash.stdout or (prev_hash.stdout and prev_hash.stdout not in ''.join(build_cmd.stdout_lines[-2:]))
+
+- name: Converge
+  hosts: localhost
+  connection: local
+  vars:
+    ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    image_name: games.fabianism.us/mc-router:testing
+  tasks:
+  - block:
+    - name: Delete the Operator Deployment
+      k8s:
+        state: absent
+        namespace: '{{ namespace }}'
+        name: mc-router
+        api_version: apps/v1
+        kind: Deployment
+      register: delete_deployment
+      when: hostvars[groups.k8s.0].build_cmd.changed
+
+    - name: Wait 30s for Operator Deployment to terminate
+      k8s_facts:
+        api_version: 'apps/v1'
+        kind: 'Deployment'
+        namespace: '{{ namespace }}'
+        name: 'mc-router'
+      register: deployment
+      until: not deployment.resources
+      delay: 3
+      retries: 10
+      when: delete_deployment.changed
+
+    - name: Create the Operator Deployment
+      k8s:
+        namespace: '{{ namespace }}'
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            labels:
+              run: mc-router
+            name: mc-router
+          spec:
+            selector:
+              matchLabels:
+                run: mc-router
+            strategy:
+              type: Recreate
+            template:
+              metadata:
+                labels:
+                  run: mc-router
+              spec:
+                serviceAccountName: mc-router
+                containers:
+                - image: '{{ image_name }}'
+                  name: mc-router
+                  args: ["--api-binding", ":8080", "--in-kube-cluster"]
+                  ports:
+                  - name: proxy
+                    containerPort: 25565
+                  - name: web
+                    containerPort: 8080
+
+- import_playbook: verify.yml
