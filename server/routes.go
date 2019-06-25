@@ -131,13 +131,13 @@ func (r *routesImpl) FindBackendForServerAddress(serverAddress string) string {
 
 	addressParts := strings.Split(serverAddress, "\x00")
 
-	address := strings.toLower(addressParts[0])
+	address := strings.ToLower(addressParts[0])
 
 	if r.mappings == nil {
 		return r.defaultRoute
 	} else {
 
-		if route, exists := r.mappings[addressParts[0]]; exists {
+		if route, exists := r.mappings[address]; exists {
 			return route
 		} else {
 			return r.defaultRoute
@@ -173,7 +173,7 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string) {
 	r.Lock()
 	defer r.Unlock()
 
-	serverAddress = strings.toLower(serverAddress)
+	serverAddress = strings.ToLower(serverAddress)
 
 	logrus.WithFields(logrus.Fields{
 		"serverAddress": serverAddress,
