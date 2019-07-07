@@ -1,3 +1,9 @@
+[![GitHub issues](https://img.shields.io/github/issues/itzg/mc-router.svg)](https://github.com/itzg/mc-router/issues)
+[![Docker Pulls](https://img.shields.io/docker/pulls/itzg/mc-router.svg)](https://cloud.docker.com/u/itzg/repository/docker/itzg/mc-router)
+[![GitHub release](https://img.shields.io/github/release/itzg/mc-router.svg)](https://github.com/itzg/mc-router/releases)
+[![CircleCI](https://circleci.com/gh/itzg/mc-router.svg?style=svg)](https://circleci.com/gh/itzg/mc-router)
+[![Buy me a coffee](https://img.shields.io/badge/Donate-Buy%20me%20a%20coffee-orange.svg)](https://www.buymeacoffee.com/itzg)
+
 Routes Minecraft client connections to backend servers based upon the requested server address.
 
 ## Usage
