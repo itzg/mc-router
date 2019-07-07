@@ -1,12 +1,12 @@
 package server
 
 import (
-	"net"
-	"github.com/sirupsen/logrus"
-	"github.com/itzg/mc-router/mcproto"
-	"context"
-	"io"
 	"bytes"
+	"context"
+	"github.com/itzg/mc-router/mcproto"
+	"github.com/sirupsen/logrus"
+	"io"
+	"net"
 )
 
 type IConnector interface {
@@ -61,7 +61,7 @@ func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.C
 
 	inspectionReader := io.TeeReader(frontendConn, inspectionBuffer)
 
-	packet, err := mcproto.ReadPacket(inspectionReader)
+	packet, err := mcproto.ReadPacket(inspectionReader, clientAddr)
 	if err != nil {
 		logrus.WithError(err).WithField("clientAddr", clientAddr).Error("Failed to read packet")
 		return
