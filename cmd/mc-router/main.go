@@ -23,6 +23,7 @@ var (
 	kubeConfigFile = flag.String("kube-config", "", "The path to a kubernetes configuration file")
 	inKubeCluster  = flag.Bool("in-kube-cluster", false, "Use in-cluster kubernetes config")
 	cpuProfile     = flag.String("cpu-profile", "", "Enables CPU profiling and writes to given path")
+	debug          = flag.Bool("debug", false, "Enable debug logs")
 )
 
 var (
@@ -43,6 +44,11 @@ func main() {
 		os.Exit(0)
 	}
 
+	if *debug {
+		logrus.SetLevel(logrus.DebugLevel)
+		logrus.Debug("Debug logs enabled")
+	}
+
 	if *cpuProfile != "" {
 		cpuProfileFile, err := os.Create(*cpuProfile)
 		if err != nil {
@@ -50,7 +56,7 @@ func main() {
 		}
 		defer cpuProfileFile.Close()
 
-		logrus.WithField("file", *cpuProfileFile).Info("Starting cpu profiling")
+		logrus.WithField("file", *cpuProfile).Info("Starting cpu profiling")
 		err = pprof.StartCPUProfile(cpuProfileFile)
 		if err != nil {
 			logrus.WithError(err).Fatal("trying to start cpu profile")
