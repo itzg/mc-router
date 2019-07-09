@@ -11,14 +11,13 @@ import (
 )
 
 const (
-	connectionsLimitPerSec = 1
-	handshakeTimeout       = 30 * time.Second
+	handshakeTimeout = 2 * time.Second
 )
 
 var noDeadline time.Time
 
 type IConnector interface {
-	StartAcceptingConnections(ctx context.Context, listenAddress string) error
+	StartAcceptingConnections(ctx context.Context, listenAddress string, connRateLimit int) error
 }
 
 var Connector IConnector = &connectorImpl{}
@@ -26,7 +25,7 @@ var Connector IConnector = &connectorImpl{}
 type connectorImpl struct {
 }
 
-func (c *connectorImpl) StartAcceptingConnections(ctx context.Context, listenAddress string) error {
+func (c *connectorImpl) StartAcceptingConnections(ctx context.Context, listenAddress string, connRateLimit int) error {
 
 	ln, err := net.Listen("tcp", listenAddress)
 	if err != nil {
@@ -35,16 +34,16 @@ func (c *connectorImpl) StartAcceptingConnections(ctx context.Context, listenAdd
 	}
 	logrus.WithField("listenAddress", listenAddress).Info("Listening for Minecraft client connections")
 
-	go c.acceptConnections(ctx, ln)
+	go c.acceptConnections(ctx, ln, connRateLimit)
 
 	return nil
 }
 
-func (c *connectorImpl) acceptConnections(ctx context.Context, ln net.Listener) {
+func (c *connectorImpl) acceptConnections(ctx context.Context, ln net.Listener, connRateLimit int) {
 	//noinspection GoUnhandledErrorResult
 	defer ln.Close()
 
-	limiter := time.Tick(time.Second / connectionsLimitPerSec)
+	limiter := time.Tick(time.Second / time.Duration(connRateLimit))
 
 	for {
 		select {
@@ -67,7 +66,9 @@ func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.C
 	defer frontendConn.Close()
 
 	clientAddr := frontendConn.RemoteAddr()
-	logrus.WithFields(logrus.Fields{"clientAddr": clientAddr}).Info("Got connection")
+	logrus.
+		WithField("client", clientAddr).
+		Info("Got connection")
 
 	inspectionBuffer := new(bytes.Buffer)
 
@@ -76,7 +77,7 @@ func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.C
 	if err := frontendConn.SetReadDeadline(time.Now().Add(handshakeTimeout)); err != nil {
 		logrus.
 			WithError(err).
-			WithField("client", frontendConn).
+			WithField("client", clientAddr).
 			Error("Failed to set read deadline")
 		return
 	}
@@ -128,14 +129,14 @@ func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.C
 		if err = frontendConn.SetReadDeadline(noDeadline); err != nil {
 			logrus.
 				WithError(err).
-				WithField("client", frontendConn).
+				WithField("client", clientAddr).
 				Error("Failed to clear read deadline")
 			return
 		}
 		pumpConnections(ctx, frontendConn, backendConn)
 	} else {
 		logrus.
-			WithField("client", frontendConn).
+			WithField("client", clientAddr).
 			WithField("packetID", packet.PacketID).
 			Error("Unexpected packetID, expected handshake")
 		return
@@ -145,17 +146,20 @@ func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.C
 func pumpConnections(ctx context.Context, frontendConn, backendConn net.Conn) {
 	//noinspection GoUnhandledErrorResult
 	defer backendConn.Close()
+	clientAddr := frontendConn.RemoteAddr()
 
 	errors := make(chan error, 2)
 
-	go pumpFrames(backendConn, frontendConn, errors, "backend", "frontend")
-	go pumpFrames(frontendConn, backendConn, errors, "frontend", "backend")
+	go pumpFrames(backendConn, frontendConn, errors, "backend", "frontend", clientAddr)
+	go pumpFrames(frontendConn, backendConn, errors, "frontend", "backend", clientAddr)
 
 	for {
 		select {
 		case err := <-errors:
 			if err != io.EOF {
-				logrus.WithError(err).Error("Error observed on connection relay")
+				logrus.WithError(err).
+					WithField("client", clientAddr).
+					Error("Error observed on connection relay")
 			}
 
 			return
@@ -166,10 +170,13 @@ func pumpConnections(ctx context.Context, frontendConn, backendConn net.Conn) {
 	}
 }
 
-func pumpFrames(incoming io.Reader, outgoing io.Writer, errors chan<- error, from, to string) {
+func pumpFrames(incoming io.Reader, outgoing io.Writer, errors chan<- error, from, to string, clientAddr net.Addr) {
 	amount, err := io.Copy(outgoing, incoming)
 	if err != nil {
 		errors <- err
 	}
-	logrus.WithField("amount", amount).Infof("Finished relay %s->%s", from, to)
+	logrus.
+		WithField("client", clientAddr).
+		WithField("amount", amount).
+		Infof("Finished relay %s->%s", from, to)
 }

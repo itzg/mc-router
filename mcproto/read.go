@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"time"
 )
 
 func ReadPacket(reader io.Reader, addr net.Addr) (*Packet, error) {
@@ -70,6 +71,15 @@ func ReadFrame(reader io.Reader, addr net.Addr) (*Frame, error) {
 			WithField("total", total).
 			WithField("length", frame.Length).
 			Debug("Reading frame content")
+
+		if n == 0 {
+			logrus.
+				WithField("client", addr).
+				WithField("frame", frame).
+				Debug("No progress on frame reading")
+
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 
 	logrus.
