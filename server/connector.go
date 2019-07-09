@@ -7,7 +7,15 @@ import (
 	"github.com/sirupsen/logrus"
 	"io"
 	"net"
+	"time"
 )
+
+const (
+	connectionsLimitPerSec = 1
+	handshakeTimeout       = 30 * time.Second
+)
+
+var noDeadline time.Time
 
 type IConnector interface {
 	StartAcceptingConnections(ctx context.Context, listenAddress string) error
@@ -33,14 +41,17 @@ func (c *connectorImpl) StartAcceptingConnections(ctx context.Context, listenAdd
 }
 
 func (c *connectorImpl) acceptConnections(ctx context.Context, ln net.Listener) {
+	//noinspection GoUnhandledErrorResult
 	defer ln.Close()
+
+	limiter := time.Tick(time.Second / connectionsLimitPerSec)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 
-		default:
+		case <-limiter:
 			conn, err := ln.Accept()
 			if err != nil {
 				logrus.WithError(err).Error("Failed to accept connection")
@@ -52,6 +63,7 @@ func (c *connectorImpl) acceptConnections(ctx context.Context, ln net.Listener) 
 }
 
 func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.Conn) {
+	//noinspection GoUnhandledErrorResult
 	defer frontendConn.Close()
 
 	clientAddr := frontendConn.RemoteAddr()
@@ -61,6 +73,13 @@ func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.C
 
 	inspectionReader := io.TeeReader(frontendConn, inspectionBuffer)
 
+	if err := frontendConn.SetReadDeadline(time.Now().Add(handshakeTimeout)); err != nil {
+		logrus.
+			WithError(err).
+			WithField("client", frontendConn).
+			Error("Failed to set read deadline")
+		return
+	}
 	packet, err := mcproto.ReadPacket(inspectionReader, clientAddr)
 	if err != nil {
 		logrus.WithError(err).WithField("clientAddr", clientAddr).Error("Failed to read packet")
@@ -106,13 +125,25 @@ func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.C
 		}
 		logrus.WithField("amount", amount).Debug("Relayed handshake to backend")
 
+		if err = frontendConn.SetReadDeadline(noDeadline); err != nil {
+			logrus.
+				WithError(err).
+				WithField("client", frontendConn).
+				Error("Failed to clear read deadline")
+			return
+		}
 		pumpConnections(ctx, frontendConn, backendConn)
 	} else {
-		logrus.WithField("packetID", packet.PacketID).Error("Unexpected packetID, expected handshake")
+		logrus.
+			WithField("client", frontendConn).
+			WithField("packetID", packet.PacketID).
+			Error("Unexpected packetID, expected handshake")
+		return
 	}
 }
 
 func pumpConnections(ctx context.Context, frontendConn, backendConn net.Conn) {
+	//noinspection GoUnhandledErrorResult
 	defer backendConn.Close()
 
 	errors := make(chan error, 2)
