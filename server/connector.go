@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"github.com/itzg/mc-router/mcproto"
+	"github.com/juju/ratelimit"
 	"github.com/sirupsen/logrus"
 	"io"
 	"net"
@@ -43,14 +44,14 @@ func (c *connectorImpl) acceptConnections(ctx context.Context, ln net.Listener, 
 	//noinspection GoUnhandledErrorResult
 	defer ln.Close()
 
-	limiter := time.Tick(time.Second / time.Duration(connRateLimit))
+	bucket := ratelimit.NewBucketWithRate(float64(connRateLimit), int64(connRateLimit*2))
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 
-		case <-limiter:
+		case <-time.After(bucket.Take(1)):
 			conn, err := ln.Accept()
 			if err != nil {
 				logrus.WithError(err).Error("Failed to accept connection")
