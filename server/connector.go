@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	handshakeTimeout = 2 * time.Second
+	handshakeTimeout = 5 * time.Second
 )
 
 var noDeadline time.Time
@@ -21,9 +21,12 @@ type IConnector interface {
 	StartAcceptingConnections(ctx context.Context, listenAddress string, connRateLimit int) error
 }
 
-var Connector IConnector = &connectorImpl{}
+var Connector IConnector = &connectorImpl{
+	state: mcproto.StateHandshaking,
+}
 
 type connectorImpl struct {
+	state mcproto.State
 }
 
 func (c *connectorImpl) StartAcceptingConnections(ctx context.Context, listenAddress string, connRateLimit int) error {
@@ -70,71 +73,65 @@ func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.C
 	logrus.
 		WithField("client", clientAddr).
 		Info("Got connection")
+	defer logrus.WithField("client", clientAddr).Debug("Closing frontend connection")
 
 	inspectionBuffer := new(bytes.Buffer)
 
 	inspectionReader := io.TeeReader(frontendConn, inspectionBuffer)
 
-	if err := frontendConn.SetReadDeadline(time.Now().Add(handshakeTimeout)); err != nil {
-		logrus.
-			WithError(err).
-			WithField("client", clientAddr).
-			Error("Failed to set read deadline")
-		return
-	}
-	packet, err := mcproto.ReadPacket(inspectionReader, clientAddr)
+	/*	if err := frontendConn.SetReadDeadline(time.Now().Add(handshakeTimeout)); err != nil {
+			logrus.
+				WithError(err).
+				WithField("client", clientAddr).
+				Error("Failed to set read deadline")
+			return
+		}
+	*/packet, err := mcproto.ReadPacket(inspectionReader, clientAddr, c.state)
 	if err != nil {
 		logrus.WithError(err).WithField("clientAddr", clientAddr).Error("Failed to read packet")
 		return
 	}
 
-	logrus.WithFields(logrus.Fields{"length": packet.Length, "packetID": packet.PacketID}).Info("Got packet")
+	logrus.
+		WithField("client", clientAddr).
+		WithField("length", packet.Length).
+		WithField("packetID", packet.PacketID).
+		Debug("Got packet")
 
 	if packet.PacketID == mcproto.PacketIdHandshake {
 		handshake, err := mcproto.ReadHandshake(packet.Data)
 		if err != nil {
-			logrus.WithError(err).WithField("clientAddr", clientAddr).Error("Failed to read handshake")
+			logrus.WithError(err).WithField("clientAddr", clientAddr).
+				Error("Failed to read handshake")
 			return
 		}
 
-		logrus.WithFields(logrus.Fields{
-			"protocolVersion": handshake.ProtocolVersion,
-			"server":          handshake.ServerAddress,
-			"serverPort":      handshake.ServerPort,
-			"nextState":       handshake.NextState,
-		}).Info("Got handshake")
+		logrus.
+			WithField("client", clientAddr).
+			WithField("handshake", handshake).
+			Debug("Got handshake")
 
-		backendHostPort := Routes.FindBackendForServerAddress(handshake.ServerAddress)
-		if backendHostPort == "" {
-			logrus.WithField("serverAddress", handshake.ServerAddress).Warn("Unable to find registered backend")
-			return
-		}
+		serverAddress := handshake.ServerAddress
 
-		logrus.WithField("backendHostPort", backendHostPort).Info("Connecting to backend")
-		backendConn, err := net.Dial("tcp", backendHostPort)
-		if err != nil {
-			logrus.WithError(err).WithFields(logrus.Fields{
-				"serverAddress": handshake.ServerAddress,
-				"backend":       backendHostPort,
-			}).Warn("Unable to connect to backend")
-			return
-		}
-
-		amount, err := io.Copy(backendConn, inspectionBuffer)
-		if err != nil {
-			logrus.WithError(err).Error("Failed to write handshake to backend connection")
-			return
-		}
-		logrus.WithField("amount", amount).Debug("Relayed handshake to backend")
-
-		if err = frontendConn.SetReadDeadline(noDeadline); err != nil {
+		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, serverAddress)
+	} else if packet.PacketID == mcproto.PacketIdLegacyServerListPing {
+		handshake, ok := packet.Data.(*mcproto.LegacyServerListPing)
+		if !ok {
 			logrus.
-				WithError(err).
 				WithField("client", clientAddr).
-				Error("Failed to clear read deadline")
+				WithField("packet", packet).
+				Warn("Unexpected data type for PacketIdLegacyServerListPing")
 			return
 		}
-		pumpConnections(ctx, frontendConn, backendConn)
+
+		logrus.
+			WithField("client", clientAddr).
+			WithField("handshake", handshake).
+			Debug("Got legacy server list ping")
+
+		serverAddress := handshake.ServerAddress
+
+		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, serverAddress)
 	} else {
 		logrus.
 			WithField("client", clientAddr).
@@ -144,40 +141,82 @@ func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.C
 	}
 }
 
+func (c *connectorImpl) findAndConnectBackend(ctx context.Context, frontendConn net.Conn,
+	clientAddr net.Addr, preReadContent io.Reader, serverAddress string) {
+
+	backendHostPort := Routes.FindBackendForServerAddress(serverAddress)
+	if backendHostPort == "" {
+		logrus.WithField("serverAddress", serverAddress).Warn("Unable to find registered backend")
+		return
+	}
+	logrus.
+		WithField("client", clientAddr).
+		WithField("server", serverAddress).
+		WithField("backendHostPort", backendHostPort).
+		Info("Connecting to backend")
+	backendConn, err := net.Dial("tcp", backendHostPort)
+	if err != nil {
+		logrus.
+			WithError(err).
+			WithField("client", clientAddr).
+			WithField("serverAddress", serverAddress).
+			WithField("backend", backendHostPort).
+			Warn("Unable to connect to backend")
+		return
+	}
+	amount, err := io.Copy(backendConn, preReadContent)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to write handshake to backend connection")
+		return
+	}
+	logrus.WithField("amount", amount).Debug("Relayed handshake to backend")
+	if err = frontendConn.SetReadDeadline(noDeadline); err != nil {
+		logrus.
+			WithError(err).
+			WithField("client", clientAddr).
+			Error("Failed to clear read deadline")
+		return
+	}
+	pumpConnections(ctx, frontendConn, backendConn)
+	return
+}
+
 func pumpConnections(ctx context.Context, frontendConn, backendConn net.Conn) {
 	//noinspection GoUnhandledErrorResult
 	defer backendConn.Close()
+
 	clientAddr := frontendConn.RemoteAddr()
+	defer logrus.WithField("client", clientAddr).Debug("Closing backend connection")
 
 	errors := make(chan error, 2)
 
 	go pumpFrames(backendConn, frontendConn, errors, "backend", "frontend", clientAddr)
 	go pumpFrames(frontendConn, backendConn, errors, "frontend", "backend", clientAddr)
 
-	for {
-		select {
-		case err := <-errors:
-			if err != io.EOF {
-				logrus.WithError(err).
-					WithField("client", clientAddr).
-					Error("Error observed on connection relay")
-			}
-
-			return
-
-		case <-ctx.Done():
-			return
+	select {
+	case err := <-errors:
+		if err != io.EOF {
+			logrus.WithError(err).
+				WithField("client", clientAddr).
+				Error("Error observed on connection relay")
 		}
+
+	case <-ctx.Done():
+		logrus.Debug("Observed context cancellation")
 	}
 }
 
 func pumpFrames(incoming io.Reader, outgoing io.Writer, errors chan<- error, from, to string, clientAddr net.Addr) {
 	amount, err := io.Copy(outgoing, incoming)
-	if err != nil {
-		errors <- err
-	}
 	logrus.
 		WithField("client", clientAddr).
 		WithField("amount", amount).
 		Infof("Finished relay %s->%s", from, to)
+
+	if err != nil {
+		errors <- err
+	} else {
+		// successful io.Copy return nil error, not EOF...to simulate that to trigger outer handling
+		errors <- io.EOF
+	}
 }
