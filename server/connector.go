@@ -21,12 +21,22 @@ type IConnector interface {
 	StartAcceptingConnections(ctx context.Context, listenAddress string, connRateLimit int) error
 }
 
-var Connector IConnector = &connectorImpl{
-	state: mcproto.StateHandshaking,
+type ConnectorMetrics struct {
+	BytesTransmitted  metrics.Counter
+	Connections       metrics.Counter
+	ActiveConnections metrics.Gauge
+}
+
+func NewConnector(metrics *ConnectorMetrics) Connector {
+
+	return &connectorImpl{
+		metrics: metrics,
+	}
 }
 
 type connectorImpl struct {
-	state mcproto.State
+	state   mcproto.State
+	metrics *ConnectorMetrics
 }
 
 func (c *connectorImpl) StartAcceptingConnections(ctx context.Context, listenAddress string, connRateLimit int) error {
@@ -79,14 +89,14 @@ func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.C
 
 	inspectionReader := io.TeeReader(frontendConn, inspectionBuffer)
 
-	/*	if err := frontendConn.SetReadDeadline(time.Now().Add(handshakeTimeout)); err != nil {
-			logrus.
-				WithError(err).
-				WithField("client", clientAddr).
-				Error("Failed to set read deadline")
-			return
-		}
-	*/packet, err := mcproto.ReadPacket(inspectionReader, clientAddr, c.state)
+	if err := frontendConn.SetReadDeadline(time.Now().Add(handshakeTimeout)); err != nil {
+		logrus.
+			WithError(err).
+			WithField("client", clientAddr).
+			Error("Failed to set read deadline")
+		return
+	}
+	packet, err := mcproto.ReadPacket(inspectionReader, clientAddr, c.state)
 	if err != nil {
 		logrus.WithError(err).WithField("clientAddr", clientAddr).Error("Failed to read packet")
 		return
