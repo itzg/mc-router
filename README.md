@@ -88,3 +88,25 @@ kubectl apply -f https://raw.githubusercontent.com/itzg/mc-router/master/docs/k8
 * This deployment assumes two persistent volume claims: `mc-stable` and `mc-snapshot`
 * I extended the allowed node port range by adding `--service-node-port-range=25000-32767` 
   to `/etc/kubernetes/manifests/kube-apiserver.yaml` 
+
+# Development
+
+## Building locally with Docker
+
+```bash
+docker run -it --rm \
+  -v gopkg:/go/pkg \
+  -v ${PWD}:/build -w /build \
+  golang:1.12 \
+  go build ./cmd/mc-router
+```
+
+## Performing snapshot release with Docker
+
+```bash
+docker run -it --rm \
+  -v ${PWD}:/build -w /build \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  goreleaser/goreleaser \
+  release --snapshot --rm-dist
+```
