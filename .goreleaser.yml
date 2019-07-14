@@ -17,7 +17,7 @@ builds:
   - amd64
   goarm:
   - "6"
-  main: cmd/mc-router/main.go
+  main: ./cmd/mc-router
   binary: mc-router
   env:
     - CGO_ENABLED=0
