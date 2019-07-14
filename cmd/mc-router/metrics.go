@@ -18,7 +18,7 @@ func NewMetricsBuilder() MetricsBuilder {
 	case "expvar":
 		return &expvarMetricsBuilder{}
 	default:
-		logrus.Fatalf("Unsupported metrics backend: %s", metricsBackend)
+		logrus.Fatalf("Unsupported metrics backend: %s", *metricsBackend)
 		return nil
 	}
 }
