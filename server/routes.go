@@ -87,7 +87,7 @@ type IRoutes interface {
 	RegisterAll(mappings map[string]string)
 	// FindBackendForServerAddress returns the host:port for the external server address, if registered.
 	// Otherwise, an empty string is returned
-	FindBackendForServerAddress(serverAddress string) string
+	FindBackendForServerAddress(serverAddress string) (string, string)
 	GetMappings() map[string]string
 	DeleteMapping(serverAddress string) bool
 	CreateMapping(serverAddress string, backend string)
@@ -125,7 +125,7 @@ func (r *routesImpl) SetDefaultRoute(backend string) {
 	}).Info("Using default route")
 }
 
-func (r *routesImpl) FindBackendForServerAddress(serverAddress string) string {
+func (r *routesImpl) FindBackendForServerAddress(serverAddress string) (string, string) {
 	r.RLock()
 	defer r.RUnlock()
 
@@ -134,13 +134,13 @@ func (r *routesImpl) FindBackendForServerAddress(serverAddress string) string {
 	address := strings.ToLower(addressParts[0])
 
 	if r.mappings == nil {
-		return r.defaultRoute
+		return r.defaultRoute, address
 	} else {
 
 		if route, exists := r.mappings[address]; exists {
-			return route
+			return route, address
 		} else {
-			return r.defaultRoute
+			return r.defaultRoute, address
 		}
 	}
 }

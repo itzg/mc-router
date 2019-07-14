@@ -25,6 +25,7 @@ var (
 	cpuProfile     = flag.String("cpu-profile", "", "Enables CPU profiling and writes to given path")
 	debug          = flag.Bool("debug", false, "Enable debug logs")
 	connRateLimit  = flag.Int("connection-rate-limit", 1, "Max number of connections to allow per second")
+	metricsBackend = flag.String("metrics-backend", "discard", "Backend to use for metrics exposure/publishing: discard,expvar")
 )
 
 var (
@@ -67,6 +68,8 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	metricsBuilder := NewMetricsBuilder()
+
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 
@@ -75,7 +78,8 @@ func main() {
 	if *connRateLimit < 1 {
 		*connRateLimit = 1
 	}
-	server.Connector.StartAcceptingConnections(ctx, net.JoinHostPort("", strconv.Itoa(*port)), *connRateLimit)
+	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics())
+	connector.StartAcceptingConnections(ctx, net.JoinHostPort("", strconv.Itoa(*port)), *connRateLimit)
 
 	if *apiBinding != "" {
 		server.StartApiServer(*apiBinding)

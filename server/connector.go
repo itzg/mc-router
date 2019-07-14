@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"github.com/go-kit/kit/metrics"
 	"github.com/itzg/mc-router/mcproto"
 	"github.com/juju/ratelimit"
 	"github.com/sirupsen/logrus"
@@ -17,11 +18,12 @@ const (
 
 var noDeadline time.Time
 
-type IConnector interface {
+type Connector interface {
 	StartAcceptingConnections(ctx context.Context, listenAddress string, connRateLimit int) error
 }
 
 type ConnectorMetrics struct {
+	Errors            metrics.Counter
 	BytesTransmitted  metrics.Counter
 	Connections       metrics.Counter
 	ActiveConnections metrics.Gauge
@@ -76,6 +78,7 @@ func (c *connectorImpl) acceptConnections(ctx context.Context, ln net.Listener, 
 }
 
 func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.Conn) {
+	c.metrics.Connections.With("direction", "frontend").Add(1)
 	//noinspection GoUnhandledErrorResult
 	defer frontendConn.Close()
 
@@ -94,11 +97,13 @@ func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.C
 			WithError(err).
 			WithField("client", clientAddr).
 			Error("Failed to set read deadline")
+		c.metrics.Errors.With("type", "read_deadline").Add(1)
 		return
 	}
 	packet, err := mcproto.ReadPacket(inspectionReader, clientAddr, c.state)
 	if err != nil {
 		logrus.WithError(err).WithField("clientAddr", clientAddr).Error("Failed to read packet")
+		c.metrics.Errors.With("type", "read").Add(1)
 		return
 	}
 
@@ -113,6 +118,7 @@ func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.C
 		if err != nil {
 			logrus.WithError(err).WithField("clientAddr", clientAddr).
 				Error("Failed to read handshake")
+			c.metrics.Errors.With("type", "read").Add(1)
 			return
 		}
 
@@ -131,6 +137,7 @@ func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.C
 				WithField("client", clientAddr).
 				WithField("packet", packet).
 				Warn("Unexpected data type for PacketIdLegacyServerListPing")
+			c.metrics.Errors.With("type", "unexpected_content").Add(1)
 			return
 		}
 
@@ -147,6 +154,7 @@ func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.C
 			WithField("client", clientAddr).
 			WithField("packetID", packet.PacketID).
 			Error("Unexpected packetID, expected handshake")
+		c.metrics.Errors.With("type", "unexpected_content").Add(1)
 		return
 	}
 }
@@ -154,9 +162,10 @@ func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.C
 func (c *connectorImpl) findAndConnectBackend(ctx context.Context, frontendConn net.Conn,
 	clientAddr net.Addr, preReadContent io.Reader, serverAddress string) {
 
-	backendHostPort := Routes.FindBackendForServerAddress(serverAddress)
+	backendHostPort, resolvedHost := Routes.FindBackendForServerAddress(serverAddress)
 	if backendHostPort == "" {
 		logrus.WithField("serverAddress", serverAddress).Warn("Unable to find registered backend")
+		c.metrics.Errors.With("type", "missing_backend").Add(1)
 		return
 	}
 	logrus.
@@ -172,11 +181,18 @@ func (c *connectorImpl) findAndConnectBackend(ctx context.Context, frontendConn 
 			WithField("serverAddress", serverAddress).
 			WithField("backend", backendHostPort).
 			Warn("Unable to connect to backend")
+		c.metrics.Errors.With("type", "backend_failed").Add(1)
 		return
 	}
+
+	c.metrics.Connections.With("direction", "backend", "host", resolvedHost).Add(1)
+	c.metrics.ActiveConnections.Add(1)
+	defer c.metrics.ActiveConnections.Add(-1)
+
 	amount, err := io.Copy(backendConn, preReadContent)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to write handshake to backend connection")
+		c.metrics.Errors.With("type", "backend_failed").Add(1)
 		return
 	}
 	logrus.WithField("amount", amount).Debug("Relayed handshake to backend")
@@ -185,13 +201,14 @@ func (c *connectorImpl) findAndConnectBackend(ctx context.Context, frontendConn 
 			WithError(err).
 			WithField("client", clientAddr).
 			Error("Failed to clear read deadline")
+		c.metrics.Errors.With("type", "read_deadline").Add(1)
 		return
 	}
-	pumpConnections(ctx, frontendConn, backendConn)
+	c.pumpConnections(ctx, frontendConn, backendConn)
 	return
 }
 
-func pumpConnections(ctx context.Context, frontendConn, backendConn net.Conn) {
+func (c *connectorImpl) pumpConnections(ctx context.Context, frontendConn, backendConn net.Conn) {
 	//noinspection GoUnhandledErrorResult
 	defer backendConn.Close()
 
@@ -200,8 +217,8 @@ func pumpConnections(ctx context.Context, frontendConn, backendConn net.Conn) {
 
 	errors := make(chan error, 2)
 
-	go pumpFrames(backendConn, frontendConn, errors, "backend", "frontend", clientAddr)
-	go pumpFrames(frontendConn, backendConn, errors, "frontend", "backend", clientAddr)
+	go c.pumpFrames(backendConn, frontendConn, errors, "backend", "frontend", clientAddr)
+	go c.pumpFrames(frontendConn, backendConn, errors, "frontend", "backend", clientAddr)
 
 	select {
 	case err := <-errors:
@@ -209,6 +226,7 @@ func pumpConnections(ctx context.Context, frontendConn, backendConn net.Conn) {
 			logrus.WithError(err).
 				WithField("client", clientAddr).
 				Error("Error observed on connection relay")
+			c.metrics.Errors.With("type", "relay").Add(1)
 		}
 
 	case <-ctx.Done():
@@ -216,12 +234,14 @@ func pumpConnections(ctx context.Context, frontendConn, backendConn net.Conn) {
 	}
 }
 
-func pumpFrames(incoming io.Reader, outgoing io.Writer, errors chan<- error, from, to string, clientAddr net.Addr) {
+func (c *connectorImpl) pumpFrames(incoming io.Reader, outgoing io.Writer, errors chan<- error, from, to string, clientAddr net.Addr) {
 	amount, err := io.Copy(outgoing, incoming)
 	logrus.
 		WithField("client", clientAddr).
 		WithField("amount", amount).
 		Infof("Finished relay %s->%s", from, to)
+
+	c.metrics.BytesTransmitted.Add(float64(amount))
 
 	if err != nil {
 		errors <- err
