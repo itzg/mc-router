@@ -6,7 +6,7 @@
 
 Routes Minecraft client connections to backend servers based upon the requested server address.
 
-## Usage
+# Usage
 
 ```text
 Flags:
@@ -15,11 +15,10 @@ Flags:
   --port=25565               The port bound to listen for Minecraft client
                              connections
   --api-binding=API-BINDING  The host:port bound for servicing API requests
-  --mapping=MAPPING ...      Mapping of external hostname to internal server
-                             host:port
+  --mapping=MAPPING,MAPPING  Where MAPPING is externalHostname=host:port
 ```
 
-## REST API
+# REST API
 
 * `GET /routes`
    Retrieves the currently configured routes
@@ -41,6 +40,28 @@ Flags:
 * `DELETE /routes/{serverAddress}`
   Deletes an existing route for the given `serverAddress`
   
+# Docker Compose Usage
+
+The following diagram shows how [the example docker-compose.yml](docs/docker-compose.yml)
+configures two Minecraft server services named `vanilla` and `forge`, which also become the internal
+network aliases. _Notice those services don't need their ports exposed since the internal
+networking allows for the inter-container access._
+
+The `router` service is only one of the services that needs to exposed on the external 
+network. The `--mapping` declares how the hostname users will enter into their Minecraft client
+will map to the internal services.
+
+![](docs/compose-diagram.png)
+  
+To test out this example, I added these two entries to my "hosts" file:
+
+```
+127.0.0.1 vanilla.example.com
+127.0.0.1 forge.example.com
+```
+  
+# Kubernetes Usage
+
 ## Using kubernetes service auto-discovery
 
 When running `mc-router` as a kubernetes pod and you pass the `--in-kube-cluster` command-line argument, then

@@ -4,10 +4,13 @@ kind: Service
 metadata:
   name: mc-stable
   annotations:
-    "mc-router.itzg.me/defaultServer": "mc.your.domain"
+    "mc-router.itzg.me/defaultServer": "true"
 spec:
+  type: ClusterIP
   ports:
-  - port: 25565
+  - port: 25566
+    name: mc-router
+    targetPort: 25565
   selector:
     run: mc-stable
 ---

@@ -1,0 +1,18 @@
+version: '3.4'
+
+services:
+  vanilla:
+    image: itzg/minecraft-server
+    environment:
+      EULA: "TRUE"
+  forge:
+    image: itzg/minecraft-server
+    environment:
+      EULA: "TRUE"
+      TYPE: FORGE
+  router:
+    image: itzg/mc-router
+    ports:
+      - 25565:25565
+    command: --mapping=vanilla.example.com=vanilla:25565,forge.example.com=forge:25565
+
