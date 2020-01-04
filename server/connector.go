@@ -78,7 +78,7 @@ func (c *connectorImpl) acceptConnections(ctx context.Context, ln net.Listener, 
 }
 
 func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.Conn) {
-	c.metrics.Connections.With("direction", "frontend").Add(1)
+	c.metrics.Connections.With("side", "frontend").Add(1)
 	//noinspection GoUnhandledErrorResult
 	defer frontendConn.Close()
 
@@ -185,7 +185,7 @@ func (c *connectorImpl) findAndConnectBackend(ctx context.Context, frontendConn 
 		return
 	}
 
-	c.metrics.Connections.With("direction", "backend", "host", resolvedHost).Add(1)
+	c.metrics.Connections.With("side", "backend", "host", resolvedHost).Add(1)
 	c.metrics.ActiveConnections.Add(1)
 	defer c.metrics.ActiveConnections.Add(-1)
 

@@ -105,9 +105,9 @@ func (b *influxMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics 
 	b.metrics = metrics
 
 	return &server.ConnectorMetrics{
-		Errors:            metrics.NewCounter("errors"),
-		BytesTransmitted:  metrics.NewCounter("transmitted_bytes"),
-		Connections:       metrics.NewCounter("connections"),
-		ActiveConnections: metrics.NewGauge("connections_active"),
+		Errors:            metrics.NewCounter("mc_router_errors"),
+		BytesTransmitted:  metrics.NewCounter("mc_router_transmitted_bytes"),
+		Connections:       metrics.NewCounter("mc_router_connections"),
+		ActiveConnections: metrics.NewGauge("mc_router_connections_active"),
 	}
 }
