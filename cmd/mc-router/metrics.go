@@ -11,14 +11,14 @@ type MetricsBuilder interface {
 	BuildConnectorMetrics() *server.ConnectorMetrics
 }
 
-func NewMetricsBuilder() MetricsBuilder {
-	switch *metricsBackend {
+func NewMetricsBuilder(backend string) MetricsBuilder {
+	switch backend {
 	case "discard":
 		return &discardMetricsBuilder{}
 	case "expvar":
 		return &expvarMetricsBuilder{}
 	default:
-		logrus.Fatalf("Unsupported metrics backend: %s", *metricsBackend)
+		logrus.Fatalf("Unsupported metrics backend: %s", backend)
 		return nil
 	}
 }

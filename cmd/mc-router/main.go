@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
+	"github.com/itzg/go-flagsfiller"
 	"github.com/itzg/mc-router/server"
 	"github.com/sirupsen/logrus"
 	"net"
@@ -15,18 +15,18 @@ import (
 	"syscall"
 )
 
-var (
-	port           = flag.Int("port", 25565, "The port bound to listen for Minecraft client connections")
-	apiBinding     = flag.String("api-binding", "", "The host:port bound for servicing API requests")
-	mappings       = flag.String("mapping", "", "Comma-separated mappings of externalHostname=host:port")
-	versionFlag    = flag.Bool("version", false, "Output version and exit")
-	kubeConfigFile = flag.String("kube-config", "", "The path to a kubernetes configuration file")
-	inKubeCluster  = flag.Bool("in-kube-cluster", false, "Use in-cluster kubernetes config")
-	cpuProfile     = flag.String("cpu-profile", "", "Enables CPU profiling and writes to given path")
-	debug          = flag.Bool("debug", false, "Enable debug logs")
-	connRateLimit  = flag.Int("connection-rate-limit", 1, "Max number of connections to allow per second")
-	metricsBackend = flag.String("metrics-backend", "discard", "Backend to use for metrics exposure/publishing: discard,expvar")
-)
+type Config struct {
+	Port                int    `default:"25565" usage:"The [port] bound to listen for Minecraft client connections"`
+	Mapping             string `usage:"Comma-separated mappings of externalHostname=host:port"`
+	ApiBinding          string `usage:"The [host:port] bound for servicing API requests"`
+	Version             bool   `usage:"Output version and exit"`
+	CpuProfile          string `usage:"Enables CPU profiling and writes to given path"`
+	Debug               bool   `usage:"Enable debug logs"`
+	ConnectionRateLimit int    `default:"1" usage:"Max number of connections to allow per second"`
+	InKubeCluster       bool   `usage:"Use in-cluster kubernetes config"`
+	KubeConfig          string `usage:"The path to a kubernetes configuration file"`
+	MetricsBackend      string `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar"`
+}
 
 var (
 	version = "dev"
@@ -39,26 +39,30 @@ func showVersion() {
 }
 
 func main() {
-	flag.Parse()
+	var config Config
+	err := flagsfiller.Parse(&config, flagsfiller.WithEnv(""))
+	if err != nil {
+		logrus.Fatal(err)
+	}
 
-	if *versionFlag {
+	if config.Version {
 		showVersion()
 		os.Exit(0)
 	}
 
-	if *debug {
+	if config.Debug {
 		logrus.SetLevel(logrus.DebugLevel)
 		logrus.Debug("Debug logs enabled")
 	}
 
-	if *cpuProfile != "" {
-		cpuProfileFile, err := os.Create(*cpuProfile)
+	if config.CpuProfile != "" {
+		cpuProfileFile, err := os.Create(config.CpuProfile)
 		if err != nil {
 			logrus.WithError(err).Fatal("trying to create cpu profile file")
 		}
 		defer cpuProfileFile.Close()
 
-		logrus.WithField("file", *cpuProfile).Info("Starting cpu profiling")
+		logrus.WithField("file", config.CpuProfile).Info("Starting cpu profiling")
 		err = pprof.StartCPUProfile(cpuProfileFile)
 		if err != nil {
 			logrus.WithError(err).Fatal("trying to start cpu profile")
@@ -68,33 +72,38 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	metricsBuilder := NewMetricsBuilder()
+	metricsBuilder := NewMetricsBuilder(config.MetricsBackend)
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 
-	server.Routes.RegisterAll(parseMappings(*mappings))
+	server.Routes.RegisterAll(parseMappings(config.Mapping))
 
-	if *connRateLimit < 1 {
-		*connRateLimit = 1
+	if config.ConnectionRateLimit < 1 {
+		config.ConnectionRateLimit = 1
 	}
 	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics())
-	connector.StartAcceptingConnections(ctx, net.JoinHostPort("", strconv.Itoa(*port)), *connRateLimit)
-
-	if *apiBinding != "" {
-		server.StartApiServer(*apiBinding)
+	err = connector.StartAcceptingConnections(ctx,
+		net.JoinHostPort("", strconv.Itoa(config.Port)),
+		config.ConnectionRateLimit,
+	)
+	if err != nil {
+		logrus.Fatal(err)
 	}
 
-	var err error
-	if *inKubeCluster {
+	if config.ApiBinding != "" {
+		server.StartApiServer(config.ApiBinding)
+	}
+
+	if config.InKubeCluster {
 		err = server.K8sWatcher.StartInCluster()
 		if err != nil {
 			logrus.WithError(err).Warn("Unable to start k8s integration")
 		} else {
 			defer server.K8sWatcher.Stop()
 		}
-	} else if *kubeConfigFile != "" {
-		err := server.K8sWatcher.StartWithConfig(*kubeConfigFile)
+	} else if config.KubeConfig != "" {
+		err := server.K8sWatcher.StartWithConfig(config.KubeConfig)
 		if err != nil {
 			logrus.WithError(err).Warn("Unable to start k8s integration")
 		} else {
