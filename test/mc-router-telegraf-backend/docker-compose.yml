@@ -1,0 +1,9 @@
+version: '3'
+
+services:
+  telegraf:
+    image: telegraf:1.13
+    ports:
+    - 8186:8186
+    volumes:
+    - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro

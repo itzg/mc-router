@@ -9,13 +9,42 @@ Routes Minecraft client connections to backend servers based upon the requested 
 # Usage
 
 ```text
-Flags:
-  --help                     Show context-sensitive help (also try --help-long
-                             and --help-man).
-  --port=25565               The port bound to listen for Minecraft client
-                             connections
-  --api-binding=API-BINDING  The host:port bound for servicing API requests
-  --mapping=MAPPING,MAPPING  Where MAPPING is externalHostname=host:port
+  -api-binding host:port
+    	The host:port bound for servicing API requests (env API_BINDING)
+  -connection-rate-limit int
+    	Max number of connections to allow per second (env CONNECTION_RATE_LIMIT) (default 1)
+  -cpu-profile string
+    	Enables CPU profiling and writes to given path (env CPU_PROFILE)
+  -debug
+    	Enable debug logs (env DEBUG)
+  -in-kube-cluster
+    	Use in-cluster kubernetes config (env IN_KUBE_CLUSTER)
+  -kube-config string
+    	The path to a kubernetes configuration file (env KUBE_CONFIG)
+  -kube-discovery
+    	Enables discovery of annotated kubernetes services (env KUBE_DISCOVERY)
+  -mapping string
+    	Comma-separated mappings of externalHostname=host:port (env MAPPING)
+  -metrics-backend string
+    	Backend to use for metrics exposure/publishing: discard,expvar,influxdb (env METRICS_BACKEND) (default "discard")
+  -metrics-backend-config-influxdb-addr string
+    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_ADDR)
+  -metrics-backend-config-influxdb-database string
+    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_DATABASE)
+  -metrics-backend-config-influxdb-interval duration
+    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_INTERVAL) (default 1m0s)
+  -metrics-backend-config-influxdb-password string
+    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_PASSWORD)
+  -metrics-backend-config-influxdb-retention-policy string
+    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_RETENTION_POLICY)
+  -metrics-backend-config-influxdb-tags value
+    	any extra tags to be included with all reported metrics (env METRICS_BACKEND_CONFIG_INFLUXDB_TAGS)
+  -metrics-backend-config-influxdb-username string
+    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_USERNAME)
+  -port port
+    	The port bound to listen for Minecraft client connections (env PORT) (default 25565)
+  -version
+    	Output version and exit (env VERSION)
 ```
 
 # REST API

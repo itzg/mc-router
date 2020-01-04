@@ -5,6 +5,8 @@ go 1.12
 require (
 	github.com/VividCortex/gohistogram v1.0.0 // indirect
 	github.com/go-kit/kit v0.9.0
+	github.com/go-logfmt/logfmt v0.5.0 // indirect
+	github.com/go-stack/stack v1.8.0 // indirect
 	github.com/gogo/protobuf v1.2.1 // indirect
 	github.com/golang/groupcache v0.0.0-20190129154638-5b532d6fd5ef // indirect
 	github.com/golang/protobuf v1.3.1 // indirect
@@ -13,7 +15,8 @@ require (
 	github.com/gorilla/mux v1.7.1
 	github.com/hashicorp/golang-lru v0.5.1 // indirect
 	github.com/imdario/mergo v0.3.7 // indirect
-	github.com/itzg/go-flagsfiller v1.4.1
+	github.com/influxdata/influxdb1-client v0.0.0-20191209144304-8bf82d3c094d
+	github.com/itzg/go-flagsfiller v1.4.2
 	github.com/json-iterator/go v1.1.6 // indirect
 	github.com/juju/ratelimit v1.0.1
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect

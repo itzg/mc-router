@@ -13,19 +13,34 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
+type MetricsBackendConfig struct {
+	Influxdb struct {
+		Interval        time.Duration     `default:"1m"`
+		Tags            map[string]string `usage:"any extra tags to be included with all reported metrics"`
+		Addr            string
+		Username        string
+		Password        string
+		Database        string
+		RetentionPolicy string
+	}
+}
+
 type Config struct {
-	Port                int    `default:"25565" usage:"The [port] bound to listen for Minecraft client connections"`
-	Mapping             string `usage:"Comma-separated mappings of externalHostname=host:port"`
-	ApiBinding          string `usage:"The [host:port] bound for servicing API requests"`
-	Version             bool   `usage:"Output version and exit"`
-	CpuProfile          string `usage:"Enables CPU profiling and writes to given path"`
-	Debug               bool   `usage:"Enable debug logs"`
-	ConnectionRateLimit int    `default:"1" usage:"Max number of connections to allow per second"`
-	InKubeCluster       bool   `usage:"Use in-cluster kubernetes config"`
-	KubeConfig          string `usage:"The path to a kubernetes configuration file"`
-	MetricsBackend      string `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar"`
+	Port                 int    `default:"25565" usage:"The [port] bound to listen for Minecraft client connections"`
+	Mapping              string `usage:"Comma-separated mappings of externalHostname=host:port"`
+	ApiBinding           string `usage:"The [host:port] bound for servicing API requests"`
+	Version              bool   `usage:"Output version and exit"`
+	CpuProfile           string `usage:"Enables CPU profiling and writes to given path"`
+	Debug                bool   `usage:"Enable debug logs"`
+	ConnectionRateLimit  int    `default:"1" usage:"Max number of connections to allow per second"`
+	KubeDiscovery        bool   `usage:"Enables discovery of annotated kubernetes services"`
+	InKubeCluster        bool   `usage:"Use in-cluster kubernetes config"`
+	KubeConfig           string `usage:"The path to a kubernetes configuration file"`
+	MetricsBackend       string `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
+	MetricsBackendConfig MetricsBackendConfig
 }
 
 var (
@@ -71,8 +86,9 @@ func main() {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	metricsBuilder := NewMetricsBuilder(config.MetricsBackend)
+	metricsBuilder := NewMetricsBuilder(config.MetricsBackend, &config.MetricsBackendConfig)
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
@@ -98,22 +114,27 @@ func main() {
 	if config.InKubeCluster {
 		err = server.K8sWatcher.StartInCluster()
 		if err != nil {
-			logrus.WithError(err).Warn("Unable to start k8s integration")
+			logrus.WithError(err).Fatal("Unable to start k8s integration")
 		} else {
 			defer server.K8sWatcher.Stop()
 		}
 	} else if config.KubeConfig != "" {
 		err := server.K8sWatcher.StartWithConfig(config.KubeConfig)
 		if err != nil {
-			logrus.WithError(err).Warn("Unable to start k8s integration")
+			logrus.WithError(err).Fatal("Unable to start k8s integration")
 		} else {
 			defer server.K8sWatcher.Stop()
 		}
 	}
 
+	err = metricsBuilder.Start(ctx)
+	if err != nil {
+		logrus.WithError(err).Fatal("Unable to start metrics reporter")
+	}
+
+	// wait for process-stop signal
 	<-c
 	logrus.Info("Stopping")
-	cancel()
 }
 
 func parseMappings(val string) map[string]string {
