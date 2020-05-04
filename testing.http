@@ -1,0 +1,15 @@
+### Get routes
+GET {{baseUrl}}/routes
+Accept: application/json
+
+### Create route
+POST {{baseUrl}}/routes
+Content-Type: application/json
+
+{
+  "serverAddress": "{{serverAddress}}",
+  "backend": "{{backend}}:25565"
+}
+
+### Delete route
+DELETE {{baseUrl}}/routes/{{serverAddress}}

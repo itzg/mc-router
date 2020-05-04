@@ -5,3 +5,4 @@
 /mc-router.exe
 /mc-router
 /dist/
+/*.private.env.json
