@@ -6,8 +6,9 @@ release:
 before:
   hooks:
     - go mod download
-brew:
-  install: bin.install "mc-router"
+brews:
+  - install: |
+      bin.install "mc-router"
 builds:
 - goos:
   - linux
