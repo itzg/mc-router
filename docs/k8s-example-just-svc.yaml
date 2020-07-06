@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-stable
+  annotations:
+    "mc-router.itzg.me/externalServerName": "mc.your.domain"
+spec:
+  ports:
+    - port: 25565
+  selector:
+    run: mc-stable
