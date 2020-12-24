@@ -28,18 +28,26 @@ archives:
     format_overrides:
       - goos: windows
         format: zip
-    name_template: '{{ .Binary }}_{{.Version}}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}'
     files:
     - LICENSE*
     - README*
 snapshot:
-  name_template: SNAPSHOT-{{ .Commit }}
+  name_template: SNAPSHOT-{{ .ShortCommit }}
 dockers:
   - image_templates:
-      - "itzg/mc-router:latest"
-      - "itzg/mc-router:{{.Tag}}"
+      - "itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
+      - "itzg/{{ .ProjectName }}:latest"
     goos: linux
     goarch: amd64
+  - image_templates:
+      - "itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
+    goos: linux
+    goarch: arm64
+docker_manifests:
+  - name_template: "itzg/{{ .ProjectName }}:{{ .Version }}"
+    image_templates:
+      - "itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
+      - "itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
 changelog:
   filters:
     exclude:
