@@ -37,12 +37,14 @@ dockers:
   - image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
       - "itzg/{{ .ProjectName }}:latest"
-    goos: linux
     goarch: amd64
+    binaries:
+      - mc-router
   - image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
-    goos: linux
     goarch: arm64
+    binaries:
+      - mc-router
 docker_manifests:
   - name_template: "itzg/{{ .ProjectName }}:{{ .Version }}"
     image_templates:
