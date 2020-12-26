@@ -1,4 +1,3 @@
-ARG TARGETPLATFORM
-FROM --platform=$TARGETPLATFORM scratch
+FROM scratch
 COPY mc-router /
 ENTRYPOINT ["/mc-router"]

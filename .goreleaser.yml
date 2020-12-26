@@ -38,6 +38,9 @@ dockers:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
       - "itzg/{{ .ProjectName }}:latest"
     goarch: amd64
+    build_flag_templates:
+      - --platform
+      - linux/amd64
     binaries:
       - mc-router
   - image_templates:
@@ -45,10 +48,16 @@ dockers:
     goarch: arm64
     binaries:
       - mc-router
+    build_flag_templates:
+      - --platform
+      - linux/arm64
   - image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-arm32v6"
     goarch: arm
     goarm: "6"
+    build_flag_templates:
+      - --platform
+      - linux/arm/v6
     binaries:
       - mc-router
 docker_manifests:
