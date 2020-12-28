@@ -1,4 +1,4 @@
-FROM scratch
+FROM --platform=$TARGETPLATFORM scratch
 
 LABEL org.opencontainers.image.authors="Geoff Bourne <itzgeoff@gmail.com>"
 LABEL org.opencontainers.image.title="mc-router"
