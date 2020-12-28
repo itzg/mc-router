@@ -41,8 +41,6 @@ dockers:
     build_flag_templates:
       - --platform
       - linux/amd64
-      - --label=org.opencontainers.image.title={{ .ProjectName }}
-      - --label=org.opencontainers.image.source=https://github.com/itzg/mc-router
       - --label=org.opencontainers.image.version={{ .Version }}
       - --label=org.opencontainers.image.revision={{ .FullCommit }}
     binaries:
@@ -55,8 +53,6 @@ dockers:
     build_flag_templates:
       - --platform
       - linux/arm64
-      - --label=org.opencontainers.image.title={{ .ProjectName }}
-      - --label=org.opencontainers.image.source=https://github.com/itzg/mc-router
       - --label=org.opencontainers.image.version={{ .Version }}
       - --label=org.opencontainers.image.revision={{ .FullCommit }}
   - image_templates:
@@ -66,8 +62,6 @@ dockers:
     build_flag_templates:
       - --platform
       - linux/arm/v6
-      - --label=org.opencontainers.image.title={{ .ProjectName }}
-      - --label=org.opencontainers.image.source=https://github.com/itzg/mc-router
       - --label=org.opencontainers.image.version={{ .Version }}
       - --label=org.opencontainers.image.revision={{ .FullCommit }}
     binaries:
