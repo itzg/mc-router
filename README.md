@@ -69,6 +69,10 @@ Routes Minecraft client connections to backend servers based upon the requested 
 * `DELETE /routes/{serverAddress}`
   Deletes an existing route for the given `serverAddress`
   
+# Docker Multi-Architecture Image
+
+The [multi-architecture image published at Docker Hub](https://hub.docker.com/repository/docker/itzg/mc-router) supports amd64, arm64, and arm32v6 (i.e. RaspberryPi).
+
 # Docker Compose Usage
 
 The following diagram shows how [the example docker-compose.yml](docs/docker-compose.yml)
