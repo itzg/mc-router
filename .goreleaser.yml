@@ -36,7 +36,6 @@ snapshot:
 dockers:
   - image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
-      - "itzg/{{ .ProjectName }}:latest"
     goarch: amd64
     build_flag_templates:
       - --platform
@@ -71,6 +70,11 @@ dockers:
       - mc-router
 docker_manifests:
   - name_template: "itzg/{{ .ProjectName }}:{{ .Version }}"
+    image_templates:
+      - "itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
+      - "itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
+      - "itzg/{{ .ProjectName }}:{{ .Version }}-arm32v6"
+  - name_template: "itzg/{{ .ProjectName }}:latest"
     image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
       - "itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
