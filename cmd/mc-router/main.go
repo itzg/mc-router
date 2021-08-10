@@ -29,17 +29,17 @@ type MetricsBackendConfig struct {
 }
 
 type Config struct {
-	Port                 int    `default:"25565" usage:"The [port] bound to listen for Minecraft client connections"`
-	Mapping              string `usage:"Comma-separated mappings of externalHostname=host:port"`
-	ApiBinding           string `usage:"The [host:port] bound for servicing API requests"`
-	Version              bool   `usage:"Output version and exit"`
-	CpuProfile           string `usage:"Enables CPU profiling and writes to given path"`
-	Debug                bool   `usage:"Enable debug logs"`
-	ConnectionRateLimit  int    `default:"1" usage:"Max number of connections to allow per second"`
-	KubeDiscovery        bool   `usage:"Enables discovery of annotated kubernetes services"`
-	InKubeCluster        bool   `usage:"Use in-cluster kubernetes config"`
-	KubeConfig           string `usage:"The path to a kubernetes configuration file"`
-	MetricsBackend       string `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
+	Port                 int      `default:"25565" usage:"The [port] bound to listen for Minecraft client connections"`
+	Mapping              []string `usage:"Comma-separated or repeated mappings of externalHostname=host:port"`
+	ApiBinding           string   `usage:"The [host:port] bound for servicing API requests"`
+	Version              bool     `usage:"Output version and exit"`
+	CpuProfile           string   `usage:"Enables CPU profiling and writes to given path"`
+	Debug                bool     `usage:"Enable debug logs"`
+	ConnectionRateLimit  int      `default:"1" usage:"Max number of connections to allow per second"`
+	KubeDiscovery        bool     `usage:"Enables discovery of annotated kubernetes services"`
+	InKubeCluster        bool     `usage:"Use in-cluster kubernetes config"`
+	KubeConfig           string   `usage:"The path to a kubernetes configuration file"`
+	MetricsBackend       string   `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
 	MetricsBackendConfig MetricsBackendConfig
 }
 
@@ -137,17 +137,14 @@ func main() {
 	logrus.Info("Stopping")
 }
 
-func parseMappings(val string) map[string]string {
+func parseMappings(vals []string) map[string]string {
 	result := make(map[string]string)
-	if val != "" {
-		parts := strings.Split(val, ",")
-		for _, part := range parts {
-			keyValue := strings.Split(part, "=")
-			if len(keyValue) == 2 {
-				result[keyValue[0]] = keyValue[1]
-			} else {
-				logrus.WithField("part", part).Fatal("Invalid part of mapping")
-			}
+	for _, part := range vals {
+		keyValue := strings.Split(part, "=")
+		if len(keyValue) == 2 {
+			result[keyValue[0]] = keyValue[1]
+		} else {
+			logrus.WithField("part", part).Fatal("Invalid part of mapping")
 		}
 	}
 
