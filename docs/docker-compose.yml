@@ -11,8 +11,13 @@ services:
       EULA: "TRUE"
       TYPE: FORGE
   router:
-    image: itzg/mc-router
+    image: ${MC_ROUTER_IMAGE:-itzg/mc-router}
+    environment:
+      # enable API
+      API_BINDING: ":25564"
     ports:
       - 25565:25565
+      # bind the API port to only loopback to avoid external exposure
+      - 127.0.0.1:25564:25564
     command: --mapping=vanilla.example.com=vanilla:25565,forge.example.com=forge:25565
 

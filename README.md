@@ -49,24 +49,31 @@ Routes Minecraft client connections to backend servers based upon the requested 
 
 # REST API
 
-* `GET /routes`
+* `GET /routes` (with `Accept: application/json`)
+
    Retrieves the currently configured routes
-* `POST /routes`
-   Registers a route given a JSON body structured like:
-```json
-{
-  "serverAddress": "CLIENT REQUESTED SERVER ADDRESS",
-  "backend": "HOST:PORT"
-}
-```
-* `POST /defaultRoute`
+
+* `POST /routes` (with `Content-Type: application/json`)
+
+  Registers a route given a JSON body structured like:
+  ```json
+  {
+    "serverAddress": "CLIENT REQUESTED SERVER ADDRESS",
+    "backend": "HOST:PORT"
+  }
+  ```
+  
+* `POST /defaultRoute` (with `Content-Type: application/json`)
+  
   Registers a default route to the given backend. JSON body is structured as:
-```json
-{
-  "backend": "HOST:PORT"
-}
-```
+  ```json
+  {
+    "backend": "HOST:PORT"
+  }
+  ```
+
 * `DELETE /routes/{serverAddress}`
+
   Deletes an existing route for the given `serverAddress`
   
 # Docker Multi-Architecture Image
