@@ -171,3 +171,7 @@ docker run -it --rm \
   goreleaser/goreleaser \
   release --snapshot --rm-dist
 ```
+
+# Related Projects
+
+* https://github.com/haveachin/infrared
