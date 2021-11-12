@@ -6,9 +6,11 @@ import (
 	"github.com/go-kit/kit/metrics"
 	"github.com/itzg/mc-router/mcproto"
 	"github.com/juju/ratelimit"
+	"github.com/pires/go-proxyproto"
 	"github.com/sirupsen/logrus"
 	"io"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -188,6 +190,26 @@ func (c *connectorImpl) findAndConnectBackend(ctx context.Context, frontendConn 
 	c.metrics.Connections.With("side", "backend", "host", resolvedHost).Add(1)
 	c.metrics.ActiveConnections.Add(1)
 	defer c.metrics.ActiveConnections.Add(-1)
+
+	// PROXY protocol implementation
+
+	remoteAddr, err := net.ResolveIPAddr("ip", strings.Split(backendHostPort, ":")[0])
+	if err != nil {
+		// handle error
+	}
+
+	header := &proxyproto.Header{
+		Version:           2,
+		Command:           proxyproto.PROXY,
+		TransportProtocol: proxyproto.TCPv4,
+		SourceAddr:        clientAddr,
+		DestinationAddr:   remoteAddr,
+	}
+
+	_, err = header.WriteTo(backendConn)
+	if err != nil {
+		// handle error
+	}
 
 	amount, err := io.Copy(backendConn, preReadContent)
 	if err != nil {
