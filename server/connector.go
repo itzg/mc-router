@@ -10,7 +10,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"io"
 	"net"
-	"strings"
+	"strconv"
 	"time"
 )
 
@@ -31,16 +31,18 @@ type ConnectorMetrics struct {
 	ActiveConnections metrics.Gauge
 }
 
-func NewConnector(metrics *ConnectorMetrics) Connector {
+func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool) Connector {
 
 	return &connectorImpl{
-		metrics: metrics,
+		metrics:        metrics,
+		sendProxyProto: sendProxyProto,
 	}
 }
 
 type connectorImpl struct {
-	state   mcproto.State
-	metrics *ConnectorMetrics
+	state          mcproto.State
+	metrics        *ConnectorMetrics
+	sendProxyProto bool
 }
 
 func (c *connectorImpl) StartAcceptingConnections(ctx context.Context, listenAddress string, connRateLimit int) error {
@@ -192,30 +194,35 @@ func (c *connectorImpl) findAndConnectBackend(ctx context.Context, frontendConn 
 	defer c.metrics.ActiveConnections.Add(-1)
 
 	// PROXY protocol implementation
+	if c.sendProxyProto {
+		remoteHostStr, _, _ := net.SplitHostPort(backendHostPort)
+		sourceAddrStr, sourcePortStr, _ := net.SplitHostPort(clientAddr.String())
+		sourcePort, _ := strconv.Atoi(sourcePortStr)
 
-      remoteHost, _, _ := net.SplitHostPort(backendHostPort)
-	remoteAddr, err := net.ResolveIPAddr("ip", remoteHost)
-	if err != nil {
-		// handle error
-	}
+		header := &proxyproto.Header{
+			Version:           2,
+			Command:           proxyproto.PROXY,
+			TransportProtocol: proxyproto.TCPv4,
+			SourceAddr: &net.TCPAddr{
+				IP:   net.ParseIP(sourceAddrStr),
+				Port: sourcePort,
+			},
+			DestinationAddr: &net.TCPAddr{
+				IP: net.ParseIP(remoteHostStr),
+			},
+		}
 
-	header := &proxyproto.Header{
-		Version:           2,
-		Command:           proxyproto.PROXY,
-		TransportProtocol: proxyproto.TCPv4,
-		SourceAddr:        clientAddr,
-		DestinationAddr:   remoteAddr,
-	}
-
-	_, err = header.WriteTo(backendConn)
-	if err != nil {
-		logrus.
-			WithError(err).
-			WithField("client", clientAddr).
-			Error("Failed to write proxy header")
-		c.metrics.Errors.With("type", "write").Add(1)
-		_ := backendConn.Close()
-		return
+		_, err = header.WriteTo(backendConn)
+		if err != nil {
+			logrus.
+				WithError(err).
+				WithField("clientAddr", header.SourceAddr).
+				WithField("destAddr", header.DestinationAddr).
+				Error("Failed to write PROXY header")
+			c.metrics.Errors.With("type", "proxy_write").Add(1)
+			_ = backendConn.Close()
+			return
+		}
 	}
 
 	amount, err := io.Copy(backendConn, preReadContent)
@@ -224,6 +231,7 @@ func (c *connectorImpl) findAndConnectBackend(ctx context.Context, frontendConn 
 		c.metrics.Errors.With("type", "backend_failed").Add(1)
 		return
 	}
+
 	logrus.WithField("amount", amount).Debug("Relayed handshake to backend")
 	if err = frontendConn.SetReadDeadline(noDeadline); err != nil {
 		logrus.
@@ -233,6 +241,7 @@ func (c *connectorImpl) findAndConnectBackend(ctx context.Context, frontendConn 
 		c.metrics.Errors.With("type", "read_deadline").Add(1)
 		return
 	}
+
 	c.pumpConnections(ctx, frontendConn, backendConn)
 	return
 }

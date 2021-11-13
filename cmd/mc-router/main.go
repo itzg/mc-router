@@ -40,6 +40,7 @@ type Config struct {
 	InKubeCluster        bool     `usage:"Use in-cluster kubernetes config"`
 	KubeConfig           string   `usage:"The path to a kubernetes configuration file"`
 	MetricsBackend       string   `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
+	SendProxyProtocol    bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
 	MetricsBackendConfig MetricsBackendConfig
 }
 
@@ -98,7 +99,7 @@ func main() {
 	if config.ConnectionRateLimit < 1 {
 		config.ConnectionRateLimit = 1
 	}
-	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics())
+	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.SendProxyProtocol)
 	err = connector.StartAcceptingConnections(ctx,
 		net.JoinHostPort("", strconv.Itoa(config.Port)),
 		config.ConnectionRateLimit,
