@@ -10,24 +10,26 @@ brews:
   - install: |
       bin.install "mc-router"
 builds:
-- goos:
-  - linux
-  - darwin
-  - windows
-  goarch:
-  - amd64
-  - arm64
-  - arm
-  ignore:
-    - goos: windows
-      goarch: arm
-      goarm: 6
-    - goos: windows
-      goarch: arm64
-  main: ./cmd/mc-router
-  binary: mc-router
-  env:
-    - CGO_ENABLED=0
+  - goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - 7
+    ignore:
+      - goos: windows
+        goarch: arm
+        goarm: 6
+      - goos: windows
+        goarch: arm64
+    main: ./cmd/mc-router
+    binary: mc-router
+    env:
+      - CGO_ENABLED=0
 archives:
   - id: tar_gz
     format: tar.gz
@@ -35,8 +37,8 @@ archives:
       - goos: windows
         format: zip
     files:
-    - LICENSE*
-    - README*
+      - LICENSE*
+      - README*
 snapshot:
   name_template: SNAPSHOT-{{ .ShortCommit }}
 dockers:
