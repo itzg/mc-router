@@ -19,7 +19,7 @@ builds:
       - arm64
       - arm
     goarm:
-      - 7
+      - 6
     ignore:
       - goos: windows
         goarch: arm
