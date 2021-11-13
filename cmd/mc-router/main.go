@@ -99,7 +99,7 @@ func main() {
 	if config.ConnectionRateLimit < 1 {
 		config.ConnectionRateLimit = 1
 	}
-	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.SendProxyProtocol)
+	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol)
 	err = connector.StartAcceptingConnections(ctx,
 		net.JoinHostPort("", strconv.Itoa(config.Port)),
 		config.ConnectionRateLimit,
