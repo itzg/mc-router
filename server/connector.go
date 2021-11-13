@@ -193,7 +193,8 @@ func (c *connectorImpl) findAndConnectBackend(ctx context.Context, frontendConn 
 
 	// PROXY protocol implementation
 
-	remoteAddr, err := net.ResolveIPAddr("ip", strings.Split(backendHostPort, ":")[0])
+      remoteHost, _, _ := net.SplitHostPort(backendHostPort)
+	remoteAddr, err := net.ResolveIPAddr("ip", remoteHost)
 	if err != nil {
 		// handle error
 	}
