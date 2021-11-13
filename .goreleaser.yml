@@ -43,13 +43,10 @@ dockers:
       - --load
       - --label=org.opencontainers.image.version={{ .Version }}
       - --label=org.opencontainers.image.revision={{ .FullCommit }}
-    binaries:
-      - mc-router
+
   - image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
     goarch: arm64
-    binaries:
-      - mc-router
     build_flag_templates:
       - --platform
       - linux/arm64
@@ -66,8 +63,7 @@ dockers:
       - --load
       - --label=org.opencontainers.image.version={{ .Version }}
       - --label=org.opencontainers.image.revision={{ .FullCommit }}
-    binaries:
-      - mc-router
+
 docker_manifests:
   - name_template: "itzg/{{ .ProjectName }}:{{ .Version }}"
     image_templates:
