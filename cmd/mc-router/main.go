@@ -40,7 +40,7 @@ type Config struct {
 	InKubeCluster        bool     `usage:"Use in-cluster kubernetes config"`
 	KubeConfig           string   `usage:"The path to a kubernetes configuration file"`
 	MetricsBackend       string   `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
-	SendProxyProtocol    bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
+	UseProxyProtocol    bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
 	MetricsBackendConfig MetricsBackendConfig
 }
 
