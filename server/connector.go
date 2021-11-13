@@ -209,7 +209,13 @@ func (c *connectorImpl) findAndConnectBackend(ctx context.Context, frontendConn 
 
 	_, err = header.WriteTo(backendConn)
 	if err != nil {
-		// handle error
+		logrus.
+			WithError(err).
+			WithField("client", clientAddr).
+			Error("Failed to write proxy header")
+		c.metrics.Errors.With("type", "write").Add(1)
+		_ := backendConn.Close()
+		return
 	}
 
 	amount, err := io.Copy(backendConn, preReadContent)
