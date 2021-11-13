@@ -23,7 +23,6 @@ builds:
     ignore:
       - goos: windows
         goarch: arm
-        goarm: 6
       - goos: windows
         goarch: arm64
     main: ./cmd/mc-router
