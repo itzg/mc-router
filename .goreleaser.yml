@@ -23,7 +23,7 @@ builds:
       goarch: arm
       goarm: 6
     - goos: windows
-      goarch arm64
+      goarch: arm64
   main: ./cmd/mc-router
   binary: mc-router
   env:
