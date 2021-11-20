@@ -100,7 +100,7 @@ var Routes IRoutes = &routesImpl{}
 
 func NewRoutes() IRoutes {
 	r := &routesImpl{
-		mappings: make(map[string]string),
+		mappings: make(map[string]mapping),
 	}
 
 	return r
@@ -110,12 +110,19 @@ func (r *routesImpl) RegisterAll(mappings map[string]string) {
 	r.Lock()
 	defer r.Unlock()
 
-	r.mappings = mappings
+	r.mappings = make(map[string]mapping)
+	for k, v := range mappings {
+		r.mappings[k] = mapping{backend: v}
+	}
+}
+
+type mapping struct {
+	backend string
 }
 
 type routesImpl struct {
 	sync.RWMutex
-	mappings     map[string]string
+	mappings     map[string]mapping
 	defaultRoute string
 }
 
@@ -136,8 +143,8 @@ func (r *routesImpl) FindBackendForServerAddress(serverAddress string) (string, 
 	address := strings.ToLower(addressParts[0])
 
 	if r.mappings != nil {
-		if route, exists := r.mappings[address]; exists {
-			return route, address
+		if mapping, exists := r.mappings[address]; exists {
+			return mapping.backend, address
 		}
 	}
 	return r.defaultRoute, address
@@ -149,7 +156,7 @@ func (r *routesImpl) GetMappings() map[string]string {
 
 	result := make(map[string]string, len(r.mappings))
 	for k, v := range r.mappings {
-		result[k] = v
+		result[k] = v.backend
 	}
 	return result
 }
@@ -177,5 +184,5 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string) {
 		"serverAddress": serverAddress,
 		"backend":       backend,
 	}).Info("Creating route")
-	r.mappings[serverAddress] = backend
+	r.mappings[serverAddress] = mapping{backend: backend}
 }
