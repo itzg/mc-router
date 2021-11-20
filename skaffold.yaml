@@ -1,0 +1,14 @@
+apiVersion: skaffold/v2beta26
+kind: Config
+metadata:
+  name: mc-router
+build:
+  artifacts:
+  - image: itzg/mc-router
+    # https://skaffold.dev/docs/pipeline-stages/builders/ko/
+    ko:
+      main: ./cmd/mc-router/
+deploy:
+  kubectl:
+    manifests:
+    - docs/k8s-deployment.yaml
