@@ -159,7 +159,7 @@ kubectl apply -f https://raw.githubusercontent.com/itzg/mc-router/master/docs/k8
 docker run -it --rm \
   -v gopkg:/go/pkg \
   -v ${PWD}:/build -w /build \
-  golang:1.12 \
+  golang:1.17.3 \
   go build ./cmd/mc-router
 ```
 
