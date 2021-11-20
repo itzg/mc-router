@@ -22,8 +22,6 @@ Routes Minecraft client connections to backend servers based upon the requested 
     	Use in-cluster kubernetes config (env IN_KUBE_CLUSTER)
   -kube-config string
     	The path to a kubernetes configuration file (env KUBE_CONFIG)
-  -kube-discovery
-    	Enables discovery of annotated kubernetes services (env KUBE_DISCOVERY)
   -mapping string
     	Comma-separated mappings of externalHostname=host:port (env MAPPING)
   -metrics-backend string

@@ -3,9 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/itzg/go-flagsfiller"
-	"github.com/itzg/mc-router/server"
-	"github.com/sirupsen/logrus"
 	"net"
 	"os"
 	"os/signal"
@@ -14,6 +11,10 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/itzg/go-flagsfiller"
+	"github.com/itzg/mc-router/server"
+	"github.com/sirupsen/logrus"
 )
 
 type MetricsBackendConfig struct {
@@ -36,11 +37,10 @@ type Config struct {
 	CpuProfile           string   `usage:"Enables CPU profiling and writes to given path"`
 	Debug                bool     `usage:"Enable debug logs"`
 	ConnectionRateLimit  int      `default:"1" usage:"Max number of connections to allow per second"`
-	KubeDiscovery        bool     `usage:"Enables discovery of annotated kubernetes services"`
 	InKubeCluster        bool     `usage:"Use in-cluster kubernetes config"`
 	KubeConfig           string   `usage:"The path to a kubernetes configuration file"`
 	MetricsBackend       string   `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
-	UseProxyProtocol    bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
+	UseProxyProtocol     bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
 	MetricsBackendConfig MetricsBackendConfig
 }
 
