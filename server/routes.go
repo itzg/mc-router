@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -61,7 +62,7 @@ func routesCreateHandler(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	Routes.CreateMapping(definition.ServerAddress, definition.Backend)
+	Routes.CreateMapping(definition.ServerAddress, definition.Backend, func(ctx context.Context) error { return nil })
 	writer.WriteHeader(http.StatusCreated)
 }
 
@@ -89,10 +90,10 @@ type IRoutes interface {
 	// FindBackendForServerAddress returns the host:port for the external server address, if registered.
 	// Otherwise, an empty string is returned
 	// Also returns the normalized version of the given serverAddress
-	FindBackendForServerAddress(serverAddress string) (string, string)
+	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string)
 	GetMappings() map[string]string
 	DeleteMapping(serverAddress string) bool
-	CreateMapping(serverAddress string, backend string)
+	CreateMapping(serverAddress string, backend string, waker func(ctx context.Context) error)
 	SetDefaultRoute(backend string)
 }
 
@@ -112,12 +113,13 @@ func (r *routesImpl) RegisterAll(mappings map[string]string) {
 
 	r.mappings = make(map[string]mapping)
 	for k, v := range mappings {
-		r.mappings[k] = mapping{backend: v}
+		r.mappings[k] = mapping{backend: v, waker: func(ctx context.Context) error { return nil }}
 	}
 }
 
 type mapping struct {
 	backend string
+	waker   func(ctx context.Context) error
 }
 
 type routesImpl struct {
@@ -134,7 +136,7 @@ func (r *routesImpl) SetDefaultRoute(backend string) {
 	}).Info("Using default route")
 }
 
-func (r *routesImpl) FindBackendForServerAddress(serverAddress string) (string, string) {
+func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string) {
 	r.RLock()
 	defer r.RUnlock()
 
@@ -144,7 +146,11 @@ func (r *routesImpl) FindBackendForServerAddress(serverAddress string) (string, 
 
 	if r.mappings != nil {
 		if mapping, exists := r.mappings[address]; exists {
-			return mapping.backend, address
+			if err := mapping.waker(ctx); err == nil {
+				return mapping.backend, address
+			} else {
+				logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend (falling back to default route)")
+			}
 		}
 	}
 	return r.defaultRoute, address
@@ -174,7 +180,7 @@ func (r *routesImpl) DeleteMapping(serverAddress string) bool {
 	}
 }
 
-func (r *routesImpl) CreateMapping(serverAddress string, backend string) {
+func (r *routesImpl) CreateMapping(serverAddress string, backend string, waker func(ctx context.Context) error) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -184,5 +190,5 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string) {
 		"serverAddress": serverAddress,
 		"backend":       backend,
 	}).Info("Creating route")
-	r.mappings[serverAddress] = mapping{backend: backend}
+	r.mappings[serverAddress] = mapping{backend: backend, waker: waker}
 }
