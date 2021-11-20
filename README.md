@@ -161,6 +161,19 @@ docker run -it --rm \
   go build ./cmd/mc-router
 ```
 
+## Skaffold
+
+For "in-cluster development" it's convenient to use https://skaffold.dev. Any changes to Go source code
+will trigger a go build, new container image pushed to registry with a new tag, and refresh in Kubernetes
+with the image tag used in the deployment transparently updated to the new tag and thus new pod created pulling new images:
+
+    skaffold dev
+
+When using Google Cloud (GCP), first create a _Docker Artifact Registry_,
+then add the _Artifact Registry Reader_ Role to the _Compute Engine default service account_ of your GKE clusterService Account_ (to avoid error like "container mc-router is waiting to start: ...-docker.pkg.dev/... can't be pulled"),
+then use e.g. `gcloud auth configure-docker europe-docker.pkg.dev` or equivalent one time (to create a `~/.docker/config.json`),
+and then use e.g. `--default-repo=europe-docker.pkg.dev/YOUR-PROJECT/YOUR-ARTIFACT-REGISTRY` option for `skaffold dev`.
+
 ## Performing snapshot release with Docker
 
 ```bash
