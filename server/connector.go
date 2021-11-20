@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+
 	"github.com/go-kit/kit/metrics"
 	"github.com/itzg/mc-router/mcproto"
 	"github.com/juju/ratelimit"
@@ -243,7 +244,6 @@ func (c *connectorImpl) findAndConnectBackend(ctx context.Context, frontendConn 
 	}
 
 	c.pumpConnections(ctx, frontendConn, backendConn)
-	return
 }
 
 func (c *connectorImpl) pumpConnections(ctx context.Context, frontendConn, backendConn net.Conn) {
