@@ -2,11 +2,12 @@ package server
 
 import (
 	"encoding/json"
-	"github.com/gorilla/mux"
-	"github.com/sirupsen/logrus"
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -133,16 +134,12 @@ func (r *routesImpl) FindBackendForServerAddress(serverAddress string) (string, 
 
 	address := strings.ToLower(addressParts[0])
 
-	if r.mappings == nil {
-		return r.defaultRoute, address
-	} else {
-
+	if r.mappings != nil {
 		if route, exists := r.mappings[address]; exists {
 			return route, address
-		} else {
-			return r.defaultRoute, address
 		}
 	}
+	return r.defaultRoute, address
 }
 
 func (r *routesImpl) GetMappings() map[string]string {
