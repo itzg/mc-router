@@ -11,6 +11,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"net"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -67,43 +68,58 @@ func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config) error {
 		0,
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
-				routableService := extractRoutableService(obj)
-				if routableService != nil {
-					logrus.WithField("routableService", routableService).Debug("ADD")
+				routableServices := extractRoutableService(obj)
+				for _, routableService := range routableServices {
+					if routableService != nil {
+						logrus.WithField("routableService", routableService).Debug("ADD")
 
-					if routableService.externalServiceName != "" {
-						Routes.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint)
-					} else {
-						Routes.SetDefaultRoute(routableService.containerEndpoint)
+						if routableService.externalServiceName != "" {
+							Routes.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint)
+						} else {
+							Routes.SetDefaultRoute(routableService.containerEndpoint)
+						}
 					}
 				}
 			},
 			DeleteFunc: func(obj interface{}) {
-				routableService := extractRoutableService(obj)
-				if routableService != nil {
-					logrus.WithField("routableService", routableService).Debug("DELETE")
+				routableServices := extractRoutableService(obj)
+				for _, routableService := range routableServices {
+					if routableService != nil {
+						logrus.WithField("routableService", routableService).Debug("DELETE")
 
-					if routableService.externalServiceName != "" {
-						Routes.DeleteMapping(routableService.externalServiceName)
-					} else {
-						Routes.SetDefaultRoute("")
+						if routableService.externalServiceName != "" {
+							Routes.DeleteMapping(routableService.externalServiceName)
+						} else {
+							Routes.SetDefaultRoute("")
+						}
 					}
 				}
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
-				oldRoutableService := extractRoutableService(oldObj)
-				newRoutableService := extractRoutableService(newObj)
-				if oldRoutableService != nil && newRoutableService != nil {
-					logrus.WithFields(logrus.Fields{
-						"old": oldRoutableService,
-						"new": newRoutableService,
-					}).Debug("UPDATE")
+				oldRoutableServices := extractRoutableService(oldObj)
+				newRoutableServices := extractRoutableService(newObj)
+				var length int
+				if len(oldRoutableServices) > len(newRoutableServices) {
+					length = len(oldRoutableServices)
+				} else {
+					length = len(newRoutableServices)
+				}
+				for i := 0; i < length; i++ {
+					oldRoutableService := oldRoutableServices[i]
+					newRoutableService := newRoutableServices[i]
 
-					if oldRoutableService.externalServiceName != "" && newRoutableService.externalServiceName != "" {
-						Routes.DeleteMapping(oldRoutableService.externalServiceName)
-						Routes.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint)
-					} else {
-						Routes.SetDefaultRoute(newRoutableService.containerEndpoint)
+					if oldRoutableService != nil && newRoutableService != nil {
+						logrus.WithFields(logrus.Fields{
+							"old": oldRoutableService,
+							"new": newRoutableService,
+						}).Debug("UPDATE")
+
+						if oldRoutableService.externalServiceName != "" && newRoutableService.externalServiceName != "" {
+							Routes.DeleteMapping(oldRoutableService.externalServiceName)
+							Routes.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint)
+						} else {
+							Routes.SetDefaultRoute(newRoutableService.containerEndpoint)
+						}
 					}
 				}
 			},
@@ -128,16 +144,21 @@ type routableService struct {
 	containerEndpoint   string
 }
 
-func extractRoutableService(obj interface{}) *routableService {
+func extractRoutableService(obj interface{}) []*routableService {
 	service, ok := obj.(*v1.Service)
 	if !ok {
 		return nil
 	}
 
+	routableServices := make([]*routableService, 0)
 	if externalServiceName, exists := service.Annotations[AnnotationExternalServerName]; exists {
-		return buildDetails(service, externalServiceName)
+		serviceNames := strings.Split(externalServiceName, ",")
+		for _, serviceName := range serviceNames {
+			routableServices = append(routableServices, buildDetails(service, serviceName))
+		}
+		return routableServices
 	} else if _, exists := service.Annotations[AnnotationDefaultServer]; exists {
-		return buildDetails(service, "")
+		return []*routableService{buildDetails(service, "")}
 	}
 
 	return nil
