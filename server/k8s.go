@@ -68,7 +68,7 @@ func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config) error {
 		0,
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
-				routableServices := extractRoutableService(obj)
+				routableServices := extractRoutableServices(obj)
 				for _, routableService := range routableServices {
 					if routableService != nil {
 						logrus.WithField("routableService", routableService).Debug("ADD")
@@ -82,7 +82,7 @@ func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config) error {
 				}
 			},
 			DeleteFunc: func(obj interface{}) {
-				routableServices := extractRoutableService(obj)
+				routableServices := extractRoutableServices(obj)
 				for _, routableService := range routableServices {
 					if routableService != nil {
 						logrus.WithField("routableService", routableService).Debug("DELETE")
@@ -96,8 +96,8 @@ func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config) error {
 				}
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
-				oldRoutableServices := extractRoutableService(oldObj)
-				newRoutableServices := extractRoutableService(newObj)
+				oldRoutableServices := extractRoutableServices(oldObj)
+				newRoutableServices := extractRoutableServices(newObj)
 				var length int
 				if len(oldRoutableServices) > len(newRoutableServices) {
 					length = len(oldRoutableServices)
@@ -144,7 +144,7 @@ type routableService struct {
 	containerEndpoint   string
 }
 
-func extractRoutableService(obj interface{}) []*routableService {
+func extractRoutableServices(obj interface{}) []*routableService {
 	service, ok := obj.(*v1.Service)
 	if !ok {
 		return nil
