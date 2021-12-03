@@ -96,30 +96,23 @@ func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config) error {
 				}
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
-				oldRoutableServices := extractRoutableServices(oldObj)
-				newRoutableServices := extractRoutableServices(newObj)
-				var length int
-				if len(oldRoutableServices) > len(newRoutableServices) {
-					length = len(oldRoutableServices)
-				} else {
-					length = len(newRoutableServices)
+				for _, oldRoutableService := range extractRoutableServices(oldObj) {
+					logrus.WithFields(logrus.Fields{
+						"old": oldRoutableService,
+					}).Debug("UPDATE")
+					if oldRoutableService.externalServiceName != "" {
+						Routes.DeleteMapping(oldRoutableService.externalServiceName)
+					}
 				}
-				for i := 0; i < length; i++ {
-					oldRoutableService := oldRoutableServices[i]
-					newRoutableService := newRoutableServices[i]
 
-					if oldRoutableService != nil && newRoutableService != nil {
-						logrus.WithFields(logrus.Fields{
-							"old": oldRoutableService,
-							"new": newRoutableService,
-						}).Debug("UPDATE")
-
-						if oldRoutableService.externalServiceName != "" && newRoutableService.externalServiceName != "" {
-							Routes.DeleteMapping(oldRoutableService.externalServiceName)
-							Routes.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint)
-						} else {
-							Routes.SetDefaultRoute(newRoutableService.containerEndpoint)
-						}
+				for _, newRoutableService := range extractRoutableServices(newObj) {
+					logrus.WithFields(logrus.Fields{
+						"new": newRoutableService,
+					}).Debug("UPDATE")
+					if newRoutableService.externalServiceName != "" {
+						Routes.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint)
+					} else {
+						Routes.SetDefaultRoute(newRoutableService.containerEndpoint)
 					}
 				}
 			},
