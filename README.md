@@ -106,7 +106,7 @@ To test out this example, I added these two entries to my "hosts" file:
 When running `mc-router` as a kubernetes pod and you pass the `--in-kube-cluster` command-line argument, then
 it will automatically watch for any services annotated with 
 - `mc-router.itzg.me/externalServerName` : The value of the annotation will be registered as the external hostname Minecraft clients would used to connect to the
-   routed service. The service's clusterIP and target port are used as the routed backend.
+   routed service. The service's clusterIP and target port are used as the routed backend. You can use more hostnames by splitting them with comma.
 - `mc-router.itzg.me/defaultServer` : The service's clusterIP and target port are used as the default if
   no other `externalServiceName` annotations applies.
 
@@ -129,6 +129,17 @@ metadata:
     "mc-router.itzg.me/externalServerName": "external.host.name"
 ```
 
+you can use multiple host names:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-forge
+  annotations:
+    "mc-router.itzg.me/externalServerName": "external.host.name,other.host.name"
+```
+
 ## Example kubernetes deployment
 
 [This example deployment](docs/k8s-example-auto.yaml) 
@@ -136,7 +147,7 @@ metadata:
 * Declares a service account with access to watch and list services
 * Declares `--in-kube-cluster` in the `mc-router` container arguments
 * Two "backend" Minecraft servers are declared each with an 
-  `"mc-router.itzg.me/externalServerName"` annotation that declares their external server name
+  `"mc-router.itzg.me/externalServerName"` annotation that declares their external server name(s)
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/itzg/mc-router/master/docs/k8s-example-auto.yaml
