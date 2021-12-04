@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestK8sWatcherImpl_handleAddAndUpdate(t *testing.T) {
+func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 	type scenario struct {
 		given  string
 		expect string
@@ -96,6 +96,74 @@ func TestK8sWatcherImpl_handleAddAndUpdate(t *testing.T) {
 
 			watcher.handleUpdate(&initialSvc, &updatedSvc)
 			for _, s := range test.update.scenarios {
+				backend, _ := Routes.FindBackendForServerAddress(s.given)
+				assert.Equal(t, s.expect, backend, "update: given=%s", s.given)
+			}
+		})
+	}
+}
+
+func TestK8sWatcherImpl_handleAddThenDelete(t *testing.T) {
+	type scenario struct {
+		given  string
+		expect string
+	}
+	type svcAndScenarios struct {
+		svc       string
+		scenarios []scenario
+	}
+	tests := []struct {
+		name    string
+		initial svcAndScenarios
+		delete  []scenario
+	}{
+		{
+			name: "single",
+			initial: svcAndScenarios{
+				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "a.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
+				scenarios: []scenario{
+					{given: "a.com", expect: "1.1.1.1:25565"},
+					{given: "b.com", expect: ""},
+				},
+			},
+			delete: []scenario{
+				{given: "a.com", expect: ""},
+				{given: "b.com", expect: ""},
+			},
+		},
+		{
+			name: "multi",
+			initial: svcAndScenarios{
+				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "a.com,b.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
+				scenarios: []scenario{
+					{given: "a.com", expect: "1.1.1.1:25565"},
+					{given: "b.com", expect: "1.1.1.1:25565"},
+				},
+			},
+			delete: []scenario{
+				{given: "a.com", expect: ""},
+				{given: "b.com", expect: ""},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// reset the routes
+			Routes.RegisterAll(map[string]string{})
+
+			watcher := &k8sWatcherImpl{}
+			initialSvc := v1.Service{}
+			err := json.Unmarshal([]byte(test.initial.svc), &initialSvc)
+			require.NoError(t, err)
+
+			watcher.handleAdd(&initialSvc)
+			for _, s := range test.initial.scenarios {
+				backend, _ := Routes.FindBackendForServerAddress(s.given)
+				assert.Equal(t, s.expect, backend, "initial: given=%s", s.given)
+			}
+
+			watcher.handleDelete(&initialSvc)
+			for _, s := range test.delete {
 				backend, _ := Routes.FindBackendForServerAddress(s.given)
 				assert.Equal(t, s.expect, backend, "update: given=%s", s.given)
 			}
