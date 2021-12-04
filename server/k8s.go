@@ -67,55 +67,9 @@ func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config) error {
 		&v1.Service{},
 		0,
 		cache.ResourceEventHandlerFuncs{
-			AddFunc: func(obj interface{}) {
-				routableServices := extractRoutableServices(obj)
-				for _, routableService := range routableServices {
-					if routableService != nil {
-						logrus.WithField("routableService", routableService).Debug("ADD")
-
-						if routableService.externalServiceName != "" {
-							Routes.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint)
-						} else {
-							Routes.SetDefaultRoute(routableService.containerEndpoint)
-						}
-					}
-				}
-			},
-			DeleteFunc: func(obj interface{}) {
-				routableServices := extractRoutableServices(obj)
-				for _, routableService := range routableServices {
-					if routableService != nil {
-						logrus.WithField("routableService", routableService).Debug("DELETE")
-
-						if routableService.externalServiceName != "" {
-							Routes.DeleteMapping(routableService.externalServiceName)
-						} else {
-							Routes.SetDefaultRoute("")
-						}
-					}
-				}
-			},
-			UpdateFunc: func(oldObj, newObj interface{}) {
-				for _, oldRoutableService := range extractRoutableServices(oldObj) {
-					logrus.WithFields(logrus.Fields{
-						"old": oldRoutableService,
-					}).Debug("UPDATE")
-					if oldRoutableService.externalServiceName != "" {
-						Routes.DeleteMapping(oldRoutableService.externalServiceName)
-					}
-				}
-
-				for _, newRoutableService := range extractRoutableServices(newObj) {
-					logrus.WithFields(logrus.Fields{
-						"new": newRoutableService,
-					}).Debug("UPDATE")
-					if newRoutableService.externalServiceName != "" {
-						Routes.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint)
-					} else {
-						Routes.SetDefaultRoute(newRoutableService.containerEndpoint)
-					}
-				}
-			},
+			AddFunc:    w.handleAdd,
+			DeleteFunc: w.handleDelete,
+			UpdateFunc: w.handleUpdate,
 		},
 	)
 
@@ -124,6 +78,61 @@ func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config) error {
 	go controller.Run(w.stop)
 
 	return nil
+}
+
+// oldObj and newObj are expected to be *v1.Service
+func (w *k8sWatcherImpl) handleUpdate(oldObj interface{}, newObj interface{}) {
+	for _, oldRoutableService := range extractRoutableServices(oldObj) {
+		logrus.WithFields(logrus.Fields{
+			"old": oldRoutableService,
+		}).Debug("UPDATE")
+		if oldRoutableService.externalServiceName != "" {
+			Routes.DeleteMapping(oldRoutableService.externalServiceName)
+		}
+	}
+
+	for _, newRoutableService := range extractRoutableServices(newObj) {
+		logrus.WithFields(logrus.Fields{
+			"new": newRoutableService,
+		}).Debug("UPDATE")
+		if newRoutableService.externalServiceName != "" {
+			Routes.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint)
+		} else {
+			Routes.SetDefaultRoute(newRoutableService.containerEndpoint)
+		}
+	}
+}
+
+// obj is expected to be a *v1.Service
+func (w *k8sWatcherImpl) handleDelete(obj interface{}) {
+	routableServices := extractRoutableServices(obj)
+	for _, routableService := range routableServices {
+		if routableService != nil {
+			logrus.WithField("routableService", routableService).Debug("DELETE")
+
+			if routableService.externalServiceName != "" {
+				Routes.DeleteMapping(routableService.externalServiceName)
+			} else {
+				Routes.SetDefaultRoute("")
+			}
+		}
+	}
+}
+
+// obj is expected to be a *v1.Service
+func (w *k8sWatcherImpl) handleAdd(obj interface{}) {
+	routableServices := extractRoutableServices(obj)
+	for _, routableService := range routableServices {
+		if routableService != nil {
+			logrus.WithField("routableService", routableService).Debug("ADD")
+
+			if routableService.externalServiceName != "" {
+				Routes.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint)
+			} else {
+				Routes.SetDefaultRoute(routableService.containerEndpoint)
+			}
+		}
+	}
 }
 
 func (w *k8sWatcherImpl) Stop() {
@@ -137,6 +146,7 @@ type routableService struct {
 	containerEndpoint   string
 }
 
+// obj is expected to be a *v1.Service
 func extractRoutableServices(obj interface{}) []*routableService {
 	service, ok := obj.(*v1.Service)
 	if !ok {

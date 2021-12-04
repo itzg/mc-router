@@ -87,6 +87,7 @@ type IRoutes interface {
 	RegisterAll(mappings map[string]string)
 	// FindBackendForServerAddress returns the host:port for the external server address, if registered.
 	// Otherwise, an empty string is returned
+	// Also returns the normalized version of the given serverAddress
 	FindBackendForServerAddress(serverAddress string) (string, string)
 	GetMappings() map[string]string
 	DeleteMapping(serverAddress string) bool
