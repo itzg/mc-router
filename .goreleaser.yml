@@ -43,6 +43,7 @@ snapshot:
 dockers:
   - image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
+    dockerfile: Dockerfile.release
     goarch: amd64
     build_flag_templates:
       - --platform
@@ -53,6 +54,7 @@ dockers:
 
   - image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
+    dockerfile: Dockerfile.release
     goarch: arm64
     build_flag_templates:
       - --platform
@@ -62,6 +64,7 @@ dockers:
       - --label=org.opencontainers.image.revision={{ .FullCommit }}
   - image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-arm32v6"
+    dockerfile: Dockerfile.release
     goarch: arm
     goarm: "6"
     build_flag_templates:

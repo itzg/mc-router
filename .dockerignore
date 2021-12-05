@@ -1,0 +1,7 @@
+Dockerfile*
+.git/**
+dist/**
+.goreleaser.yml
+.github/**
+docs/**
+README*

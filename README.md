@@ -165,11 +165,7 @@ kubectl apply -f https://raw.githubusercontent.com/itzg/mc-router/master/docs/k8
 ## Building locally with Docker
 
 ```bash
-docker run -it --rm \
-  -v gopkg:/go/pkg \
-  -v ${PWD}:/build -w /build \
-  golang:1.17.3 \
-  go build ./cmd/mc-router
+docker build -t mc-router .
 ```
 
 ## Skaffold
