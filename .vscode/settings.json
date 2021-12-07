@@ -1,0 +1,10 @@
+{
+    // https://github.com/itzg/mc-router/pull/28
+    "go.formatTool": "gofmt",
+    "[go]": {
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": false,
+        },
+        "editor.formatOnSave": true
+    }
+}
