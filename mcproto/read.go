@@ -4,14 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
-	"golang.org/x/text/encoding/unicode"
-	"golang.org/x/text/transform"
 	"io"
 	"net"
 	"strings"
 	"time"
+
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 )
 
 func ReadPacket(reader io.Reader, addr net.Addr, state State) (*Packet, error) {

@@ -2,10 +2,11 @@ package server
 
 import (
 	"encoding/json"
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
-	"testing"
 )
 
 func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {

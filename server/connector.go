@@ -3,16 +3,16 @@ package server
 import (
 	"bytes"
 	"context"
+	"io"
+	"net"
+	"strconv"
+	"time"
 
 	"github.com/go-kit/kit/metrics"
 	"github.com/itzg/mc-router/mcproto"
 	"github.com/juju/ratelimit"
 	"github.com/pires/go-proxyproto"
 	"github.com/sirupsen/logrus"
-	"io"
-	"net"
-	"strconv"
-	"time"
 )
 
 const (
