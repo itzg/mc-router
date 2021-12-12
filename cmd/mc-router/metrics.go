@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
 	kitlogrus "github.com/go-kit/kit/log/logrus"
 	discardMetrics "github.com/go-kit/kit/metrics/discard"
 	expvarMetrics "github.com/go-kit/kit/metrics/expvar"
@@ -11,8 +14,6 @@ import (
 	influx "github.com/influxdata/influxdb1-client/v2"
 	"github.com/itzg/mc-router/server"
 	"github.com/sirupsen/logrus"
-	"strings"
-	"time"
 )
 
 type MetricsBuilder interface {

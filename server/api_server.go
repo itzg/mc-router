@@ -2,9 +2,10 @@ package server
 
 import (
 	"expvar"
+	"net/http"
+
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
-	"net/http"
 )
 
 var apiRoutes = mux.NewRouter()
