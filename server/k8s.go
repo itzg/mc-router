@@ -26,8 +26,8 @@ const (
 )
 
 type IK8sWatcher interface {
-	StartWithConfig(kubeConfigFile string) error
-	StartInCluster() error
+	StartWithConfig(kubeConfigFile string, autoScaleUp bool) error
+	StartInCluster(autoScaleUp bool) error
 	Stop()
 }
 
@@ -42,25 +42,27 @@ type k8sWatcherImpl struct {
 	stop      chan struct{}
 }
 
-func (w *k8sWatcherImpl) StartInCluster() error {
+func (w *k8sWatcherImpl) StartInCluster(autoScaleUp bool) error {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		return errors.Wrap(err, "Unable to load in-cluster config")
 	}
 
-	return w.startWithLoadedConfig(config)
+	return w.startWithLoadedConfig(config, autoScaleUp)
 }
 
-func (w *k8sWatcherImpl) StartWithConfig(kubeConfigFile string) error {
+func (w *k8sWatcherImpl) StartWithConfig(kubeConfigFile string, autoScaleUp bool) error {
 	config, err := clientcmd.BuildConfigFromFlags("", kubeConfigFile)
 	if err != nil {
 		return errors.Wrap(err, "Could not load kube config file")
 	}
 
-	return w.startWithLoadedConfig(config)
+	return w.startWithLoadedConfig(config, autoScaleUp)
 }
 
-func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config) error {
+func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config, autoScaleUp bool) error {
+	w.stop = make(chan struct{}, 1)
+
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return errors.Wrap(err, "Could not create kube clientset")
@@ -82,58 +84,58 @@ func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config) error {
 			UpdateFunc: w.handleUpdate,
 		},
 	)
+	go serviceController.Run(w.stop)
 
 	w.mappings = make(map[string]string)
-	_, statefulSetController := cache.NewInformer(
-		cache.NewListWatchFromClient(
-			clientset.AppsV1().RESTClient(),
-			"statefulSets",
-			core.NamespaceAll,
-			fields.Everything(),
-		),
-		&apps.StatefulSet{},
-		0,
-		cache.ResourceEventHandlerFuncs{
-			AddFunc: func(obj interface{}) {
-				statefulSet, ok := obj.(*apps.StatefulSet)
-				if !ok {
-					return
-				}
-				w.RLock()
-				defer w.RUnlock()
-				w.mappings[statefulSet.Spec.ServiceName] = statefulSet.Name
+	if autoScaleUp {
+		_, statefulSetController := cache.NewInformer(
+			cache.NewListWatchFromClient(
+				clientset.AppsV1().RESTClient(),
+				"statefulSets",
+				core.NamespaceAll,
+				fields.Everything(),
+			),
+			&apps.StatefulSet{},
+			0,
+			cache.ResourceEventHandlerFuncs{
+				AddFunc: func(obj interface{}) {
+					statefulSet, ok := obj.(*apps.StatefulSet)
+					if !ok {
+						return
+					}
+					w.RLock()
+					defer w.RUnlock()
+					w.mappings[statefulSet.Spec.ServiceName] = statefulSet.Name
+				},
+				DeleteFunc: func(obj interface{}) {
+					statefulSet, ok := obj.(*apps.StatefulSet)
+					if !ok {
+						return
+					}
+					w.RLock()
+					defer w.RUnlock()
+					delete(w.mappings, statefulSet.Spec.ServiceName)
+				},
+				UpdateFunc: func(oldObj, newObj interface{}) {
+					oldStatefulSet, ok := oldObj.(*apps.StatefulSet)
+					if !ok {
+						return
+					}
+					newStatefulSet, ok := newObj.(*apps.StatefulSet)
+					if !ok {
+						return
+					}
+					w.RLock()
+					defer w.RUnlock()
+					delete(w.mappings, oldStatefulSet.Spec.ServiceName)
+					w.mappings[newStatefulSet.Spec.ServiceName] = newStatefulSet.Name
+				},
 			},
-			DeleteFunc: func(obj interface{}) {
-				statefulSet, ok := obj.(*apps.StatefulSet)
-				if !ok {
-					return
-				}
-				w.RLock()
-				defer w.RUnlock()
-				delete(w.mappings, statefulSet.Spec.ServiceName)
-			},
-			UpdateFunc: func(oldObj, newObj interface{}) {
-				oldStatefulSet, ok := oldObj.(*apps.StatefulSet)
-				if !ok {
-					return
-				}
-				newStatefulSet, ok := newObj.(*apps.StatefulSet)
-				if !ok {
-					return
-				}
-				w.RLock()
-				defer w.RUnlock()
-				delete(w.mappings, oldStatefulSet.Spec.ServiceName)
-				w.mappings[newStatefulSet.Spec.ServiceName] = newStatefulSet.Name
-			},
-		},
-	)
+		)
+		go statefulSetController.Run(w.stop)
+	}
 
-	w.stop = make(chan struct{}, 1)
 	logrus.Info("Monitoring Kubernetes for Minecraft services")
-	go serviceController.Run(w.stop)
-	go statefulSetController.Run(w.stop)
-
 	return nil
 }
 

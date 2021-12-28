@@ -37,8 +37,9 @@ type Config struct {
 	CpuProfile           string   `usage:"Enables CPU profiling and writes to given path"`
 	Debug                bool     `usage:"Enable debug logs"`
 	ConnectionRateLimit  int      `default:"1" usage:"Max number of connections to allow per second"`
-	InKubeCluster        bool     `usage:"Use in-cluster kubernetes config"`
-	KubeConfig           string   `usage:"The path to a kubernetes configuration file"`
+	InKubeCluster        bool     `usage:"Use in-cluster Kubernetes config"`
+	KubeConfig           string   `usage:"The path to a Kubernetes configuration file"`
+	AutoScaleUp          bool     `usage:"Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed"`
 	MetricsBackend       string   `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
 	UseProxyProtocol     bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
 	MetricsBackendConfig MetricsBackendConfig
@@ -113,14 +114,14 @@ func main() {
 	}
 
 	if config.InKubeCluster {
-		err = server.K8sWatcher.StartInCluster()
+		err = server.K8sWatcher.StartInCluster(config.AutoScaleUp)
 		if err != nil {
 			logrus.WithError(err).Fatal("Unable to start k8s integration")
 		} else {
 			defer server.K8sWatcher.Stop()
 		}
 	} else if config.KubeConfig != "" {
-		err := server.K8sWatcher.StartWithConfig(config.KubeConfig)
+		err := server.K8sWatcher.StartWithConfig(config.KubeConfig, config.AutoScaleUp)
 		if err != nil {
 			logrus.WithError(err).Fatal("Unable to start k8s integration")
 		} else {

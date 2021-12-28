@@ -9,10 +9,9 @@ kind: ClusterRole
 metadata:
   name: services-watcher
 rules:
-- apiGroups: ["", "apps"]
-  resources: ["services", "statefulsets", "statefulsets/scale"]
-  verbs: ["watch","list","get","update"]
-  # how to only watch/list services+statefulsets, and only get+update scale?
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["watch","list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
