@@ -167,7 +167,13 @@ func (c *connectorImpl) HandleConnection(ctx context.Context, frontendConn net.C
 func (c *connectorImpl) findAndConnectBackend(ctx context.Context, frontendConn net.Conn,
 	clientAddr net.Addr, preReadContent io.Reader, serverAddress string) {
 
-	backendHostPort, resolvedHost := Routes.FindBackendForServerAddress(ctx, serverAddress)
+	backendHostPort, resolvedHost, waker := Routes.FindBackendForServerAddress(ctx, serverAddress)
+	if err := waker(ctx); err != nil {
+		logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend")
+		c.metrics.Errors.With("type", "wakeup_failed").Add(1)
+		return
+	}
+
 	if backendHostPort == "" {
 		logrus.WithField("serverAddress", serverAddress).Warn("Unable to find registered backend")
 		c.metrics.Errors.With("type", "missing_backend").Add(1)

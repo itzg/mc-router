@@ -88,9 +88,9 @@ func routesSetDefault(writer http.ResponseWriter, request *http.Request) {
 type IRoutes interface {
 	RegisterAll(mappings map[string]string)
 	// FindBackendForServerAddress returns the host:port for the external server address, if registered.
-	// Otherwise, an empty string is returned
-	// Also returns the normalized version of the given serverAddress
-	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string)
+	// Otherwise, an empty string is returned. Also returns the normalized version of the given serverAddress.
+	// The 3rd value returned is an (optional) "waker" function which a caller must invoke to wake up serverAddress.
+	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, func(ctx context.Context) error)
 	GetMappings() map[string]string
 	DeleteMapping(serverAddress string) bool
 	CreateMapping(serverAddress string, backend string, waker func(ctx context.Context) error)
@@ -136,7 +136,7 @@ func (r *routesImpl) SetDefaultRoute(backend string) {
 	}).Info("Using default route")
 }
 
-func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string) {
+func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, func(ctx context.Context) error) {
 	r.RLock()
 	defer r.RUnlock()
 
@@ -146,14 +146,10 @@ func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddr
 
 	if r.mappings != nil {
 		if mapping, exists := r.mappings[address]; exists {
-			if err := mapping.waker(ctx); err == nil {
-				return mapping.backend, address
-			} else {
-				logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend (falling back to default route)")
-			}
+			return mapping.backend, address, mapping.waker
 		}
 	}
-	return r.defaultRoute, address
+	return r.defaultRoute, address, nil
 }
 
 func (r *routesImpl) GetMappings() map[string]string {
