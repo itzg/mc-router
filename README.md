@@ -203,7 +203,8 @@ go build ./cmd/mc-router/
 
 For "in-cluster development" it's convenient to use https://skaffold.dev. Any changes to Go source code
 will trigger a go build, new container image pushed to registry with a new tag, and refresh in Kubernetes
-with the image tag used in the deployment transparently updated to the new tag and thus new pod created pulling new images:
+with the image tag used in the deployment transparently updated to the new tag and thus new pod created pulling new images,
+as configured by [skaffold.yaml](skaffold.yaml):
 
     skaffold dev
 
