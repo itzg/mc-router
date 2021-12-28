@@ -194,7 +194,7 @@ func (w *k8sWatcherImpl) handleAdd(obj interface{}) {
 
 func (w *k8sWatcherImpl) Stop() {
 	if w.stop != nil {
-		w.stop <- struct{}{}
+		close(w.stop)
 	}
 }
 
