@@ -1,0 +1,56 @@
+name: Validate PR
+
+on:
+  pull_request:
+    branches: [ master ]
+    types: [assigned, opened, synchronize, labeled]
+
+env:
+  IMAGE_TO_TEST: itzg/mc-router:test-${{ github.repository_owner }}-${{ github.run_id }}
+
+jobs:
+  test:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v2.4.0
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Build
+        uses: docker/build-push-action@v2.7.0
+        with:
+          tags: ${{ env.IMAGE_TO_TEST }}
+          load: true
+          cache-from: type=gha
+          target: builder
+
+      - name: Run tests
+        run: |
+          docker run --rm --entrypoint go ${{ env.IMAGE_TO_TEST }} test ./...
+
+      - name: Gather Docker metadata
+        if: contains(github.event.pull_request.labels.*.name, 'ci/push-image')
+        id: meta
+        uses: docker/metadata-action@v3
+        with:
+          images: |
+            itzg/mc-router
+
+      - name: Login to DockerHub
+        if: contains(github.event.pull_request.labels.*.name, 'ci/push-image')
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push
+        if: contains(github.event.pull_request.labels.*.name, 'ci/push-image')
+        uses: docker/build-push-action@v2.7.0
+        with:
+          tags: ${{ steps.meta.outputs.tags }}
+          pull: true
+          push: true
+          cache-from: type=gha
+          labels: ${{ steps.meta.outputs.labels }}
