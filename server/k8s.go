@@ -274,7 +274,7 @@ func (w *k8sWatcherImpl) buildScaleUpFunction(service *core.Service) func(ctx co
 					}
 				}
 			} else {
-				return errors.Wrap(err, "GetScale failed for StatefulSet: "+statefulSetName)
+				return fmt.Errorf("GetScale failed for StatefulSet %s: %w", statefulSetName, err)
 			}
 		}
 		return nil
