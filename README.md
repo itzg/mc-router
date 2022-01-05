@@ -177,8 +177,11 @@ kind: ClusterRole
 metadata:
   name: services-watcher
 rules:
-- apiGroups: ["", "apps"]
-  resources: ["services", "statefulsets", "statefulsets/scale"]
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["watch","list"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "statefulsets/scale"]
   verbs: ["watch","list","get","update"]
 ```
 
