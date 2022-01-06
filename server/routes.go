@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -61,7 +62,7 @@ func routesCreateHandler(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	Routes.CreateMapping(definition.ServerAddress, definition.Backend)
+	Routes.CreateMapping(definition.ServerAddress, definition.Backend, func(ctx context.Context) error { return nil })
 	writer.WriteHeader(http.StatusCreated)
 }
 
@@ -87,12 +88,12 @@ func routesSetDefault(writer http.ResponseWriter, request *http.Request) {
 type IRoutes interface {
 	RegisterAll(mappings map[string]string)
 	// FindBackendForServerAddress returns the host:port for the external server address, if registered.
-	// Otherwise, an empty string is returned
-	// Also returns the normalized version of the given serverAddress
-	FindBackendForServerAddress(serverAddress string) (string, string)
+	// Otherwise, an empty string is returned. Also returns the normalized version of the given serverAddress.
+	// The 3rd value returned is an (optional) "waker" function which a caller must invoke to wake up serverAddress.
+	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, func(ctx context.Context) error)
 	GetMappings() map[string]string
 	DeleteMapping(serverAddress string) bool
-	CreateMapping(serverAddress string, backend string)
+	CreateMapping(serverAddress string, backend string, waker func(ctx context.Context) error)
 	SetDefaultRoute(backend string)
 }
 
@@ -100,7 +101,7 @@ var Routes IRoutes = &routesImpl{}
 
 func NewRoutes() IRoutes {
 	r := &routesImpl{
-		mappings: make(map[string]string),
+		mappings: make(map[string]mapping),
 	}
 
 	return r
@@ -110,12 +111,20 @@ func (r *routesImpl) RegisterAll(mappings map[string]string) {
 	r.Lock()
 	defer r.Unlock()
 
-	r.mappings = mappings
+	r.mappings = make(map[string]mapping)
+	for k, v := range mappings {
+		r.mappings[k] = mapping{backend: v, waker: func(ctx context.Context) error { return nil }}
+	}
+}
+
+type mapping struct {
+	backend string
+	waker   func(ctx context.Context) error
 }
 
 type routesImpl struct {
 	sync.RWMutex
-	mappings     map[string]string
+	mappings     map[string]mapping
 	defaultRoute string
 }
 
@@ -127,7 +136,7 @@ func (r *routesImpl) SetDefaultRoute(backend string) {
 	}).Info("Using default route")
 }
 
-func (r *routesImpl) FindBackendForServerAddress(serverAddress string) (string, string) {
+func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, func(ctx context.Context) error) {
 	r.RLock()
 	defer r.RUnlock()
 
@@ -136,11 +145,11 @@ func (r *routesImpl) FindBackendForServerAddress(serverAddress string) (string, 
 	address := strings.ToLower(addressParts[0])
 
 	if r.mappings != nil {
-		if route, exists := r.mappings[address]; exists {
-			return route, address
+		if mapping, exists := r.mappings[address]; exists {
+			return mapping.backend, address, mapping.waker
 		}
 	}
-	return r.defaultRoute, address
+	return r.defaultRoute, address, nil
 }
 
 func (r *routesImpl) GetMappings() map[string]string {
@@ -149,7 +158,7 @@ func (r *routesImpl) GetMappings() map[string]string {
 
 	result := make(map[string]string, len(r.mappings))
 	for k, v := range r.mappings {
-		result[k] = v
+		result[k] = v.backend
 	}
 	return result
 }
@@ -167,7 +176,7 @@ func (r *routesImpl) DeleteMapping(serverAddress string) bool {
 	}
 }
 
-func (r *routesImpl) CreateMapping(serverAddress string, backend string) {
+func (r *routesImpl) CreateMapping(serverAddress string, backend string, waker func(ctx context.Context) error) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -177,5 +186,5 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string) {
 		"serverAddress": serverAddress,
 		"backend":       backend,
 	}).Info("Creating route")
-	r.mappings[serverAddress] = backend
+	r.mappings[serverAddress] = mapping{backend: backend, waker: waker}
 }

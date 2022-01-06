@@ -20,6 +20,7 @@ spec:
       containers:
       - image: itzg/mc-router:latest
         name: mc-router
+        # Add "--auto-scale-up" here for https://github.com/itzg/mc-router/#auto-scale-up
         args: ["--api-binding", ":8080", "--in-kube-cluster"]
         ports:
         - name: proxy
