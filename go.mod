@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	github.com/go-kit/kit v0.9.0
-	github.com/gorilla/mux v1.7.1
+	github.com/gorilla/mux v1.8.0
 	github.com/influxdata/influxdb1-client v0.0.0-20191209144304-8bf82d3c094d
 	github.com/itzg/go-flagsfiller v1.4.2
 	github.com/juju/ratelimit v1.0.1
