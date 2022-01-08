@@ -101,7 +101,7 @@ func (b *influxMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics 
 	metrics := kitinflux.New(influxConfig.Tags, influx.BatchPointsConfig{
 		Database:        influxConfig.Database,
 		RetentionPolicy: influxConfig.RetentionPolicy,
-	}, kitlogrus.NewLogrusLogger(logrus.StandardLogger()))
+	}, kitlogrus.NewLogger(logrus.StandardLogger()))
 
 	b.metrics = metrics
 
