@@ -140,6 +140,25 @@ func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddr
 	r.RLock()
 	defer r.RUnlock()
 
+	// fix cloudflare SRV records,
+	serverAddress = strings.TrimSuffix(serverAddress, ".")
+	parts := strings.Split(serverAddress, ".")
+	tcpIndex := -1
+	for i, part := range parts {
+		if part == "_tcp" {
+			tcpIndex = i
+			break
+		}
+	}
+	if tcpIndex != -1 {
+		parts = parts[tcpIndex+1:]
+	}
+
+	if len(parts) > 0 && parts[len(parts)-1] == "_tcp" {
+		parts = parts[:len(parts)-1]
+	}
+	serverAddress = strings.Join(parts, ".")
+
 	addressParts := strings.Split(serverAddress, "\x00")
 
 	address := strings.ToLower(addressParts[0])
