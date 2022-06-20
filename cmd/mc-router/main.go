@@ -43,6 +43,8 @@ type Config struct {
 	MetricsBackend       string   `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
 	UseProxyProtocol     bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
 	MetricsBackendConfig MetricsBackendConfig
+
+	CloudflareSRV bool `default:"false" usage:"Enable cleaning IP for cloudflare SRV as it breaks parsing"`
 }
 
 var (
@@ -127,6 +129,10 @@ func main() {
 		} else {
 			defer server.K8sWatcher.Stop()
 		}
+	}
+
+	if config.CloudflareSRV {
+		os.Setenv("CLOUDFLARE_SRV", "true")
 	}
 
 	err = metricsBuilder.Start(ctx)
