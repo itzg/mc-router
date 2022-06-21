@@ -4,15 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 )
-
-var ()
 
 func init() {
 	apiRoutes.Path("/routes").Methods("GET").
@@ -139,11 +136,17 @@ func (r *routesImpl) SetDefaultRoute(backend string) {
 	}).Info("Using default route")
 }
 
+var simplifySRV bool
+
+func SimplifySRV(srvEnabled bool) {
+	simplifySRV = srvEnabled
+}
+
 func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, func(ctx context.Context) error) {
 	r.RLock()
 	defer r.RUnlock()
 
-	if os.Getenv("SIMPLIFY_SRV") != "" {
+	if simplifySRV {
 		serverAddress = strings.TrimSuffix(serverAddress, ".")
 		parts := strings.Split(serverAddress, ".")
 		tcpIndex := -1

@@ -132,8 +132,7 @@ func main() {
 	}
 
 	if config.SimplifySRV {
-		// TODO: Find an different way other than using an EnvVar of doing this
-		os.Setenv("SIMPLIFY_SRV", "true")
+		server.SimplifySRV(true)
 	}
 
 	err = metricsBuilder.Start(ctx)
