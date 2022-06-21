@@ -131,9 +131,7 @@ func main() {
 		}
 	}
 
-	if config.SimplifySRV {
-		server.SimplifySRV(true)
-	}
+	server.Routes.SimplifySRV(config.SimplifySRV)
 
 	err = metricsBuilder.Start(ctx)
 	if err != nil {

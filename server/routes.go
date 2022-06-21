@@ -95,6 +95,7 @@ type IRoutes interface {
 	DeleteMapping(serverAddress string) bool
 	CreateMapping(serverAddress string, backend string, waker func(ctx context.Context) error)
 	SetDefaultRoute(backend string)
+	SimplifySRV(srvEnabled bool)
 }
 
 var Routes IRoutes = &routesImpl{}
@@ -126,6 +127,7 @@ type routesImpl struct {
 	sync.RWMutex
 	mappings     map[string]mapping
 	defaultRoute string
+	simplifySRV  bool
 }
 
 func (r *routesImpl) SetDefaultRoute(backend string) {
@@ -136,17 +138,15 @@ func (r *routesImpl) SetDefaultRoute(backend string) {
 	}).Info("Using default route")
 }
 
-var simplifySRV bool
-
-func SimplifySRV(srvEnabled bool) {
-	simplifySRV = srvEnabled
+func (r *routesImpl) SimplifySRV(srvEnabled bool) {
+	r.simplifySRV = srvEnabled
 }
 
 func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, func(ctx context.Context) error) {
 	r.RLock()
 	defer r.RUnlock()
 
-	if simplifySRV {
+	if r.simplifySRV {
 		serverAddress = strings.TrimSuffix(serverAddress, ".")
 		parts := strings.Split(serverAddress, ".")
 		tcpIndex := -1
