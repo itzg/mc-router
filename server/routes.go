@@ -143,7 +143,7 @@ func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddr
 	r.RLock()
 	defer r.RUnlock()
 
-	if os.Getenv("CLOUDFLARE_SRV") != "" {
+	if os.Getenv("SIMPLIFY_SRV") != "" {
 		serverAddress = strings.TrimSuffix(serverAddress, ".")
 		parts := strings.Split(serverAddress, ".")
 		tcpIndex := -1

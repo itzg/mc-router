@@ -44,7 +44,7 @@ type Config struct {
 	UseProxyProtocol     bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
 	MetricsBackendConfig MetricsBackendConfig
 
-	CloudflareSRV bool `default:"false" usage:"Enable cleaning IP for cloudflare SRV as it breaks parsing"`
+	SimplifySRV bool `default:"false" usage:"Enable cleaning SRV records as they break parsing"`
 }
 
 var (
@@ -131,8 +131,9 @@ func main() {
 		}
 	}
 
-	if config.CloudflareSRV {
-		os.Setenv("CLOUDFLARE_SRV", "true")
+	if config.SimplifySRV {
+		// TODO: Find an different way other than using an EnvVar of doing this
+		os.Setenv("SIMPLIFY_SRV", "true")
 	}
 
 	err = metricsBuilder.Start(ctx)
