@@ -44,7 +44,7 @@ type Config struct {
 	UseProxyProtocol     bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
 	MetricsBackendConfig MetricsBackendConfig
 
-	SimplifySRV bool `default:"false" usage:"Enable cleaning SRV records as they break parsing"`
+	SimplifySRV bool `default:"false" usage:"Simplify fully qualified SRV records for mapping"`
 }
 
 var (
