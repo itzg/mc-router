@@ -160,9 +160,6 @@ func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddr
 			parts = parts[tcpIndex+1:]
 		}
 
-		if len(parts) > 0 && parts[len(parts)-1] == "_tcp" {
-			parts = parts[:len(parts)-1]
-		}
 		serverAddress = strings.Join(parts, ".")
 	}
 
