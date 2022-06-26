@@ -43,6 +43,8 @@ type Config struct {
 	MetricsBackend       string   `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
 	UseProxyProtocol     bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
 	MetricsBackendConfig MetricsBackendConfig
+
+	SimplifySRV bool `default:"false" usage:"Simplify fully qualified SRV records for mapping"`
 }
 
 var (
@@ -128,6 +130,8 @@ func main() {
 			defer server.K8sWatcher.Stop()
 		}
 	}
+
+	server.Routes.SimplifySRV(config.SimplifySRV)
 
 	err = metricsBuilder.Start(ctx)
 	if err != nil {
