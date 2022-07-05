@@ -86,6 +86,7 @@ func routesSetDefault(writer http.ResponseWriter, request *http.Request) {
 }
 
 type IRoutes interface {
+	Reset()
 	RegisterAll(mappings map[string]string)
 	// FindBackendForServerAddress returns the host:port for the external server address, if registered.
 	// Otherwise, an empty string is returned. Also returns the normalized version of the given serverAddress.
@@ -124,6 +125,10 @@ type routesImpl struct {
 	mappings     map[string]mapping
 	defaultRoute string
 	simplifySRV  bool
+}
+
+func (r *routesImpl) Reset() {
+	r.mappings = make(map[string]mapping)
 }
 
 func (r *routesImpl) SetDefaultRoute(backend string) {
