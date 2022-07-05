@@ -78,8 +78,7 @@ func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			// reset the routes
-			Routes.RegisterAll(map[string]string{})
+			Routes.Reset()
 
 			watcher := &k8sWatcherImpl{}
 			initialSvc := v1.Service{}
@@ -150,8 +149,7 @@ func TestK8sWatcherImpl_handleAddThenDelete(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			// reset the routes
-			Routes.RegisterAll(map[string]string{})
+			Routes.Reset()
 
 			watcher := &k8sWatcherImpl{}
 			initialSvc := v1.Service{}

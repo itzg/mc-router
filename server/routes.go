@@ -86,6 +86,7 @@ func routesSetDefault(writer http.ResponseWriter, request *http.Request) {
 }
 
 type IRoutes interface {
+	Reset()
 	RegisterAll(mappings map[string]string)
 	// FindBackendForServerAddress returns the host:port for the external server address, if registered.
 	// Otherwise, an empty string is returned. Also returns the normalized version of the given serverAddress.
@@ -98,7 +99,7 @@ type IRoutes interface {
 	SimplifySRV(srvEnabled bool)
 }
 
-var Routes IRoutes = &routesImpl{}
+var Routes = NewRoutes()
 
 func NewRoutes() IRoutes {
 	r := &routesImpl{
@@ -109,12 +110,8 @@ func NewRoutes() IRoutes {
 }
 
 func (r *routesImpl) RegisterAll(mappings map[string]string) {
-	r.Lock()
-	defer r.Unlock()
-
-	r.mappings = make(map[string]mapping)
 	for k, v := range mappings {
-		r.mappings[k] = mapping{backend: v, waker: func(ctx context.Context) error { return nil }}
+		r.CreateMapping(k, v, func(ctx context.Context) error { return nil })
 	}
 }
 
@@ -128,6 +125,10 @@ type routesImpl struct {
 	mappings     map[string]mapping
 	defaultRoute string
 	simplifySRV  bool
+}
+
+func (r *routesImpl) Reset() {
+	r.mappings = make(map[string]mapping)
 }
 
 func (r *routesImpl) SetDefaultRoute(backend string) {
@@ -145,6 +146,10 @@ func (r *routesImpl) SimplifySRV(srvEnabled bool) {
 func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, func(ctx context.Context) error) {
 	r.RLock()
 	defer r.RUnlock()
+
+	logrus.WithFields(logrus.Fields{
+		"serverAddress": serverAddress,
+	}).Debug("Finding backend for server address")
 
 	if r.simplifySRV {
 		serverAddress = strings.TrimSuffix(serverAddress, ".")
@@ -208,6 +213,6 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, waker f
 	logrus.WithFields(logrus.Fields{
 		"serverAddress": serverAddress,
 		"backend":       backend,
-	}).Info("Creating route")
+	}).Info("Created route mapping")
 	r.mappings[serverAddress] = mapping{backend: backend, waker: waker}
 }
