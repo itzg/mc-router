@@ -177,7 +177,10 @@ func (c *connectorImpl) findAndConnectBackend(ctx context.Context, frontendConn 
 	}
 
 	if backendHostPort == "" {
-		logrus.WithField("serverAddress", serverAddress).Warn("Unable to find registered backend")
+		logrus.
+			WithField("serverAddress", serverAddress).
+			WithField("resolvedHost", resolvedHost).
+			Warn("Unable to find registered backend")
 		c.metrics.Errors.With("type", "missing_backend").Add(1)
 		return
 	}
