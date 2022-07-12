@@ -170,7 +170,9 @@ func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddr
 
 	addressParts := strings.Split(serverAddress, "\x00")
 
-	address := strings.ToLower(addressParts[0])
+	address := strings.ToLower(
+		// trim the root zone indicator, see https://en.wikipedia.org/wiki/Fully_qualified_domain_name
+		strings.TrimSuffix(addressParts[0], "."))
 
 	if r.mappings != nil {
 		if mapping, exists := r.mappings[address]; exists {
