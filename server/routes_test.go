@@ -41,6 +41,26 @@ func Test_routesImpl_FindBackendForServerAddress(t *testing.T) {
 			},
 			want: "backend:25566",
 		},
+		{
+			name: "root zone indicator",
+			mapping: mapping{
+				serverAddress: "my.domain", backend: "backend:25566",
+			},
+			args: args{
+				serverAddress: "my.domain.",
+			},
+			want: "backend:25566",
+		},
+		{
+			name: "root zone indicator and forge",
+			mapping: mapping{
+				serverAddress: "forge.my.domain", backend: "backend:25566",
+			},
+			args: args{
+				serverAddress: "forge.my.domain.\x00FML2\x00",
+			},
+			want: "backend:25566",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
