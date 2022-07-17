@@ -12,6 +12,9 @@ services:
       TYPE: FORGE
   router:
     image: ${MC_ROUTER_IMAGE:-itzg/mc-router}
+    depends_on:
+      - forge
+      - vanilla
     environment:
       # enable API
       API_BINDING: ":25564"
