@@ -12,7 +12,7 @@ services:
       TYPE: FORGE
   router:
     image: ${MC_ROUTER_IMAGE:-itzg/mc-router}
-    depens_on:
+    depends_on:
       - forge
       - vanilla
     environment:
