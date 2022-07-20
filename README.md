@@ -185,6 +185,12 @@ rules:
   verbs: ["watch","list","get","update"]
 ```
 
+# Docker Swarm Usage
+
+## Using Docker Swarm Service auto-discovery
+
+TODO
+
 # Development
 
 ## Building locally with Docker

@@ -40,6 +40,7 @@ type Config struct {
 	InKubeCluster        bool     `usage:"Use in-cluster Kubernetes config"`
 	KubeConfig           string   `usage:"The path to a Kubernetes configuration file"`
 	AutoScaleUp          bool     `usage:"Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed"`
+	InDockerSwarm        bool     `usage:"Use in-swarm Docker config"`
 	MetricsBackend       string   `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
 	UseProxyProtocol     bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
 	MetricsBackendConfig MetricsBackendConfig
@@ -128,6 +129,15 @@ func main() {
 			logrus.WithError(err).Fatal("Unable to start k8s integration")
 		} else {
 			defer server.K8sWatcher.Stop()
+		}
+	}
+
+	if config.InDockerSwarm {
+		err = server.DockerWatcher.StartInSwarm()
+		if err != nil {
+			logrus.WithError(err).Fatal("Unable to start docker swarm integration")
+		} else {
+			defer server.DockerWatcher.Stop()
 		}
 	}
 
