@@ -18,7 +18,7 @@ import (
 )
 
 type IDockerWatcher interface {
-	StartInSwarm() error
+	StartInSwarm(timeoutSeconds int, refreshIntervalSeconds int) error
 	Stop()
 }
 
@@ -26,30 +26,24 @@ var DockerWatcher IDockerWatcher = &dockerWatcherImpl{}
 
 type dockerWatcherImpl struct {
 	sync.RWMutex
-	// The key in mappings is a Service, and the value the StatefulSet name
-	mappings map[string]string
-
 	client        *client.Client
 	contextCancel context.CancelFunc
 }
 
 const (
-	// TODO: maybe expose
-	dockerConfigHost = "unix:///var/run/docker.sock"
-	// TODO: maybe expose
-	dockerConfigTimeout = 0 * time.Second
-	// TODO: maybe expose
-	dockerRefreshInterval = 15 * time.Second
-
+	DockerConfigHost = "unix:///var/run/docker.sock"
 	DockerAPIVersion = "1.24"
 )
 
-func (w *dockerWatcherImpl) StartInSwarm() error {
+func (w *dockerWatcherImpl) StartInSwarm(timeoutSeconds int, refreshIntervalSeconds int) error {
 	var err error
 
+	timeout := time.Duration(timeoutSeconds) * time.Second
+	refreshInterval := time.Duration(refreshIntervalSeconds) * time.Second
+
 	opts := []client.Opt{
-		client.WithHost(dockerConfigHost),
-		client.WithTimeout(dockerConfigTimeout),
+		client.WithHost(DockerConfigHost),
+		client.WithTimeout(timeout),
 		client.WithHTTPHeaders(map[string]string{
 			"User-Agent": "mc-router ",
 		}),
@@ -61,7 +55,7 @@ func (w *dockerWatcherImpl) StartInSwarm() error {
 		return err
 	}
 
-	ticker := time.NewTicker(dockerRefreshInterval)
+	ticker := time.NewTicker(refreshInterval)
 	serviceMap := map[string]*routableService{}
 
 	var ctx context.Context
@@ -85,7 +79,7 @@ func (w *dockerWatcherImpl) StartInSwarm() error {
 			case <-ticker.C:
 				services, err := w.listServices(ctx)
 				if err != nil {
-					// TODO: report error?
+					logrus.WithError(err).Error("Docker failed to list services")
 					return
 				}
 
@@ -158,38 +152,39 @@ func (w *dockerWatcherImpl) listServices(ctx context.Context) ([]*routableServic
 
 	var result []*routableService
 	for _, service := range services {
-		if service.Spec.EndpointSpec.Mode == swarmtypes.ResolutionModeVIP {
-			if len(service.Endpoint.VirtualIPs) == 0 {
-				continue
-			}
+		if service.Spec.EndpointSpec.Mode != swarmtypes.ResolutionModeVIP {
+			continue
+		}
+		if len(service.Endpoint.VirtualIPs) == 0 {
+			continue
+		}
 
-			var port uint64 = 25565
-			var hosts []string
-			for key, value := range service.Spec.Labels {
-				if key == "mc-router.host" {
-					hosts = strings.Split(value, ",")
+		var port uint64 = 25565
+		var hosts []string
+		for key, value := range service.Spec.Labels {
+			if key == "mc-router.host" {
+				hosts = strings.Split(value, ",")
+			}
+			if key == "mc-router.port" {
+				port, err = strconv.ParseUint(value, 10, 32)
+				if err != nil {
+					// TODO: report?
+					continue
 				}
-				if key == "mc-router.port" {
-					port, err = strconv.ParseUint(value, 10, 32)
-					if err != nil {
-						// TODO: report?
-						continue
-					}
-				}
 			}
-			if len(hosts) == 0 {
-				continue
-			}
+		}
+		if len(hosts) == 0 {
+			continue
+		}
 
-			virtualIP := service.Endpoint.VirtualIPs[0]
-			ip, _, _ := net.ParseCIDR(virtualIP.Addr)
+		virtualIP := service.Endpoint.VirtualIPs[0]
+		ip, _, _ := net.ParseCIDR(virtualIP.Addr)
 
-			for _, host := range hosts {
-				result = append(result, &routableService{
-					containerEndpoint:   fmt.Sprintf("%s:%d", ip.String(), port),
-					externalServiceName: host,
-				})
-			}
+		for _, host := range hosts {
+			result = append(result, &routableService{
+				containerEndpoint:   fmt.Sprintf("%s:%d", ip.String(), port),
+				externalServiceName: host,
+			})
 		}
 	}
 
