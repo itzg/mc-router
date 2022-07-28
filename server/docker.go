@@ -11,6 +11,7 @@ import (
 
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/swarm"
 	swarmtypes "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/client"
@@ -159,21 +160,8 @@ func (w *dockerWatcherImpl) listServices(ctx context.Context) ([]*routableServic
 			continue
 		}
 
-		var port uint64 = 25565
-		var hosts []string
-		for key, value := range service.Spec.Labels {
-			if key == "mc-router.host" {
-				hosts = strings.Split(value, ",")
-			}
-			if key == "mc-router.port" {
-				port, err = strconv.ParseUint(value, 10, 32)
-				if err != nil {
-					// TODO: report?
-					continue
-				}
-			}
-		}
-		if len(hosts) == 0 {
+		hosts, port, ok := w.parseServiceData(&service)
+		if !ok {
 			continue
 		}
 
@@ -189,6 +177,41 @@ func (w *dockerWatcherImpl) listServices(ctx context.Context) ([]*routableServic
 	}
 
 	return result, nil
+}
+
+func (w *dockerWatcherImpl) parseServiceData(service *swarm.Service) (hosts []string, port uint64, ok bool) {
+	for key, value := range service.Spec.Labels {
+		if key == "mc-router.host" {
+			if hosts != nil {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).Warn("ignoring service with duplicate mc-router.host")
+				ok = false
+				return
+			}
+			hosts = strings.Split(value, ",")
+		}
+		if key == "mc-router.port" {
+			if port != 0 {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).Warn("ignoring service with duplicate mc-router.port")
+				ok = false
+				return
+			}
+			var err error
+			port, err = strconv.ParseUint(value, 10, 32)
+			if err != nil {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).WithError(err).Warn("ignoring service with invalid mc-router.port")
+				ok = false
+				return
+			}
+		}
+	}
+	if len(hosts) == 0 {
+		ok = false
+		return
+	}
+	if port == 0 {
+		port = 25565
+	}
+	return
 }
 
 func (w *dockerWatcherImpl) Stop() {
