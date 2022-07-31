@@ -24,6 +24,12 @@ Routes Minecraft client connections to backend servers based upon the requested 
     	Use in-cluster Kubernetes config (env IN_KUBE_CLUSTER)
   -kube-config string
     	The path to a Kubernetes configuration file (env KUBE_CONFIG)
+  -in-docker-swarm
+      Use in-swarm Docker config (env IN_DOCKER_SWARM)
+  -docker-timeout
+      Timeout configuration in seconds for the Docker Swarm integration (env DOCKER_TIMEOUT) (default 0)
+  -docker-refresh-interval
+      Refresh interval in seconds for the Docker Swarm integration (env DOCKER_REFRESH_INTERVAL) (default 15)
   -mapping string
     	Comma-separated mappings of externalHostname=host:port (env MAPPING)
   -metrics-backend string
@@ -189,7 +195,23 @@ rules:
 
 ## Using Docker Swarm Service auto-discovery
 
-TODO
+When running `mc-router` in a Docker Swarm environment you can pass the `--in-docker-swarm` 
+command-line argument and it will poll the Docker API periodically to find all the running
+services for minecraft instances. To enable discovery you have to set the `mc-router.host`
+label on the service. These are the labels scanned:
+
+- `mc-router.host`: Used to configure the hostname the Minecraft clients would use to 
+  connect to the server. The service endpoint will be used as the routed backend. You can 
+  use more than one hostname by splitting it with a comma.
+- `mc-router.port`: This value must be set to the port the Minecraft server is listening on.
+  The default value is 25565.
+
+## Example Docker Swarm deployment
+
+Refer to [this example docker-compose.yml](docs/swarm.docker-compose.yml) to see how to
+configure two different Minecraft servers and a `mc-router` instance. Notice how you don't 
+have to expose the Minecraft instances ports, but all the containers are required to be in
+the same network.
 
 # Development
 
