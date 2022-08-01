@@ -32,9 +32,18 @@ type dockerWatcherImpl struct {
 }
 
 const (
-	DockerConfigHost = "unix:///var/run/docker.sock"
-	DockerAPIVersion = "1.24"
+	DockerConfigHost         = "unix:///var/run/docker.sock"
+	DockerAPIVersion         = "1.24"
+	DockerRouterLabelHost    = "mc-router.host"
+	DockerRouterLabelPort    = "mc-router.port"
+	DockerRouterLabelDefault = "mc-router.default"
 )
+
+func (w *dockerWatcherImpl) makeWakerFunc(service *routableService) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		return nil
+	}
+}
 
 func (w *dockerWatcherImpl) StartInSwarm(timeoutSeconds int, refreshIntervalSeconds int) error {
 	var err error
@@ -69,9 +78,11 @@ func (w *dockerWatcherImpl) StartInSwarm(timeoutSeconds int, refreshIntervalSeco
 
 	for _, s := range initialServices {
 		serviceMap[s.externalServiceName] = s
-		Routes.CreateMapping(s.externalServiceName, s.containerEndpoint, func(ctx context.Context) error {
-			return nil
-		})
+		if s.externalServiceName != "" {
+			Routes.CreateMapping(s.externalServiceName, s.containerEndpoint, w.makeWakerFunc(s))
+		} else {
+			Routes.SetDefaultRoute(s.containerEndpoint)
+		}
 	}
 
 	go func() {
@@ -88,16 +99,20 @@ func (w *dockerWatcherImpl) StartInSwarm(timeoutSeconds int, refreshIntervalSeco
 				for _, rs := range services {
 					if oldRs, ok := serviceMap[rs.externalServiceName]; !ok {
 						serviceMap[rs.externalServiceName] = rs
-						Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, func(ctx context.Context) error {
-							return nil
-						})
 						logrus.WithField("routableService", rs).Debug("ADD")
+						if rs.externalServiceName != "" {
+							Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, w.makeWakerFunc(rs))
+						} else {
+							Routes.SetDefaultRoute(rs.containerEndpoint)
+						}
 					} else if oldRs.containerEndpoint != rs.containerEndpoint {
 						serviceMap[rs.externalServiceName] = rs
-						Routes.DeleteMapping(rs.externalServiceName)
-						Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, func(ctx context.Context) error {
-							return nil
-						})
+						if rs.externalServiceName != "" {
+							Routes.DeleteMapping(rs.externalServiceName)
+							Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, w.makeWakerFunc(rs))
+						} else {
+							Routes.SetDefaultRoute(rs.containerEndpoint)
+						}
 						logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
 					}
 					visited[rs.externalServiceName] = struct{}{}
@@ -105,7 +120,11 @@ func (w *dockerWatcherImpl) StartInSwarm(timeoutSeconds int, refreshIntervalSeco
 				for _, rs := range serviceMap {
 					if _, ok := visited[rs.externalServiceName]; !ok {
 						delete(serviceMap, rs.externalServiceName)
-						Routes.DeleteMapping(rs.externalServiceName)
+						if rs.externalServiceName != "" {
+							Routes.DeleteMapping(rs.externalServiceName)
+						} else {
+							Routes.SetDefaultRoute("")
+						}
 						logrus.WithField("routableService", rs).Debug("DELETE")
 					}
 				}
@@ -160,18 +179,21 @@ func (w *dockerWatcherImpl) listServices(ctx context.Context) ([]*routableServic
 			continue
 		}
 
-		hosts, port, ok := w.parseServiceData(&service)
+		data, ok := w.parseServiceData(&service)
 		if !ok {
 			continue
 		}
 
-		virtualIP := service.Endpoint.VirtualIPs[0]
-		ip, _, _ := net.ParseCIDR(virtualIP.Addr)
-
-		for _, host := range hosts {
+		for _, host := range data.hosts {
 			result = append(result, &routableService{
-				containerEndpoint:   fmt.Sprintf("%s:%d", ip.String(), port),
+				containerEndpoint:   fmt.Sprintf("%s:%d", data.ip, data.port),
 				externalServiceName: host,
+			})
+		}
+		if data.def != nil && *data.def {
+			result = append(result, &routableService{
+				containerEndpoint:   fmt.Sprintf("%s:%d", data.ip, data.port),
+				externalServiceName: "",
 			})
 		}
 	}
@@ -179,38 +201,67 @@ func (w *dockerWatcherImpl) listServices(ctx context.Context) ([]*routableServic
 	return result, nil
 }
 
-func (w *dockerWatcherImpl) parseServiceData(service *swarm.Service) (hosts []string, port uint64, ok bool) {
+type parsedDockerServiceData struct {
+	hosts []string
+	port  uint64
+	def   *bool
+	ip    string
+}
+
+func (w *dockerWatcherImpl) parseServiceData(service *swarm.Service) (data parsedDockerServiceData, ok bool) {
+	ok = true
 	for key, value := range service.Spec.Labels {
-		if key == "mc-router.host" {
-			if hosts != nil {
-				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).Warn("ignoring service with duplicate mc-router.host")
+		if key == DockerRouterLabelHost {
+			if data.hosts != nil {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					Warnf("ignoring service with duplicate %s", DockerRouterLabelHost)
 				ok = false
 				return
 			}
-			hosts = strings.Split(value, ",")
+			data.hosts = strings.Split(value, ",")
 		}
-		if key == "mc-router.port" {
-			if port != 0 {
-				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).Warn("ignoring service with duplicate mc-router.port")
+		if key == DockerRouterLabelPort {
+			if data.port != 0 {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					Warnf("ignoring service with duplicate %s", DockerRouterLabelPort)
 				ok = false
 				return
 			}
 			var err error
-			port, err = strconv.ParseUint(value, 10, 32)
+			data.port, err = strconv.ParseUint(value, 10, 32)
 			if err != nil {
-				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).WithError(err).Warn("ignoring service with invalid mc-router.port")
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					WithError(err).
+					Warnf("ignoring service with invalid %s", DockerRouterLabelPort)
 				ok = false
 				return
 			}
 		}
+		if key == DockerRouterLabelDefault {
+			if data.def != nil {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					Warnf("ignoring service with duplicate %s", DockerRouterLabelDefault)
+				ok = false
+				return
+			}
+			data.def = new(bool)
+
+			lowerValue := strings.TrimSpace(strings.ToLower(value))
+			*data.def = lowerValue != "" && lowerValue != "0" && lowerValue != "false" && lowerValue != "no"
+		}
 	}
-	if len(hosts) == 0 {
+	if len(data.hosts) == 0 {
 		ok = false
 		return
 	}
-	if port == 0 {
-		port = 25565
+	if data.port == 0 {
+		data.port = 25565
 	}
+
+	virtualIP := service.Endpoint.VirtualIPs[0]
+	ip, _, _ := net.ParseCIDR(virtualIP.Addr)
+	data.ip = ip.String()
+
 	return
 }
 

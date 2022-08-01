@@ -205,6 +205,8 @@ label on the service. These are the labels scanned:
   use more than one hostname by splitting it with a comma.
 - `mc-router.port`: This value must be set to the port the Minecraft server is listening on.
   The default value is 25565.
+- `mc-router.default`: Set this to a truthy value to make this server the deafult backend.
+  Please note that `mc-router.host` is still required to be set.
 
 ## Example Docker Swarm deployment
 
