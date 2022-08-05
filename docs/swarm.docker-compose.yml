@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  router:
+    image: itzg/mc-router:latest
+    command: --in-docker-swarm
+    deploy:
+      mode: replicated
+      replicas: 1
+    ports:
+      - "25565:25565"
+    networks:
+      - minecraft
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  mcfoobar:
+    image: itzg/minecraft-server:latest
+    tty: true
+    stdin_open: true
+    deploy:
+      mode: replicated
+      replicas: 1
+      labels:
+        - "mc-router.host=foo.host.name,bar.host.name"
+    volumes:
+      - mcfoobardata:/data
+    networks:
+      - minecraft
+    environment:
+      EULA: "true"
+
+  mcbaz:
+    image: itzg/minecraft-server:latest
+    tty: true
+    stdin_open: true
+    deploy:
+      mode: replicated
+      replicas: 1
+      labels:
+        - "mc-router.host=baz.host.name"
+    volumes:
+      - mcbazdata:/data
+    networks:
+      - minecraft
+    environment:
+      EULA: "true"
+
+volumes:
+  mcbazdata:
+  mcfoobardata:
+
+
+networks:
+  minecraft:
+    driver: overlay

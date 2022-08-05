@@ -30,19 +30,22 @@ type MetricsBackendConfig struct {
 }
 
 type Config struct {
-	Port                 int      `default:"25565" usage:"The [port] bound to listen for Minecraft client connections"`
-	Mapping              []string `usage:"Comma-separated or repeated mappings of externalHostname=host:port"`
-	ApiBinding           string   `usage:"The [host:port] bound for servicing API requests"`
-	Version              bool     `usage:"Output version and exit"`
-	CpuProfile           string   `usage:"Enables CPU profiling and writes to given path"`
-	Debug                bool     `usage:"Enable debug logs"`
-	ConnectionRateLimit  int      `default:"1" usage:"Max number of connections to allow per second"`
-	InKubeCluster        bool     `usage:"Use in-cluster Kubernetes config"`
-	KubeConfig           string   `usage:"The path to a Kubernetes configuration file"`
-	AutoScaleUp          bool     `usage:"Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed"`
-	MetricsBackend       string   `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
-	UseProxyProtocol     bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
-	MetricsBackendConfig MetricsBackendConfig
+	Port                  int      `default:"25565" usage:"The [port] bound to listen for Minecraft client connections"`
+	Mapping               []string `usage:"Comma-separated or repeated mappings of externalHostname=host:port"`
+	ApiBinding            string   `usage:"The [host:port] bound for servicing API requests"`
+	Version               bool     `usage:"Output version and exit"`
+	CpuProfile            string   `usage:"Enables CPU profiling and writes to given path"`
+	Debug                 bool     `usage:"Enable debug logs"`
+	ConnectionRateLimit   int      `default:"1" usage:"Max number of connections to allow per second"`
+	InKubeCluster         bool     `usage:"Use in-cluster Kubernetes config"`
+	KubeConfig            string   `usage:"The path to a Kubernetes configuration file"`
+	AutoScaleUp           bool     `usage:"Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed"`
+	InDockerSwarm         bool     `usage:"Use in-swarm Docker config"`
+	DockerTimeout         int      `default:"0" usage:"Timeout configuration in seconds for the Docker Swarm integration"`
+	DockerRefreshInterval int      `default:"15" usage:"Refresh interval in seconds for the Docker Swarm integration"`
+	MetricsBackend        string   `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
+	UseProxyProtocol      bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
+	MetricsBackendConfig  MetricsBackendConfig
 
 	SimplifySRV bool `default:"false" usage:"Simplify fully qualified SRV records for mapping"`
 }
@@ -128,6 +131,15 @@ func main() {
 			logrus.WithError(err).Fatal("Unable to start k8s integration")
 		} else {
 			defer server.K8sWatcher.Stop()
+		}
+	}
+
+	if config.InDockerSwarm {
+		err = server.DockerWatcher.StartInSwarm(config.DockerTimeout, config.DockerRefreshInterval)
+		if err != nil {
+			logrus.WithError(err).Fatal("Unable to start docker swarm integration")
+		} else {
+			defer server.DockerWatcher.Stop()
 		}
 	}
 
