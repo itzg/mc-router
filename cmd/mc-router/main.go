@@ -152,7 +152,10 @@ func main() {
 
 	// wait for process-stop signal
 	<-c
-	logrus.Info("Stopping")
+	logrus.Info("Stopping. Waiting for connections to complete...")
+	signal.Stop(c)
+	connector.WaitForConnections()
+	logrus.Info("Stopped")
 }
 
 func parseMappings(vals []string) map[string]string {
