@@ -232,7 +232,7 @@ func (w *k8sWatcherImpl) buildDetails(service *core.Service, externalServiceName
 	clusterIp := service.Spec.ClusterIP
 	port := "25565"
 	for _, p := range service.Spec.Ports {
-		if p.Name == "mc-router" {
+		if p.Name == "mc-router" || p.Name == "minecraft" {
 			port = strconv.Itoa(int(p.Port))
 		}
 	}

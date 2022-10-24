@@ -111,12 +111,9 @@ To test out this example, I added these two entries to my "hosts" file:
 
 ## Using Kubernetes Service auto-discovery
 
-When running `mc-router` as a Kubernetes Pod and you pass the `--in-kube-cluster` command-line argument, then
-it will automatically watch for any services annotated with
-- `mc-router.itzg.me/externalServerName` : The value of the annotation will be registered as the external hostname Minecraft clients would used to connect to the
-   routed service. The service's clusterIP and target port are used as the routed backend. You can use more hostnames by splitting them with comma.
-- `mc-router.itzg.me/defaultServer` : The service's clusterIP and target port are used as the default if
-  no other `externalServiceName` annotations applies.
+When running `mc-router` as a Kubernetes Pod and you pass the `--in-kube-cluster` command-line argument, then it will automatically watch for any services annotated with
+- `mc-router.itzg.me/externalServerName` : The value of the annotation will be registered as the external hostname Minecraft clients would used to connect to the routed service. The service's clusterIP and target port are used as the routed backend. You can use more hostnames by splitting them with comma.
+- `mc-router.itzg.me/defaultServer` : The service's clusterIP and target port are used as the default if no other `externalServiceName` annotations applies.
 
 For example, start `mc-router`'s container spec with
 
@@ -147,6 +144,8 @@ metadata:
   annotations:
     "mc-router.itzg.me/externalServerName": "external.host.name,other.host.name"
 ```
+
+mc-router will pick the service port named either `minecraft` or `mc-router`. If neither port names exist, it will use port value 25565.
 
 ## Example Kubernetes deployment
 
