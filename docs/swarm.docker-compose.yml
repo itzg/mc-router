@@ -23,6 +23,7 @@ services:
       replicas: 1
       labels:
         - "mc-router.host=foo.host.name,bar.host.name"
+        - "mc-router.network=minecraft" # not required in this case
     volumes:
       - mcfoobardata:/data
     networks:
@@ -39,6 +40,9 @@ services:
       replicas: 1
       labels:
         - "mc-router.host=baz.host.name"
+        - "mc-router.network=minecraft" # required since we are exposing a port
+    ports:
+      - "25575:25575" # RCON
     volumes:
       - mcbazdata:/data
     networks:

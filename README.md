@@ -206,6 +206,8 @@ label on the service. These are the labels scanned:
   The default value is 25565.
 - `mc-router.default`: Set this to a truthy value to make this server the deafult backend.
   Please note that `mc-router.host` is still required to be set.
+- `mc-router.network`: Specify the network you are using for the router if multiple are 
+  present in the service.
 
 ## Example Docker Swarm deployment
 
