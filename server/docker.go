@@ -37,6 +37,7 @@ const (
 	DockerRouterLabelHost    = "mc-router.host"
 	DockerRouterLabelPort    = "mc-router.port"
 	DockerRouterLabelDefault = "mc-router.default"
+	DockerRouterLabelNetwork = "mc-router.network"
 )
 
 func (w *dockerWatcherImpl) makeWakerFunc(service *routableService) func(ctx context.Context) error {
@@ -179,7 +180,7 @@ func (w *dockerWatcherImpl) listServices(ctx context.Context) ([]*routableServic
 			continue
 		}
 
-		data, ok := w.parseServiceData(&service)
+		data, ok := w.parseServiceData(&service, networkMap)
 		if !ok {
 			continue
 		}
@@ -201,21 +202,46 @@ func (w *dockerWatcherImpl) listServices(ctx context.Context) ([]*routableServic
 	return result, nil
 }
 
-type parsedDockerServiceData struct {
-	hosts []string
-	port  uint64
-	def   *bool
-	ip    string
+func dockerCheckNetworkName(id string, name string, networkMap map[string]*dockertypes.NetworkResource, networkAliases map[string][]string) (bool, error) {
+	// we allow to specify the id instead
+	if id == name {
+		return true, nil
+	}
+	if network := networkMap[id]; network != nil {
+		if network.Name == name {
+			return true, nil
+		}
+		aliases := networkAliases[id]
+		for _, alias := range aliases {
+			if alias == name {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+
+	return false, fmt.Errorf("network not found %s", id)
 }
 
-func (w *dockerWatcherImpl) parseServiceData(service *swarm.Service) (data parsedDockerServiceData, ok bool) {
-	ok = true
+type parsedDockerServiceData struct {
+	hosts   []string
+	port    uint64
+	def     *bool
+	network *string
+	ip      string
+}
+
+func (w *dockerWatcherImpl) parseServiceData(service *swarm.Service, networkMap map[string]*dockertypes.NetworkResource) (data parsedDockerServiceData, ok bool) {
+	networkAliases := map[string][]string{}
+	for _, network := range service.Spec.TaskTemplate.Networks {
+		networkAliases[network.Target] = network.Aliases
+	}
+
 	for key, value := range service.Spec.Labels {
 		if key == DockerRouterLabelHost {
 			if data.hosts != nil {
 				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
 					Warnf("ignoring service with duplicate %s", DockerRouterLabelHost)
-				ok = false
 				return
 			}
 			data.hosts = strings.Split(value, ",")
@@ -224,7 +250,6 @@ func (w *dockerWatcherImpl) parseServiceData(service *swarm.Service) (data parse
 			if data.port != 0 {
 				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
 					Warnf("ignoring service with duplicate %s", DockerRouterLabelPort)
-				ok = false
 				return
 			}
 			var err error
@@ -233,7 +258,6 @@ func (w *dockerWatcherImpl) parseServiceData(service *swarm.Service) (data parse
 				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
 					WithError(err).
 					Warnf("ignoring service with invalid %s", DockerRouterLabelPort)
-				ok = false
 				return
 			}
 		}
@@ -241,7 +265,6 @@ func (w *dockerWatcherImpl) parseServiceData(service *swarm.Service) (data parse
 			if data.def != nil {
 				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
 					Warnf("ignoring service with duplicate %s", DockerRouterLabelDefault)
-				ok = false
 				return
 			}
 			data.def = new(bool)
@@ -249,19 +272,58 @@ func (w *dockerWatcherImpl) parseServiceData(service *swarm.Service) (data parse
 			lowerValue := strings.TrimSpace(strings.ToLower(value))
 			*data.def = lowerValue != "" && lowerValue != "0" && lowerValue != "false" && lowerValue != "no"
 		}
+		if key == DockerRouterLabelNetwork {
+			if data.network != nil {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					Warnf("ignoring service with duplicate %s", DockerRouterLabelNetwork)
+				return
+			}
+			data.network = new(string)
+			*data.network = value
+		}
 	}
+
+	// probably not minecraft related
 	if len(data.hosts) == 0 {
-		ok = false
 		return
 	}
+
+	if len(service.Endpoint.VirtualIPs) == 0 {
+		logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+			Warnf("ignoring service, no VirtualIPs found")
+		return
+	}
+
 	if data.port == 0 {
 		data.port = 25565
 	}
 
-	virtualIP := service.Endpoint.VirtualIPs[0]
+	vipIndex := -1
+	if data.network != nil {
+		for i, vip := range service.Endpoint.VirtualIPs {
+			if ok, err := dockerCheckNetworkName(vip.NetworkID, *data.network, networkMap, networkAliases); ok {
+				vipIndex = i
+				break
+			} else if err != nil {
+				// we intentionally ignore name check errors
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					Debugf("%v", err)
+			}
+		}
+		if vipIndex == -1 {
+			logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+				Warnf("ignoring service, network %s not found", *data.network)
+			return
+		}
+	} else {
+		// if network isn't specified assume it's the first one
+		vipIndex = 0
+	}
+
+	virtualIP := service.Endpoint.VirtualIPs[vipIndex]
 	ip, _, _ := net.ParseCIDR(virtualIP.Addr)
 	data.ip = ip.String()
-
+	ok = true
 	return
 }
 
