@@ -202,6 +202,27 @@ func (w *dockerWatcherImpl) listServices(ctx context.Context) ([]*routableServic
 	return result, nil
 }
 
+func dockerCheckNetworkName(id string, name string, networkMap map[string]*dockertypes.NetworkResource, networkAliases map[string][]string) (bool, error) {
+	// we allow to specify the id instead
+	if id == name {
+		return true, nil
+	}
+	if network := networkMap[id]; network != nil {
+		if network.Name == name {
+			return true, nil
+		}
+		aliases := networkAliases[id]
+		for _, alias := range aliases {
+			if alias == name {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+
+	return false, fmt.Errorf("network not found %s", id)
+}
+
 type parsedDockerServiceData struct {
 	hosts   []string
 	port    uint64
@@ -211,6 +232,11 @@ type parsedDockerServiceData struct {
 }
 
 func (w *dockerWatcherImpl) parseServiceData(service *swarm.Service, networkMap map[string]*dockertypes.NetworkResource) (data parsedDockerServiceData, ok bool) {
+	networkAliases := map[string][]string{}
+	for _, network := range service.Spec.TaskTemplate.Networks {
+		networkAliases[network.Target] = network.Aliases
+	}
+
 	for key, value := range service.Spec.Labels {
 		if key == DockerRouterLabelHost {
 			if data.hosts != nil {
@@ -275,15 +301,13 @@ func (w *dockerWatcherImpl) parseServiceData(service *swarm.Service, networkMap 
 	vipIndex := -1
 	if data.network != nil {
 		for i, vip := range service.Endpoint.VirtualIPs {
-			networkService := networkMap[vip.NetworkID]
-			if networkService != nil {
-				if networkService.Name == *data.network {
-					vipIndex = i
-					break
-				}
-			} else {
+			if ok, err := dockerCheckNetworkName(vip.NetworkID, *data.network, networkMap, networkAliases); ok {
+				vipIndex = i
+				break
+			} else if err != nil {
+				// we intentionally ignore name check errors
 				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-					Debugf("network not found %s", vip.NetworkID)
+					Debugf("%v", err)
 			}
 		}
 		if vipIndex == -1 {
