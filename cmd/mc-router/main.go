@@ -101,6 +101,13 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 
+	if config.RoutesConfig != "" {
+		err := server.ReadRoutesConfig(config.RoutesConfig)
+		if err != nil {
+			logrus.WithError(err).Fatal("Unable to load routes from config file")
+		}
+	}
+
 	server.Routes.RegisterAll(parseMappings(config.Mapping))
 
 	if config.ConnectionRateLimit < 1 {
