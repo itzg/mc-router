@@ -24,10 +24,9 @@ type routesConfigImpl struct {
 }
 
 type routesConfigStructure struct {
-	DefaultServer string `json:"default-server"`
-	Mappings map[string]string `json:"mappings"`
+	DefaultServer string            `json:"default-server"`
+	Mappings      map[string]string `json:"mappings"`
 }
-
 
 func (r *routesConfigImpl) ReadRoutesConfig(routesConfig string) error {
 	r.fileName = routesConfig
@@ -72,7 +71,7 @@ func (r *routesConfigImpl) AddMapping(serverAddress string, backend string) {
 
 	logrus.WithFields(logrus.Fields{
 		"serverAddress": serverAddress,
-		"backend": backend,
+		"backend":       backend,
 	}).Info("Added route to routes config")
 
 	return
@@ -128,7 +127,6 @@ func (r *routesConfigImpl) DeleteMapping(serverAddress string) {
 	return
 }
 
-
 func (r *routesConfigImpl) isRoutesConfigEnabled() bool {
 	return r.fileName != ""
 }
@@ -146,7 +144,6 @@ func (r *routesConfigImpl) readRoutesConfigFile() (routesConfigStructure, error)
 	if fileErr != nil {
 		return config, errors.Wrap(fileErr, "Could not load the routes config file")
 	}
-
 
 	parseErr := json.Unmarshal(file, &config)
 	if parseErr != nil {
