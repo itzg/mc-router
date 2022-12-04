@@ -50,6 +50,8 @@ Routes Minecraft client connections to backend servers based upon the requested 
     	 (env METRICS_BACKEND_CONFIG_INFLUXDB_USERNAME)
   -port port
     	The port bound to listen for Minecraft client connections (env PORT) (default 25565)
+  -routes-config string
+        The path to the routes config file (env ROUTES_CONFIG)
   -version
     	Output version and exit (env VERSION)
 ```
