@@ -84,6 +84,7 @@ func routesSetDefault(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	Routes.SetDefaultRoute(body.Backend)
+	RoutesConfig.SetDefaultRoute(body.Backend)
 	writer.WriteHeader(http.StatusOK)
 }
 

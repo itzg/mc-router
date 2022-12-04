@@ -23,10 +23,16 @@ type routesConfigImpl struct {
 	name string
 }
 
+type routesConfigStructure struct {
+	DefaultServer string `json:"default-server"`
+	Mappings map[string]string `json:"mappings"`
+}
+
+
 func (r *routesConfigImpl) ReadRoutesConfig(routesConfig string) error {
 	r.name = routesConfig
 
-	configMappings, readErr := r.readRoutesConfigFile()
+	config, readErr := r.readRoutesConfigFile()
 
 	if readErr != nil {
 		if errors.Is(readErr, fs.ErrNotExist) {
@@ -37,7 +43,8 @@ func (r *routesConfigImpl) ReadRoutesConfig(routesConfig string) error {
 		return errors.Wrap(readErr, "Could not load the routes config file")
 	}
 
-	Routes.RegisterAll(configMappings)
+	Routes.RegisterAll(config.Mappings)
+	Routes.SetDefaultRoute(config.DefaultServer)
 	return nil
 }
 
@@ -46,18 +53,18 @@ func (r *routesConfigImpl) AddMapping(serverAddress string, backend string) {
 		return
 	}
 
-	configMappings, readErr := r.readRoutesConfigFile()
+	config, readErr := r.readRoutesConfigFile()
 	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
 		logrus.WithError(readErr).Error("Could not read the routes config file")
 		return
 	}
-	if configMappings == nil {
-		configMappings = make(map[string]string)
+	if config.Mappings == nil {
+		config.Mappings = make(map[string]string)
 	}
 
-	configMappings[serverAddress] = backend
+	config.Mappings[serverAddress] = backend
 
-	writeErr := r.writeRoutesConfigFile(configMappings)
+	writeErr := r.writeRoutesConfigFile(config)
 	if writeErr != nil {
 		logrus.WithError(writeErr).Error("Could not write to the config file")
 		return
@@ -71,20 +78,46 @@ func (r *routesConfigImpl) AddMapping(serverAddress string, backend string) {
 	return
 }
 
-func (r *routesConfigImpl) DeleteMapping(serverAddress string) {
+func (r *routesConfigImpl) SetDefaultRoute(backend string) {
 	if !r.isRoutesConfigEnabled() {
 		return
 	}
 
-	configMappings, readErr := r.readRoutesConfigFile()
+	config, readErr := r.readRoutesConfigFile()
 	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
 		logrus.WithError(readErr).Error("Could not read the routes config file")
 		return
 	}
 
-	delete(configMappings, serverAddress)
+	config.DefaultServer = backend
 
-	writeErr := r.writeRoutesConfigFile(configMappings)
+	writeErr := r.writeRoutesConfigFile(config)
+	if writeErr != nil {
+		logrus.WithError(writeErr).Error("Could not write to the config file")
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"backend": backend,
+	}).Info("Set default route in config")
+
+	return
+}
+
+func (r *routesConfigImpl) DeleteMapping(serverAddress string) {
+	if !r.isRoutesConfigEnabled() {
+		return
+	}
+
+	config, readErr := r.readRoutesConfigFile()
+	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
+		logrus.WithError(readErr).Error("Could not read the routes config file")
+		return
+	}
+
+	delete(config.Mappings, serverAddress)
+
+	writeErr := r.writeRoutesConfigFile(config)
 	if writeErr != nil {
 		logrus.WithError(writeErr).Error("Could not write to the config file")
 		return
@@ -100,30 +133,34 @@ func (r *routesConfigImpl) isRoutesConfigEnabled() bool {
 	return r.name != ""
 }
 
-func (r *routesConfigImpl) readRoutesConfigFile() (map[string]string, error) {
+func (r *routesConfigImpl) readRoutesConfigFile() (routesConfigStructure, error) {
 	r.RLock()
 	defer r.RUnlock()
 
+	config := routesConfigStructure{
+		"",
+		make(map[string]string),
+	}
+
 	file, fileErr := os.ReadFile(r.name)
 	if fileErr != nil {
-		return nil, errors.Wrap(fileErr, "Could not load the routes config file")
+		return config, errors.Wrap(fileErr, "Could not load the routes config file")
 	}
 
-	configMappings := make(map[string]string)
 
-	parseErr := json.Unmarshal(file, &configMappings)
+	parseErr := json.Unmarshal(file, &config)
 	if parseErr != nil {
-		return nil, errors.Wrap(parseErr, "Could not parse the json routes config file")
+		return config, errors.Wrap(parseErr, "Could not parse the json routes config file")
 	}
 
-	return configMappings, nil
+	return config, nil
 }
 
-func (r *routesConfigImpl) writeRoutesConfigFile(configMappings map[string]string) error {
+func (r *routesConfigImpl) writeRoutesConfigFile(config routesConfigStructure) error {
 	r.Lock()
 	defer r.Unlock()
 
-	newFileContent, parseErr := json.Marshal(configMappings)
+	newFileContent, parseErr := json.Marshal(config)
 	if parseErr != nil {
 		return errors.Wrap(parseErr, "Could not parse the route mappings to json")
 	}
