@@ -36,7 +36,7 @@ func (r *routesConfigImpl) ReadRoutesConfig(routesConfig string) error {
 
 	if readErr != nil {
 		if errors.Is(readErr, fs.ErrNotExist) {
-			logrus.WithField("routesConfig", r.fileName).Info("Config file doses not exist, skipping reading it")
+			logrus.WithField("routesConfig", r.fileName).Info("Routes config file doses not exist, skipping reading it")
 			// File doesn't exist -> ignore it
 			return nil
 		}
@@ -66,14 +66,14 @@ func (r *routesConfigImpl) AddMapping(serverAddress string, backend string) {
 
 	writeErr := r.writeRoutesConfigFile(config)
 	if writeErr != nil {
-		logrus.WithError(writeErr).Error("Could not write to the config file")
+		logrus.WithError(writeErr).Error("Could not write to the routes config file")
 		return
 	}
 
 	logrus.WithFields(logrus.Fields{
 		"serverAddress": serverAddress,
 		"backend": backend,
-	}).Info("Added route to config")
+	}).Info("Added route to routes config")
 
 	return
 }
@@ -93,13 +93,13 @@ func (r *routesConfigImpl) SetDefaultRoute(backend string) {
 
 	writeErr := r.writeRoutesConfigFile(config)
 	if writeErr != nil {
-		logrus.WithError(writeErr).Error("Could not write to the config file")
+		logrus.WithError(writeErr).Error("Could not write to the routes config file")
 		return
 	}
 
 	logrus.WithFields(logrus.Fields{
 		"backend": backend,
-	}).Info("Set default route in config")
+	}).Info("Set default route in routes config")
 
 	return
 }
@@ -119,7 +119,7 @@ func (r *routesConfigImpl) DeleteMapping(serverAddress string) {
 
 	writeErr := r.writeRoutesConfigFile(config)
 	if writeErr != nil {
-		logrus.WithError(writeErr).Error("Could not write to the config file")
+		logrus.WithError(writeErr).Error("Could not write to the routes config file")
 		return
 	}
 
@@ -162,12 +162,12 @@ func (r *routesConfigImpl) writeRoutesConfigFile(config routesConfigStructure) e
 
 	newFileContent, parseErr := json.Marshal(config)
 	if parseErr != nil {
-		return errors.Wrap(parseErr, "Could not parse the route mappings to json")
+		return errors.Wrap(parseErr, "Could not parse the routes to json")
 	}
 
 	fileErr := os.WriteFile(r.fileName, newFileContent, 0664)
 	if fileErr != nil {
-		return errors.Wrap(fileErr, "Could not write the routes config file")
+		return errors.Wrap(fileErr, "Could not write to the routes config file")
 	}
 
 	return nil
