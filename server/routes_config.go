@@ -31,6 +31,8 @@ type routesConfigStructure struct {
 func (r *routesConfigImpl) ReadRoutesConfig(routesConfig string) error {
 	r.fileName = routesConfig
 
+	logrus.WithField("routesConfig", r.fileName).Info("Loading routes config file")
+
 	config, readErr := r.readRoutesConfigFile()
 
 	if readErr != nil {
