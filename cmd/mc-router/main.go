@@ -102,9 +102,9 @@ func main() {
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 
 	if config.RoutesConfig != "" {
-		err := server.ReadRoutesConfig(config.RoutesConfig)
+		err := server.RoutesConfig.ReadRoutesConfig(config.RoutesConfig)
 		if err != nil {
-			logrus.WithError(err).Fatal("Unable to load routes from config file")
+			logrus.WithError(err).Error("Unable to load routes from config file")
 		}
 	}
 
