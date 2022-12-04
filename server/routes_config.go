@@ -20,7 +20,7 @@ var RoutesConfig = &routesConfigImpl{}
 
 type routesConfigImpl struct {
 	sync.RWMutex
-	name string
+	fileName string
 }
 
 type routesConfigStructure struct {
@@ -30,13 +30,13 @@ type routesConfigStructure struct {
 
 
 func (r *routesConfigImpl) ReadRoutesConfig(routesConfig string) error {
-	r.name = routesConfig
+	r.fileName = routesConfig
 
 	config, readErr := r.readRoutesConfigFile()
 
 	if readErr != nil {
 		if errors.Is(readErr, fs.ErrNotExist) {
-			logrus.WithField("routesConfig", r.name).Info("Config file doses not exist, skipping reading it")
+			logrus.WithField("routesConfig", r.fileName).Info("Config file doses not exist, skipping reading it")
 			// File doesn't exist -> ignore it
 			return nil
 		}
@@ -130,7 +130,7 @@ func (r *routesConfigImpl) DeleteMapping(serverAddress string) {
 
 
 func (r *routesConfigImpl) isRoutesConfigEnabled() bool {
-	return r.name != ""
+	return r.fileName != ""
 }
 
 func (r *routesConfigImpl) readRoutesConfigFile() (routesConfigStructure, error) {
@@ -142,7 +142,7 @@ func (r *routesConfigImpl) readRoutesConfigFile() (routesConfigStructure, error)
 		make(map[string]string),
 	}
 
-	file, fileErr := os.ReadFile(r.name)
+	file, fileErr := os.ReadFile(r.fileName)
 	if fileErr != nil {
 		return config, errors.Wrap(fileErr, "Could not load the routes config file")
 	}
@@ -165,7 +165,7 @@ func (r *routesConfigImpl) writeRoutesConfigFile(config routesConfigStructure) e
 		return errors.Wrap(parseErr, "Could not parse the route mappings to json")
 	}
 
-	fileErr := os.WriteFile(r.name, newFileContent, 0664)
+	fileErr := os.WriteFile(r.fileName, newFileContent, 0664)
 	if fileErr != nil {
 		return errors.Wrap(fileErr, "Could not write the routes config file")
 	}
