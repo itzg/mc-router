@@ -46,6 +46,7 @@ type Config struct {
 	MetricsBackend        string   `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
 	UseProxyProtocol      bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
 	MetricsBackendConfig  MetricsBackendConfig
+	RoutesConfig          string   `usage:"Name or full path to routes config file"`
 
 	SimplifySRV bool `default:"false" usage:"Simplify fully qualified SRV records for mapping"`
 }
@@ -99,6 +100,13 @@ func main() {
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+
+	if config.RoutesConfig != "" {
+		err := server.RoutesConfig.ReadRoutesConfig(config.RoutesConfig)
+		if err != nil {
+			logrus.WithError(err).Error("Unable to load routes from config file")
+		}
+	}
 
 	server.Routes.RegisterAll(parseMappings(config.Mapping))
 

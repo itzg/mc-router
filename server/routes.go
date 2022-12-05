@@ -37,6 +37,7 @@ func routesListHandler(writer http.ResponseWriter, request *http.Request) {
 
 func routesDeleteHandler(writer http.ResponseWriter, request *http.Request) {
 	serverAddress := mux.Vars(request)["serverAddress"]
+	RoutesConfig.DeleteMapping(serverAddress)
 	if serverAddress != "" {
 		if Routes.DeleteMapping(serverAddress) {
 			writer.WriteHeader(http.StatusOK)
@@ -63,6 +64,7 @@ func routesCreateHandler(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	Routes.CreateMapping(definition.ServerAddress, definition.Backend, func(ctx context.Context) error { return nil })
+	RoutesConfig.AddMapping(definition.ServerAddress, definition.Backend)
 	writer.WriteHeader(http.StatusCreated)
 }
 
@@ -82,6 +84,7 @@ func routesSetDefault(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	Routes.SetDefaultRoute(body.Backend)
+	RoutesConfig.SetDefaultRoute(body.Backend)
 	writer.WriteHeader(http.StatusOK)
 }
 
