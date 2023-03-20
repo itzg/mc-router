@@ -1,6 +1,6 @@
 module github.com/itzg/mc-router
 
-go 1.17
+go 1.20
 
 require (
 	github.com/go-kit/kit v0.12.0
