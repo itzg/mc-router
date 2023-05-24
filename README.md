@@ -109,6 +109,22 @@ To test out this example, I added these two entries to my "hosts" file:
 127.0.0.1 forge.example.com
 ```
 
+# Routing Configuration
+
+The routing configuration allows routing via a config file rather than a command. 
+You need to set `-routes-config` or `ROUTES_CONFIG` env variable.
+The following shows a JSON file for routes config, where `default-server` can also be `null` or omitted:
+
+```json
+{
+  "default-server": "vanilla:25565",
+  "mappings": {
+    "vanilla.example.com": "vanilla:25565",
+    "forge.example.com": "forge:25565"
+  }
+}
+```
+
 # Kubernetes Usage
 
 ## Using Kubernetes Service auto-discovery
