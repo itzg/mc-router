@@ -12,6 +12,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+var tcpShieldPattern = regexp.MustCompile("///.*")
+
 func init() {
 	apiRoutes.Path("/routes").Methods("GET").
 		Headers("Accept", "application/json").
@@ -179,7 +181,7 @@ func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddr
 		strings.TrimSuffix(addressParts[0], "."))
 
 	// Strip suffix of TCP Shield
-	address = regexp.MustCompile("///.*").ReplaceAllString(address, "")
+	address = tcpShieldPattern.ReplaceAllString(address, "")
 
 	if r.mappings != nil {
 		if mapping, exists := r.mappings[address]; exists {
