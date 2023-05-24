@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -177,16 +178,12 @@ func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddr
 		// trim the root zone indicator, see https://en.wikipedia.org/wiki/Fully_qualified_domain_name
 		strings.TrimSuffix(addressParts[0], "."))
 
+	// Strip suffix of TCP Shield
+	address = regexp.MustCompile("///.*").ReplaceAllString(address, "")
+
 	if r.mappings != nil {
 		if mapping, exists := r.mappings[address]; exists {
 			return mapping.backend, address, mapping.waker
-		}
-		// Search for wildcard matches
-		for currMapping := range r.mapping {
-			if strings.HasSuffix(currMapping, "*") && strings.HasPrefix(address, currMapping[:len(currMapping)-1]) {
-				mapping := r.mappings[currMapping]
-				return mapping.backend, address, mapping.waker
-			}
 		}
 	}
 	return r.defaultRoute, address, nil
