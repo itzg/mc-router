@@ -113,7 +113,7 @@ To test out this example, I added these two entries to my "hosts" file:
 
 The routing configuration allows routing via a config file rather than a command. 
 You need to set `-routes-config` or `ROUTES_CONFIG` env variable.
-No you can define the routing via json file. `default-server` can be `null` as well.
+The following shows a JSON file for routes config, where `default-server` can also be `null` or omitted:
 
 ```json
 {
