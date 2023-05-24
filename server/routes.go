@@ -182,12 +182,10 @@ func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddr
 			return mapping.backend, address, mapping.waker
 		}
 		// Search for wildcard matches
-		for currMapping := range r.mappings {
-			if strings.HasSuffix(currMapping, "*") {
-				if strings.HasPrefix(address, currMapping[:len(currMapping)-1]) {
-					mapping := r.mappings[currMapping]
-					return mapping.backend, address, mapping.waker
-				}
+		for currMapping := range r.mapping {
+			if strings.HasSuffix(currMapping, "*") && strings.HasPrefix(address, currMapping[:len(currMapping)-1]) {
+				mapping := r.mappings[currMapping]
+				return mapping.backend, address, mapping.waker
 			}
 		}
 	}
