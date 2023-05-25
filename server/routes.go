@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 )
+
+var tcpShieldPattern = regexp.MustCompile("///.*")
 
 func init() {
 	apiRoutes.Path("/routes").Methods("GET").
@@ -176,6 +179,9 @@ func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddr
 	address := strings.ToLower(
 		// trim the root zone indicator, see https://en.wikipedia.org/wiki/Fully_qualified_domain_name
 		strings.TrimSuffix(addressParts[0], "."))
+
+	// Strip suffix of TCP Shield
+	address = tcpShieldPattern.ReplaceAllString(address, "")
 
 	if r.mappings != nil {
 		if mapping, exists := r.mappings[address]; exists {
