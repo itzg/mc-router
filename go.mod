@@ -10,7 +10,7 @@ require (
 	github.com/juju/ratelimit v1.0.2
 	github.com/pires/go-proxyproto v0.7.0
 	github.com/pkg/errors v0.9.1
-	github.com/sirupsen/logrus v1.9.2
+	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.8.3
 	golang.org/x/text v0.11.0
 	k8s.io/api v0.18.5
