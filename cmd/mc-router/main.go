@@ -31,6 +31,7 @@ type MetricsBackendConfig struct {
 
 type Config struct {
 	Port                  int      `default:"25565" usage:"The [port] bound to listen for Minecraft client connections"`
+	Default               string   `usage:"host:port of a default Minecraft server to use when mapping not found"`
 	Mapping               []string `usage:"Comma-separated or repeated mappings of externalHostname=host:port"`
 	ApiBinding            string   `usage:"The [host:port] bound for servicing API requests"`
 	Version               bool     `usage:"Output version and exit"`
@@ -46,7 +47,8 @@ type Config struct {
 	MetricsBackend        string   `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
 	UseProxyProtocol      bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
 	MetricsBackendConfig  MetricsBackendConfig
-	RoutesConfig          string   `usage:"Name or full path to routes config file"`
+	RoutesConfig          string `usage:"Name or full path to routes config file"`
+	NgrokToken            string `usage:"If set, an ngrok tunnel will be established. It is HIGHLY recommended to pass as an environment variable."`
 
 	SimplifySRV bool `default:"false" usage:"Simplify fully qualified SRV records for mapping"`
 }
@@ -109,11 +111,17 @@ func main() {
 	}
 
 	server.Routes.RegisterAll(parseMappings(config.Mapping))
+	if config.Default != "" {
+		server.Routes.SetDefaultRoute(config.Default)
+	}
 
 	if config.ConnectionRateLimit < 1 {
 		config.ConnectionRateLimit = 1
 	}
 	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol)
+	if config.NgrokToken != "" {
+		connector.UseNgrok(config.NgrokToken)
+	}
 	err = connector.StartAcceptingConnections(ctx,
 		net.JoinHostPort("", strconv.Itoa(config.Port)),
 		config.ConnectionRateLimit,

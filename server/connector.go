@@ -3,6 +3,8 @@ package server
 import (
 	"bytes"
 	"context"
+	"golang.ngrok.com/ngrok"
+	"golang.ngrok.com/ngrok/config"
 	"io"
 	"net"
 	"strconv"
@@ -46,16 +48,32 @@ type Connector struct {
 
 	activeConnections int32
 	connectionsCond   *sync.Cond
+	ngrokToken        string
 }
 
 func (c *Connector) StartAcceptingConnections(ctx context.Context, listenAddress string, connRateLimit int) error {
 
-	ln, err := net.Listen("tcp", listenAddress)
-	if err != nil {
-		logrus.WithError(err).Fatal("Unable to start listening")
-		return err
+	var ln net.Listener
+	var err error
+	if c.ngrokToken != "" {
+		ngrokTun, err := ngrok.Listen(ctx,
+			config.TCPEndpoint(),
+			ngrok.WithAuthtoken(c.ngrokToken),
+		)
+		if err != nil {
+			logrus.WithError(err).Fatal("Unable to start ngrok tunnel")
+			return err
+		}
+		ln = ngrokTun
+		logrus.WithField("ngrokUrl", ngrokTun.URL()).Info("Listening for Minecraft client connections via ngrok tunnel")
+	} else {
+		ln, err = net.Listen("tcp", listenAddress)
+		if err != nil {
+			logrus.WithError(err).Fatal("Unable to start listening")
+			return err
+		}
+		logrus.WithField("listenAddress", listenAddress).Info("Listening for Minecraft client connections")
 	}
-	logrus.WithField("listenAddress", listenAddress).Info("Listening for Minecraft client connections")
 
 	go c.acceptConnections(ctx, ln, connRateLimit)
 
@@ -321,4 +339,8 @@ func (c *Connector) pumpFrames(incoming io.Reader, outgoing io.Writer, errors ch
 		// successful io.Copy return nil error, not EOF...to simulate that to trigger outer handling
 		errors <- io.EOF
 	}
+}
+
+func (c *Connector) UseNgrok(token string) {
+	c.ngrokToken = token
 }

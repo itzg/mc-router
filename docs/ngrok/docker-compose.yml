@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  mc:
+    image: itzg/minecraft-server
+    environment:
+      EULA: true
+    volumes:
+      - mc-data:/data
+    # No port mapping since mc-router connects over compose network
+  router:
+    image: itzg/mc-router
+    environment:
+      DEFAULT: mc:25565
+      NGROK_TOKEN: ${NGROK_TOKEN}
+    # No port mapping needed since it routes through ngrok tunnel
+
+volumes:
+  mc-data: {}
