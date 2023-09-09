@@ -7,89 +7,69 @@
 
 Routes Minecraft client connections to backend servers based upon the requested server address.
 
-# Usage
+## Usage
 
 ```text
   -api-binding host:port
-    	The host:port bound for servicing API requests (env API_BINDING)
+        The host:port bound for servicing API requests (env API_BINDING)
   -auto-scale-up
-      Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed (env AUTO_SCALE_UP)
+        Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed (env AUTO_SCALE_UP)
   -connection-rate-limit int
-    	Max number of connections to allow per second (env CONNECTION_RATE_LIMIT) (default 1)
+        Max number of connections to allow per second (env CONNECTION_RATE_LIMIT) (default 1)
   -cpu-profile string
-    	Enables CPU profiling and writes to given path (env CPU_PROFILE)
+        Enables CPU profiling and writes to given path (env CPU_PROFILE)
   -debug
-    	Enable debug logs (env DEBUG)
-  -in-kube-cluster
-    	Use in-cluster Kubernetes config (env IN_KUBE_CLUSTER)
-  -kube-config string
-    	The path to a Kubernetes configuration file (env KUBE_CONFIG)
+        Enable debug logs (env DEBUG)
+  -default string
+        host:port of a default Minecraft server to use when mapping not found (env DEFAULT)
+  -docker-refresh-interval int
+        Refresh interval in seconds for the Docker Swarm integration (env DOCKER_REFRESH_INTERVAL) (default 15)
+  -docker-timeout int
+        Timeout configuration in seconds for the Docker Swarm integration (env DOCKER_TIMEOUT)
   -in-docker-swarm
-      Use in-swarm Docker config (env IN_DOCKER_SWARM)
-  -docker-timeout
-      Timeout configuration in seconds for the Docker Swarm integration (env DOCKER_TIMEOUT) (default 0)
-  -docker-refresh-interval
-      Refresh interval in seconds for the Docker Swarm integration (env DOCKER_REFRESH_INTERVAL) (default 15)
-  -mapping string
-    	Comma-separated mappings of externalHostname=host:port (env MAPPING)
+        Use in-swarm Docker config (env IN_DOCKER_SWARM)
+  -in-kube-cluster
+        Use in-cluster Kubernetes config (env IN_KUBE_CLUSTER)
+  -kube-config string
+        The path to a Kubernetes configuration file (env KUBE_CONFIG)
+  -mapping value
+        Comma-separated or repeated mappings of externalHostname=host:port (env MAPPING)
   -metrics-backend string
-    	Backend to use for metrics exposure/publishing: discard,expvar,influxdb (env METRICS_BACKEND) (default "discard")
+        Backend to use for metrics exposure/publishing: discard,expvar,influxdb (env METRICS_BACKEND) (default "discard")
   -metrics-backend-config-influxdb-addr string
-    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_ADDR)
+         (env METRICS_BACKEND_CONFIG_INFLUXDB_ADDR)
   -metrics-backend-config-influxdb-database string
-    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_DATABASE)
+         (env METRICS_BACKEND_CONFIG_INFLUXDB_DATABASE)
   -metrics-backend-config-influxdb-interval duration
-    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_INTERVAL) (default 1m0s)
+         (env METRICS_BACKEND_CONFIG_INFLUXDB_INTERVAL) (default 1m0s)
   -metrics-backend-config-influxdb-password string
-    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_PASSWORD)
+         (env METRICS_BACKEND_CONFIG_INFLUXDB_PASSWORD)
   -metrics-backend-config-influxdb-retention-policy string
-    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_RETENTION_POLICY)
+         (env METRICS_BACKEND_CONFIG_INFLUXDB_RETENTION_POLICY)
   -metrics-backend-config-influxdb-tags value
-    	any extra tags to be included with all reported metrics (env METRICS_BACKEND_CONFIG_INFLUXDB_TAGS)
+        any extra tags to be included with all reported metrics (env METRICS_BACKEND_CONFIG_INFLUXDB_TAGS)
   -metrics-backend-config-influxdb-username string
-    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_USERNAME)
+         (env METRICS_BACKEND_CONFIG_INFLUXDB_USERNAME)
+  -ngrok-token string
+        If set, an ngrok tunnel will be established. It is HIGHLY recommended to pass as an environment variable. (env NGROK_TOKEN)
   -port port
-    	The port bound to listen for Minecraft client connections (env PORT) (default 25565)
+        The port bound to listen for Minecraft client connections (env PORT) (default 25565)
   -routes-config string
-        The path to the routes config file (env ROUTES_CONFIG)
+        Name or full path to routes config file (env ROUTES_CONFIG)
+  -simplify-srv
+        Simplify fully qualified SRV records for mapping (env SIMPLIFY_SRV)
+  -use-proxy-protocol
+        Send PROXY protocol to backend servers (env USE_PROXY_PROTOCOL)
   -version
-    	Output version and exit (env VERSION)
+        Output version and exit (env VERSION)
 ```
 
-# REST API
 
-* `GET /routes` (with `Accept: application/json`)
-
-   Retrieves the currently configured routes
-
-* `POST /routes` (with `Content-Type: application/json`)
-
-  Registers a route given a JSON body structured like:
-  ```json
-  {
-    "serverAddress": "CLIENT REQUESTED SERVER ADDRESS",
-    "backend": "HOST:PORT"
-  }
-  ```
-
-* `POST /defaultRoute` (with `Content-Type: application/json`)
-
-  Registers a default route to the given backend. JSON body is structured as:
-  ```json
-  {
-    "backend": "HOST:PORT"
-  }
-  ```
-
-* `DELETE /routes/{serverAddress}`
-
-  Deletes an existing route for the given `serverAddress`
-
-# Docker Multi-Architecture Image
+## Docker Multi-Architecture Image
 
 The [multi-architecture image published at Docker Hub](https://hub.docker.com/repository/docker/itzg/mc-router) supports amd64, arm64, and arm32v6 (i.e. RaspberryPi).
 
-# Docker Compose Usage
+## Docker Compose Usage
 
 The following diagram shows how [the example docker-compose.yml](docs/docker-compose.yml)
 configures two Minecraft server services named `vanilla` and `forge`, which also become the internal
@@ -109,7 +89,7 @@ To test out this example, I added these two entries to my "hosts" file:
 127.0.0.1 forge.example.com
 ```
 
-# Routing Configuration
+## Routing Configuration
 
 The routing configuration allows routing via a config file rather than a command. 
 You need to set `-routes-config` or `ROUTES_CONFIG` env variable.
@@ -125,9 +105,9 @@ The following shows a JSON file for routes config, where `default-server` can al
 }
 ```
 
-# Kubernetes Usage
+## Kubernetes Usage
 
-## Using Kubernetes Service auto-discovery
+### Using Kubernetes Service auto-discovery
 
 When running `mc-router` as a Kubernetes Pod and you pass the `--in-kube-cluster` command-line argument, then it will automatically watch for any services annotated with
 - `mc-router.itzg.me/externalServerName` : The value of the annotation will be registered as the external hostname Minecraft clients would used to connect to the routed service. The service's clusterIP and target port are used as the routed backend. You can use more hostnames by splitting them with comma.
@@ -165,7 +145,7 @@ metadata:
 
 mc-router will pick the service port named either `minecraft` or `mc-router`. If neither port names exist, it will use port value 25565.
 
-## Example Kubernetes deployment
+### Example Kubernetes deployment
 
 [This example deployment](docs/k8s-example-auto.yaml)
 * Declares an `mc-router` service that exposes a node port 25565
@@ -180,12 +160,12 @@ kubectl apply -f https://raw.githubusercontent.com/itzg/mc-router/master/docs/k8
 
 ![](docs/example-deployment-auto.drawio.png)
 
-#### Notes
+##### Notes
 * This deployment assumes two persistent volume claims: `mc-stable` and `mc-snapshot`
 * I extended the allowed node port range by adding `--service-node-port-range=25000-32767`
   to `/etc/kubernetes/manifests/kube-apiserver.yaml`
 
-#### Auto Scale Up
+##### Auto Scale Up
 
 The `-auto-scale-up` flag argument makes the router "wake up" any stopped backend servers, by changing `replicas: 0` to `replicas: 1`.
 
@@ -208,9 +188,9 @@ rules:
   verbs: ["watch","list","get","update"]
 ```
 
-# Docker Swarm Usage
+## Docker Swarm Usage
 
-## Using Docker Swarm Service auto-discovery
+### Using Docker Swarm Service auto-discovery
 
 When running `mc-router` in a Docker Swarm environment you can pass the `--in-docker-swarm` 
 command-line argument and it will poll the Docker API periodically to find all the running
@@ -227,22 +207,105 @@ label on the service. These are the labels scanned:
 - `mc-router.network`: Specify the network you are using for the router if multiple are 
   present in the service. You can either use the network ID, it's full name or an alias.
 
-## Example Docker Swarm deployment
+### Example Docker Swarm deployment
 
 Refer to [this example docker-compose.yml](docs/swarm.docker-compose.yml) to see how to
 configure two different Minecraft servers and a `mc-router` instance. Notice how you don't 
 have to expose the Minecraft instances ports, but all the containers are required to be in
 the same network.
 
-# Development
+## REST API
 
-## Building locally with Docker
+* `GET /routes` (with `Accept: application/json`)
+
+  Retrieves the currently configured routes
+
+* `POST /routes` (with `Content-Type: application/json`)
+
+  Registers a route given a JSON body structured like:
+  ```json
+  {
+    "serverAddress": "CLIENT REQUESTED SERVER ADDRESS",
+    "backend": "HOST:PORT"
+  }
+  ```
+
+* `POST /defaultRoute` (with `Content-Type: application/json`)
+
+  Registers a default route to the given backend. JSON body is structured as:
+  ```json
+  {
+    "backend": "HOST:PORT"
+  }
+  ```
+
+* `DELETE /routes/{serverAddress}`
+
+  Deletes an existing route for the given `serverAddress`
+
+## ngrok
+
+mc-router has built-in support to run as an [ngrok agent](https://ngrok.com/docs/secure-tunnels/ngrok-agent/). To enable this support, pass [an ngrok authtoken](https://ngrok.com/docs/secure-tunnels/ngrok-agent/tunnel-authtokens/#per-agent-authtokens) to the command-line argument or environment variable, [shown above](#usage).
+
+### Ngrok Quick Start
+
+Create/access an ngrok account and [allocate an agent authtoken from the dashboard](https://dashboard.ngrok.com/tunnels/authtokens).
+
+In a new directory, create a file called `.env` with the allocated token
+
+```dotenv
+NGROK_TOKEN=...
+```
+
+In the same directory, create the following compose file:
+
+```yaml
+version: "3.8"
+
+services:
+  mc:
+    image: itzg/minecraft-server
+    environment:
+      EULA: true
+    volumes:
+      - mc-data:/data
+    # No port mapping since mc-router connects over compose network
+  router:
+    image: itzg/mc-router
+    environment:
+      DEFAULT: mc:25565
+      NGROK_TOKEN: ${NGROK_TOKEN}
+    # No port mapping needed since it routes through ngrok tunnel
+
+volumes:
+  mc-data: {}
+```
+
+Start the compose project:
+
+```shell
+docker compose up -d
+```
+
+Grab the mc-router logs using:
+
+```shell
+docker compose logs router
+```
+
+From those logs, locate the `ngrokUrl` parameter from the "Listening" info log message, such as `tcp://8.tcp.ngrok.io:99999`.
+
+In the Minecraft client, the server address will be the part after the "tcp://" prefix, such as `8.tcp.ngrok.io:99999`.
+
+## Development
+
+### Building locally with Docker
 
 ```bash
 docker build -t mc-router .
 ```
 
-## Build locally without Docker
+### Build locally without Docker
 
 After [installing Go](https://go.dev/doc/install) and doing a `go mod download` to install all required prerequisites, just like the [Dockerfile](Dockerfile) does, you can:
 
@@ -251,7 +314,7 @@ make test # go test -v ./...
 go build ./cmd/mc-router/
 ```
 
-## Skaffold
+### Skaffold
 
 For "in-cluster development" it's convenient to use https://skaffold.dev. Any changes to Go source code
 will trigger a go build, new container image pushed to registry with a new tag, and refresh in Kubernetes
@@ -265,7 +328,7 @@ then add the _Artifact Registry Reader_ Role to the _Compute Engine default serv
 then use e.g. `gcloud auth configure-docker europe-docker.pkg.dev` or equivalent one time (to create a `~/.docker/config.json`),
 and then use e.g. `--default-repo=europe-docker.pkg.dev/YOUR-PROJECT/YOUR-ARTIFACT-REGISTRY` option for `skaffold dev`.
 
-## Performing snapshot release with Docker
+### Performing snapshot release with Docker
 
 ```bash
 docker run -it --rm \
@@ -275,6 +338,6 @@ docker run -it --rm \
   release --snapshot --rm-dist
 ```
 
-# Related Projects
+## Related Projects
 
 * https://github.com/haveachin/infrared
