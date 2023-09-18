@@ -12,7 +12,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.8.4
-	golang.ngrok.com/ngrok v1.4.0
+	golang.ngrok.com/ngrok v1.4.1
 	golang.org/x/text v0.13.0
 	k8s.io/api v0.28.1
 	k8s.io/apimachinery v0.28.2
