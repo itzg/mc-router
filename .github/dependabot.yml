@@ -5,7 +5,20 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      updates:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
-      interval: "weekly"    
+      interval: "weekly"
+    groups:
+      patches:
+        patterns:
+          - "*"
+        update-types:
+          - patch
