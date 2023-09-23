@@ -8,35 +8,7 @@ on:
 
 jobs:
   release:
-    runs-on: ubuntu-20.04
-    env:
-      DOCKER_CLI_EXPERIMENTAL: "enabled"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version-file: 'go.mod'
-
-      - name: Setup docker buildx
-        uses: docker/setup-buildx-action@v2
-        with:
-          install: true
-
-      - name: Docker login
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v4
-        with:
-          version: latest
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    uses: itzg/github-workflows/.github/workflows/go-with-releaser-image.yml@main
+    secrets:
+      image-registry-username: ${{ secrets.DOCKERHUB_USERNAME }}
+      image-registry-password: ${{ secrets.DOCKERHUB_TOKEN }}
