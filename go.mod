@@ -14,9 +14,9 @@ require (
 	github.com/stretchr/testify v1.8.4
 	golang.ngrok.com/ngrok v1.5.1
 	golang.org/x/text v0.13.0
-	k8s.io/api v0.28.2
-	k8s.io/apimachinery v0.28.2
-	k8s.io/client-go v0.28.2
+	k8s.io/api v0.28.3
+	k8s.io/apimachinery v0.28.3
+	k8s.io/client-go v0.28.3
 )
 
 require (
