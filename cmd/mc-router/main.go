@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"runtime/pprof"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -30,22 +29,22 @@ type MetricsBackendConfig struct {
 }
 
 type Config struct {
-	Port                  int      `default:"25565" usage:"The [port] bound to listen for Minecraft client connections"`
-	Default               string   `usage:"host:port of a default Minecraft server to use when mapping not found"`
-	Mapping               []string `usage:"Comma-separated or repeated mappings of externalHostname=host:port"`
-	ApiBinding            string   `usage:"The [host:port] bound for servicing API requests"`
-	Version               bool     `usage:"Output version and exit"`
-	CpuProfile            string   `usage:"Enables CPU profiling and writes to given path"`
-	Debug                 bool     `usage:"Enable debug logs"`
-	ConnectionRateLimit   int      `default:"1" usage:"Max number of connections to allow per second"`
-	InKubeCluster         bool     `usage:"Use in-cluster Kubernetes config"`
-	KubeConfig            string   `usage:"The path to a Kubernetes configuration file"`
-	AutoScaleUp           bool     `usage:"Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed"`
-	InDockerSwarm         bool     `usage:"Use in-swarm Docker config"`
-	DockerTimeout         int      `default:"0" usage:"Timeout configuration in seconds for the Docker Swarm integration"`
-	DockerRefreshInterval int      `default:"15" usage:"Refresh interval in seconds for the Docker Swarm integration"`
-	MetricsBackend        string   `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
-	UseProxyProtocol      bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
+	Port                  int               `default:"25565" usage:"The [port] bound to listen for Minecraft client connections"`
+	Default               string            `usage:"host:port of a default Minecraft server to use when mapping not found"`
+	Mapping               map[string]string `usage:"Comma or newline delimited or repeated mappings of externalHostname=host:port"`
+	ApiBinding            string            `usage:"The [host:port] bound for servicing API requests"`
+	Version               bool              `usage:"Output version and exit"`
+	CpuProfile            string            `usage:"Enables CPU profiling and writes to given path"`
+	Debug                 bool              `usage:"Enable debug logs"`
+	ConnectionRateLimit   int               `default:"1" usage:"Max number of connections to allow per second"`
+	InKubeCluster         bool              `usage:"Use in-cluster Kubernetes config"`
+	KubeConfig            string            `usage:"The path to a Kubernetes configuration file"`
+	AutoScaleUp           bool              `usage:"Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed"`
+	InDockerSwarm         bool              `usage:"Use in-swarm Docker config"`
+	DockerTimeout         int               `default:"0" usage:"Timeout configuration in seconds for the Docker Swarm integration"`
+	DockerRefreshInterval int               `default:"15" usage:"Refresh interval in seconds for the Docker Swarm integration"`
+	MetricsBackend        string            `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
+	UseProxyProtocol      bool              `default:"false" usage:"Send PROXY protocol to backend servers"`
 	MetricsBackendConfig  MetricsBackendConfig
 	RoutesConfig          string `usage:"Name or full path to routes config file"`
 	NgrokToken            string `usage:"If set, an ngrok tunnel will be established. It is HIGHLY recommended to pass as an environment variable."`
@@ -110,7 +109,7 @@ func main() {
 		}
 	}
 
-	server.Routes.RegisterAll(parseMappings(config.Mapping))
+	server.Routes.RegisterAll(config.Mapping)
 	if config.Default != "" {
 		server.Routes.SetDefaultRoute(config.Default)
 	}
@@ -172,18 +171,4 @@ func main() {
 	signal.Stop(c)
 	connector.WaitForConnections()
 	logrus.Info("Stopped")
-}
-
-func parseMappings(vals []string) map[string]string {
-	result := make(map[string]string)
-	for _, part := range vals {
-		keyValue := strings.Split(part, "=")
-		if len(keyValue) == 2 {
-			result[keyValue[0]] = keyValue[1]
-		} else {
-			logrus.WithField("part", part).Fatal("Invalid part of mapping")
-		}
-	}
-
-	return result
 }
