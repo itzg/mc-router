@@ -71,18 +71,39 @@ The [multi-architecture image published at Docker Hub](https://hub.docker.com/re
 
 ## Docker Compose Usage
 
-The following diagram shows how [the example docker-compose.yml](docs/docker-compose.yml)
-configures two Minecraft server services named `vanilla` and `forge`, which also become the internal
-network aliases. _Notice those services don't need their ports exposed since the internal
-networking allows for the inter-container access._
+The diagram below shows how this `docker-compose.yml` configures two Minecraft server services named `vanilla` and `forge`, which also become the internal network aliases. _Notice those services don't need their ports exposed since the internal networking allows for the inter-container access._
 
-The `router` service is only one of the services that needs to exposed on the external
-network. The `--mapping` declares how the hostname users will enter into their Minecraft client
-will map to the internal services.
+```yaml
+version: "3.8"
+
+services:
+  vanilla:
+    image: itzg/minecraft-server
+    environment:
+      EULA: "TRUE"
+  forge:
+    image: itzg/minecraft-server
+    environment:
+      EULA: "TRUE"
+      TYPE: FORGE
+  router:
+    image: ${MC_ROUTER_IMAGE:-itzg/mc-router}
+    depends_on:
+      - forge
+      - vanilla
+    environment:
+      MAPPING: |
+        vanilla.example.com=vanilla:25565
+        forge.example.com=forge:25565
+    ports:
+      - "25565:25565"
+```
+
+The `router` service is only one of the services that needs to exposed on the external network. The `MAPPING` declares how the hostname users will enter into their Minecraft client will map to the internal services.
 
 ![](docs/compose-diagram.png)
 
-To test out this example, I added these two entries to my "hosts" file:
+To test out this example, add these two entries to my "hosts" file:
 
 ```
 127.0.0.1 vanilla.example.com

@@ -1,4 +1,4 @@
-version: '3.4'
+version: "3.8"
 
 services:
   vanilla:
@@ -18,9 +18,12 @@ services:
     environment:
       # enable API
       API_BINDING: ":25564"
+      DEBUG: true
+      MAPPING: |
+        vanilla.example.com=vanilla:25565
+        forge.example.com=forge:25565
     ports:
-      - 25565:25565
+      - "25565:25565"
       # bind the API port to only loopback to avoid external exposure
-      - 127.0.0.1:25564:25564
-    command: --mapping=vanilla.example.com=vanilla:25565,forge.example.com=forge:25565
+      - "127.0.0.1:25564:25564"
 
