@@ -7,7 +7,6 @@ import (
 	"golang.ngrok.com/ngrok/config"
 	"io"
 	"net"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -248,21 +247,29 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 
 	// PROXY protocol implementation
 	if c.sendProxyProto {
-		remoteHostStr, _, _ := net.SplitHostPort(backendHostPort)
-		sourceAddrStr, sourcePortStr, _ := net.SplitHostPort(clientAddr.String())
-		sourcePort, _ := strconv.Atoi(sourcePortStr)
+
+		// Determine transport protocol for the PROXY header by "analyzing" the frontend connection's address
+		transportProtocol := proxyproto.TCPv4
+		ourHostIpPart, _, err := net.SplitHostPort(frontendConn.LocalAddr().String())
+		if err != nil {
+			logrus.
+				WithError(err).
+				WithField("localAddr", frontendConn.LocalAddr()).
+				Error("Failed to extract host part of our address")
+			_ = backendConn.Close()
+			return
+		}
+		ourFrontendIp := net.ParseIP(ourHostIpPart)
+		if ourFrontendIp.To4() == nil {
+			transportProtocol = proxyproto.TCPv6
+		}
 
 		header := &proxyproto.Header{
 			Version:           2,
 			Command:           proxyproto.PROXY,
-			TransportProtocol: proxyproto.TCPv4,
-			SourceAddr: &net.TCPAddr{
-				IP:   net.ParseIP(sourceAddrStr),
-				Port: sourcePort,
-			},
-			DestinationAddr: &net.TCPAddr{
-				IP: net.ParseIP(remoteHostStr),
-			},
+			TransportProtocol: transportProtocol,
+			SourceAddr:        clientAddr,
+			DestinationAddr:   frontendConn.LocalAddr(), // our end of the client's connection
 		}
 
 		_, err = header.WriteTo(backendConn)
