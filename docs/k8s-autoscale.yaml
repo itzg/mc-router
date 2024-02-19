@@ -1,0 +1,278 @@
+
+# This YAML is an example and is not intended to be directly applied.
+# It consists of 3 parts
+# 1. the mc-router with service account an service 
+# 2. the shutdown cronjob with service account
+# 3. the actual server with service and storage
+
+# part 3 is the only part you need to replicate for the number of servers you want
+
+# mc-router
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mc-router
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: services-watcher
+rules:
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["watch","list"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "statefulsets/scale"]
+  verbs: ["watch","list","get","update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mc-router-services-watcher
+subjects:
+- kind: ServiceAccount
+  name: mc-router
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: services-watcher
+  apiGroup: rbac.authorization.k8s.io
+# Use whatever tcp ingress method you want I just used a node port here for simplicity
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-router
+spec:
+  type: NodePort
+  externalIPs:
+    - 192.168.1.100
+  ports:
+  - targetPort: web
+    name: web
+    port: 8080
+    nodePort: 30001
+  - targetPort: proxy
+    name: proxy
+    port: 25565
+    nodePort: 30000
+  selector:
+    run: mc-router
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    run: mc-router
+  name: mc-router
+spec:
+  selector:
+    matchLabels:
+      run: mc-router
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        run: mc-router
+    spec:
+      serviceAccountName: mc-router
+      containers:
+      - image: aapjeisbaas/mc-router:latest
+        imagePullPolicy: Always
+        name: mc-router
+        args: ["--api-binding", ":8080", "--in-kube-cluster","--auto-scale-up", "--debug"]
+        env:
+          - name: AUTO_SCALE_UP
+            value: "true"
+        ports:
+        - name: proxy
+          containerPort: 25565
+        - name: web
+          containerPort: 8080
+        resources:
+          requests:
+            memory: 50Mi
+            cpu: "100m"
+          limits:
+            memory: 100Mi
+            cpu: "250m"
+
+
+# Cron job for stopping empty servers
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mc-shutdown
+rules:
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "statefulsets/scale"]
+  verbs: ["list","get","update", "patch"]
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mc-shutdown
+subjects:
+- kind: ServiceAccount
+  name: mc-shutdown
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: mc-shutdown
+  apiGroup: "rbac.authorization.k8s.io"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mc-shutdown
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mc-shutdown
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: mc-shutdown
+          restartPolicy: OnFailure
+          containers:
+          - name: shutdown
+            image: bitnami/kubectl:latest
+            imagePullPolicy: IfNotPresent
+            command:
+            - /bin/bash
+            - -c
+            - source shutdown-script.sh
+            volumeMounts:
+                - name: shutdown-script
+                  mountPath: /shutdown-script.sh
+                  subPath: shutdown-script.sh
+                  readOnly: true
+          volumes:
+          - name: shutdown-script
+            configMap:
+              name: shutdown-script
+              items:
+                - key: shutdown-script.sh
+                  path: shutdown-script.sh
+# uses container label containertype=minecraft-server to find running servers
+# TODO: get ownerReferences link to StatefulSet/name from pod metadate instead of sed string manipulation
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shutdown-script
+data:
+  shutdown-script.sh: |
+    #!/bin/bash
+    MC_PODS=$(kubectl get pods -l containertype=minecraft-server -o=jsonpath="{range .items[*]}{.metadata.name},"| sed 's/,/\n/g') 
+    for p in $MC_PODS; do
+      echo "found minecraft pod $p, sleeping 120 seconds to prevent shutdown before login"
+      sleep 120
+      deployment=$(echo $p |sed 's/-0//g')
+      # check online player count in the mc server
+      if [[ $(kubectl exec -i $p -- /usr/local/bin/mc-monitor status) == *"online=0"* ]] ;then
+        kubectl scale statefulset $deployment --replicas=0
+      fi
+    done
+
+
+# The actual minecraft servers, services and storage, repeat this block for as many servers as you want
+# make sure you have the label containertype=minecraft-server this is used to find running servers
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minecraft-servername-deployment
+  labels:
+    app: minecraft-servername-container
+spec:
+  serviceName: minecraft-servername-deployment
+  selector:
+    matchLabels:
+      app: minecraft-servername-container 
+  replicas: 0
+  template:
+    metadata:
+      labels:
+        app: minecraft-servername-container
+        containertype: minecraft-server
+    spec:
+      containers:
+      - name: minecraft-servername-deployment
+        image: itzg/minecraft-server:latest
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            memory: "2048Mi"
+        env:
+          # Use secret in real usage
+        - name: EULA
+          value: "true"
+        # let the JVM figure out mem management
+        - name: "MEMORY"
+          value: ""
+        - name: JVM_XX_OPTS
+          value: "-XX:MaxRAMPercentage=75"
+        ports:
+        - containerPort: 25565
+          name: main
+        readinessProbe:
+          exec:
+            command: [ "/usr/local/bin/mc-monitor", "status", "--host", "localhost" ]
+          # Give it i + p * f seconds to be ready, so 120 seconds
+          initialDelaySeconds: 20
+          periodSeconds: 5
+          failureThreshold: 20
+        # Monitor ongoing liveness
+        livenessProbe:
+          exec:
+            command: ["/usr/local/bin/mc-monitor", "status", "--host", "localhost"]
+          initialDelaySeconds: 120
+          periodSeconds: 60
+        volumeMounts:
+        - name: mc-data
+          mountPath: /data
+      volumes:
+      - name: mc-data
+        persistentVolumeClaim:
+          claimName: minecraft-servername-pvc
+          readOnly: false
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minecraft-servername-pvc
+  namespace: default
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minecraft-servername-deployment
+  namespace: default
+  annotations:
+    "mc-router.itzg.me/externalServerName": "your-awesome-server.public-domain.com"
+spec:
+  ports:
+  - port: 25565
+  selector:
+    app: minecraft-servername-container
