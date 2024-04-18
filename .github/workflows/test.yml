@@ -10,3 +10,5 @@ on:
 jobs:
   build:
     uses: itzg/github-workflows/.github/workflows/go-test.yml@main
+    with:
+      go-version: "1.22.2"
