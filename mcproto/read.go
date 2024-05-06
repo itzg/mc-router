@@ -160,6 +160,12 @@ func ReadFrame(reader io.Reader, addr net.Addr) (*Frame, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Limit frame length to 2^21 - 1
+	if frame.Length > 2097151 {
+		return nil, errors.Errorf("frame length %d too large", frame.Length)
+	}
+
 	logrus.
 		WithField("client", addr).
 		WithField("length", frame.Length).
