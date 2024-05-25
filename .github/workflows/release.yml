@@ -10,7 +10,7 @@ jobs:
   release:
     uses: itzg/github-workflows/.github/workflows/go-with-releaser-image.yml@main
     with:
-      go-version: "1.22.2"
+      go-version: "1.22.3"
     secrets:
       image-registry-username: ${{ secrets.DOCKERHUB_USERNAME }}
       image-registry-password: ${{ secrets.DOCKERHUB_TOKEN }}
