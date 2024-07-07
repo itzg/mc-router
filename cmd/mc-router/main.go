@@ -45,6 +45,8 @@ type Config struct {
 	DockerRefreshInterval int               `default:"15" usage:"Refresh interval in seconds for the Docker Swarm integration"`
 	MetricsBackend        string            `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
 	UseProxyProtocol      bool              `default:"false" usage:"Send PROXY protocol to backend servers"`
+	ReceiveProxyProtocol  bool              `default:"false" usage:"Receive PROXY protocol from backend servers, by default trusts every proxy header that it receives, combine with -trusted-proxies to specify a list of trusted proxies"`
+	TrustedProxies        []string          `usage:"Comma delimited list of CIDR notation IP blocks to trust when receiving PROXY protocol"`
 	MetricsBackendConfig  MetricsBackendConfig
 	RoutesConfig          string `usage:"Name or full path to routes config file"`
 	NgrokToken            string `usage:"If set, an ngrok tunnel will be established. It is HIGHLY recommended to pass as an environment variable."`
@@ -117,7 +119,17 @@ func main() {
 	if config.ConnectionRateLimit < 1 {
 		config.ConnectionRateLimit = 1
 	}
-	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol)
+
+	trustedIpNets := make([]*net.IPNet, 0)
+	for _, ip := range config.TrustedProxies {
+		_, ipNet, err := net.ParseCIDR(ip)
+		if err != nil {
+			logrus.WithError(err).Fatal("Unable to parse trusted proxy CIDR block")
+		}
+		trustedIpNets = append(trustedIpNets, ipNet)
+	}
+
+	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.ReceiveProxyProtocol, trustedIpNets)
 	if config.NgrokToken != "" {
 		connector.UseNgrok(config.NgrokToken)
 	}
