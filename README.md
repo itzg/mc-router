@@ -54,10 +54,14 @@ Routes Minecraft client connections to backend servers based upon the requested 
         If set, an ngrok tunnel will be established. It is HIGHLY recommended to pass as an environment variable. (env NGROK_TOKEN)
   -port port
         The port bound to listen for Minecraft client connections (env PORT) (default 25565)
+  -receive-proxy-protocol
+        Receive PROXY protocol from backend servers, by default trusts every proxy header that it receives, combine with -trusted-proxies to specify a list of trusted proxies (env RECEIVE_PROXY_PROTOCOL)
   -routes-config string
         Name or full path to routes config file (env ROUTES_CONFIG)
   -simplify-srv
         Simplify fully qualified SRV records for mapping (env SIMPLIFY_SRV)
+  -trusted-proxies value
+        Comma delimited list of CIDR notation IP blocks to trust when receiving PROXY protocol (env TRUSTED_PROXIES)
   -use-proxy-protocol
         Send PROXY protocol to backend servers (env USE_PROXY_PROTOCOL)
   -version
