@@ -22,12 +22,16 @@ Routes Minecraft client connections to backend servers based upon the requested 
         Enable debug logs (env DEBUG)
   -default string
         host:port of a default Minecraft server to use when mapping not found (env DEFAULT)
+  -docker-socket
+        Path to Docker socket to use (env DOCKER_SOCKET) (default "unix:///var/run/docker.sock")
   -docker-refresh-interval int
         Refresh interval in seconds for the Docker Swarm integration (env DOCKER_REFRESH_INTERVAL) (default 15)
   -docker-timeout int
         Timeout configuration in seconds for the Docker Swarm integration (env DOCKER_TIMEOUT)
+  -in-docker
+        Use Docker service discovery (env IN_DOCKER)
   -in-docker-swarm
-        Use in-swarm Docker config (env IN_DOCKER_SWARM)
+        Use Docker Swarm service discovery (env IN_DOCKER_SWARM)
   -in-kube-cluster
         Use in-cluster Kubernetes config (env IN_KUBE_CLUSTER)
   -kube-config string
@@ -113,6 +117,33 @@ To test out this example, add these two entries to my "hosts" file:
 127.0.0.1 vanilla.example.com
 127.0.0.1 forge.example.com
 ```
+
+### Using Docker auto-discovery
+
+When running `mc-router` in a Docker environment you can pass the `--in-docker` or `--in-docker-swarm` 
+command-line argument and it will poll the Docker API periodically to find all the running
+containers/services for Minecraft instances. To enable discovery you have to set the `mc-router.host`
+label on the container. These are the labels scanned:
+
+- `mc-router.host`: Used to configure the hostname the Minecraft clients would use to 
+  connect to the server. The container/service endpoint will be used as the routed backend. You can 
+  use more than one hostname by splitting it with a comma.
+- `mc-router.port`: This value must be set to the port the Minecraft server is listening on.
+  The default value is 25565.
+- `mc-router.default`: Set this to a truthy value to make this server the default backend.
+  Please note that `mc-router.host` is still required to be set.
+- `mc-router.network`: Specify the network you are using for the router if multiple are 
+  present in the container/service. You can either use the network ID, it's full name or an alias.
+
+#### Example Docker deployment
+
+Refer to [this example docker-compose.yml](docs/sd-docker.docker-compose.yml) to see how to
+configure two different Minecraft servers and a `mc-router` instance for use with Docker service discovery.
+
+#### Example Docker Swarm deployment
+
+Refer to [this example docker-compose.yml](docs/swarm.docker-compose.yml) to see how to
+configure two different Minecraft servers and a `mc-router` instance for use with Docker Swarm service discovery.
 
 ## Routing Configuration
 
@@ -212,32 +243,6 @@ rules:
   resources: ["statefulsets", "statefulsets/scale"]
   verbs: ["watch","list","get","update"]
 ```
-
-## Docker Swarm Usage
-
-### Using Docker Swarm Service auto-discovery
-
-When running `mc-router` in a Docker Swarm environment you can pass the `--in-docker-swarm` 
-command-line argument and it will poll the Docker API periodically to find all the running
-services for minecraft instances. To enable discovery you have to set the `mc-router.host`
-label on the service. These are the labels scanned:
-
-- `mc-router.host`: Used to configure the hostname the Minecraft clients would use to 
-  connect to the server. The service endpoint will be used as the routed backend. You can 
-  use more than one hostname by splitting it with a comma.
-- `mc-router.port`: This value must be set to the port the Minecraft server is listening on.
-  The default value is 25565.
-- `mc-router.default`: Set this to a truthy value to make this server the deafult backend.
-  Please note that `mc-router.host` is still required to be set.
-- `mc-router.network`: Specify the network you are using for the router if multiple are 
-  present in the service. You can either use the network ID, it's full name or an alias.
-
-### Example Docker Swarm deployment
-
-Refer to [this example docker-compose.yml](docs/swarm.docker-compose.yml) to see how to
-configure two different Minecraft servers and a `mc-router` instance. Notice how you don't 
-have to expose the Minecraft instances ports, but all the containers are required to be in
-the same network.
 
 ## REST API
 
