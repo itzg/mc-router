@@ -1,0 +1,34 @@
+services:
+  mcfoo:
+    image: itzg/minecraft-server
+    environment:
+      EULA: "TRUE"
+      MOTD: "foo"
+    volumes:
+      - mcfoodata:/data
+    labels:
+      mc-router.host: "foo.localhost"
+      mc-router.default: true
+  mcbar:
+    image: itzg/minecraft-server
+    environment:
+      EULA: "TRUE"
+      MOTD: "bar"
+    volumes:
+      - mcbardata:/data
+    labels:
+      mc-router.host: "bar.localhost"
+  router:
+    image: itzg/mc-router:latest
+    command: "-debug -in-docker"
+    depends_on:
+      - mcfoo
+      - mcbar
+    ports:
+      - "25565:25565"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+volumes:
+  mcfoodata:
+  mcbardata:

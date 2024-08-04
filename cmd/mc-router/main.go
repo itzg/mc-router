@@ -40,9 +40,10 @@ type Config struct {
 	InKubeCluster         bool              `usage:"Use in-cluster Kubernetes config"`
 	KubeConfig            string            `usage:"The path to a Kubernetes configuration file"`
 	AutoScaleUp           bool              `usage:"Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed"`
+	InDocker              bool              `usage:"Use non-swarm Docker config"`
 	InDockerSwarm         bool              `usage:"Use in-swarm Docker config"`
-	DockerTimeout         int               `default:"0" usage:"Timeout configuration in seconds for the Docker Swarm integration"`
-	DockerRefreshInterval int               `default:"15" usage:"Refresh interval in seconds for the Docker Swarm integration"`
+	DockerTimeout         int               `default:"0" usage:"Timeout configuration in seconds for the Docker integrations"`
+	DockerRefreshInterval int               `default:"15" usage:"Refresh interval in seconds for the Docker integrations"`
 	MetricsBackend        string            `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
 	UseProxyProtocol      bool              `default:"false" usage:"Send PROXY protocol to backend servers"`
 	ReceiveProxyProtocol  bool              `default:"false" usage:"Receive PROXY protocol from backend servers, by default trusts every proxy header that it receives, combine with -trusted-proxies to specify a list of trusted proxies"`
@@ -161,12 +162,21 @@ func main() {
 		}
 	}
 
+	if config.InDocker {
+		err = server.DockerWatcher.Start(config.DockerTimeout, config.DockerRefreshInterval)
+		if err != nil {
+			logrus.WithError(err).Fatal("Unable to start docker integration")
+		} else {
+			defer server.DockerWatcher.Stop()
+		}
+	}
+
 	if config.InDockerSwarm {
-		err = server.DockerWatcher.StartInSwarm(config.DockerTimeout, config.DockerRefreshInterval)
+		err = server.DockerSwarmWatcher.Start(config.DockerTimeout, config.DockerRefreshInterval)
 		if err != nil {
 			logrus.WithError(err).Fatal("Unable to start docker swarm integration")
 		} else {
-			defer server.DockerWatcher.Stop()
+			defer server.DockerSwarmWatcher.Stop()
 		}
 	}
 
