@@ -15,12 +15,11 @@ import (
 )
 
 type IDockerWatcher interface {
-	Start(timeoutSeconds int, refreshIntervalSeconds int) error
+	Start(socket string, timeoutSeconds int, refreshIntervalSeconds int) error
 	Stop()
 }
 
 const (
-	DockerConfigHost         = "unix:///var/run/docker.sock"
 	DockerAPIVersion         = "1.24"
 	DockerRouterLabelHost    = "mc-router.host"
 	DockerRouterLabelPort    = "mc-router.port"
@@ -42,14 +41,14 @@ func (w *dockerWatcherImpl) makeWakerFunc(_ *routableContainer) func(ctx context
 	}
 }
 
-func (w *dockerWatcherImpl) Start(timeoutSeconds int, refreshIntervalSeconds int) error {
+func (w *dockerWatcherImpl) Start(socket string, timeoutSeconds int, refreshIntervalSeconds int) error {
 	var err error
 
 	timeout := time.Duration(timeoutSeconds) * time.Second
 	refreshInterval := time.Duration(refreshIntervalSeconds) * time.Second
 
 	opts := []client.Opt{
-		client.WithHost(DockerConfigHost),
+		client.WithHost(socket),
 		client.WithTimeout(timeout),
 		client.WithHTTPHeaders(map[string]string{
 			"User-Agent": "mc-router ",

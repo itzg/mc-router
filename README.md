@@ -22,6 +22,8 @@ Routes Minecraft client connections to backend servers based upon the requested 
         Enable debug logs (env DEBUG)
   -default string
         host:port of a default Minecraft server to use when mapping not found (env DEFAULT)
+  -docker-socket
+        Path to Docker socket to use (env DOCKER_SOCKET) (default "unix:///var/run/docker.sock")
   -docker-refresh-interval int
         Refresh interval in seconds for the Docker Swarm integration (env DOCKER_REFRESH_INTERVAL) (default 15)
   -docker-timeout int

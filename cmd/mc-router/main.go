@@ -42,6 +42,7 @@ type Config struct {
 	AutoScaleUp           bool              `usage:"Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed"`
 	InDocker              bool              `usage:"Use Docker service discovery"`
 	InDockerSwarm         bool              `usage:"Use Docker Swarm service discovery"`
+	DockerSocket          string            `default:"unix:///var/run/docker.sock" usage:"Path to Docker socket to use"`
 	DockerTimeout         int               `default:"0" usage:"Timeout configuration in seconds for the Docker integrations"`
 	DockerRefreshInterval int               `default:"15" usage:"Refresh interval in seconds for the Docker integrations"`
 	MetricsBackend        string            `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
@@ -163,7 +164,7 @@ func main() {
 	}
 
 	if config.InDocker {
-		err = server.DockerWatcher.Start(config.DockerTimeout, config.DockerRefreshInterval)
+		err = server.DockerWatcher.Start(config.DockerSocket, config.DockerTimeout, config.DockerRefreshInterval)
 		if err != nil {
 			logrus.WithError(err).Fatal("Unable to start docker integration")
 		} else {
@@ -172,7 +173,7 @@ func main() {
 	}
 
 	if config.InDockerSwarm {
-		err = server.DockerSwarmWatcher.Start(config.DockerTimeout, config.DockerRefreshInterval)
+		err = server.DockerSwarmWatcher.Start(config.DockerSocket, config.DockerTimeout, config.DockerRefreshInterval)
 		if err != nil {
 			logrus.WithError(err).Fatal("Unable to start docker swarm integration")
 		} else {

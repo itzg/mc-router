@@ -33,14 +33,14 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(_ *routableService) func(ctx cont
 	}
 }
 
-func (w *dockerSwarmWatcherImpl) Start(timeoutSeconds int, refreshIntervalSeconds int) error {
+func (w *dockerSwarmWatcherImpl) Start(socket string, timeoutSeconds int, refreshIntervalSeconds int) error {
 	var err error
 
 	timeout := time.Duration(timeoutSeconds) * time.Second
 	refreshInterval := time.Duration(refreshIntervalSeconds) * time.Second
 
 	opts := []client.Opt{
-		client.WithHost(DockerConfigHost),
+		client.WithHost(socket),
 		client.WithTimeout(timeout),
 		client.WithHTTPHeaders(map[string]string{
 			"User-Agent": "mc-router ",
