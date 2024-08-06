@@ -244,6 +244,28 @@ rules:
   verbs: ["watch","list","get","update"]
 ```
 
+Make sure to set `StatefulSet.metadata.name` and `StatefulSet.spec.serviceName` to the same value;
+otherwise, autoscaling will not trigger:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-forge
+spec:
+  type: ClusterIP
+  annotations:
+    "mc-router.itzg.me/defaultServer": "true"
+    "mc-router.itzg.me/externalServerName": "external.host.name"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mc-forge
+spec:
+  serviceName: mc-forge
+```
+
 ## REST API
 
 * `GET /routes` (with `Accept: application/json`)
