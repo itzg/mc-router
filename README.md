@@ -245,8 +245,7 @@ rules:
 ```
 
 Make sure to set `StatefulSet.metadata.name` and `StatefulSet.spec.serviceName` to the same value;
-otherwise, autoscaling will not trigger (`mc-router.itzg.me/externalServerName` annotation is also required for it to work,
-however if you are not using a DNS you can specify an IP address as well `"mc-router.itzg.me/externalServerName": "1.2.3.4"`):
+otherwise, autoscaling will not trigger:
 
 ```yaml
 apiVersion: v1
