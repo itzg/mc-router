@@ -27,7 +27,7 @@ func init() {
 	apiRoutes.Path("/routes/{serverAddress}").Methods("DELETE").HandlerFunc(routesDeleteHandler)
 }
 
-func routesListHandler(writer http.ResponseWriter, request *http.Request) {
+func routesListHandler(writer http.ResponseWriter, _ *http.Request) {
 	mappings := Routes.GetMappings()
 	bytes, err := json.Marshal(mappings)
 	if err != nil {
@@ -35,7 +35,10 @@ func routesListHandler(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	writer.Write(bytes)
+	_, err = writer.Write(bytes)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to write response")
+	}
 }
 
 func routesDeleteHandler(writer http.ResponseWriter, request *http.Request) {
@@ -56,6 +59,7 @@ func routesCreateHandler(writer http.ResponseWriter, request *http.Request) {
 		Backend       string
 	}{}
 
+	//goland:noinspection GoUnhandledErrorResult
 	defer request.Body.Close()
 
 	decoder := json.NewDecoder(request.Body)
@@ -76,6 +80,7 @@ func routesSetDefault(writer http.ResponseWriter, request *http.Request) {
 		Backend string
 	}{}
 
+	//goland:noinspection GoUnhandledErrorResult
 	defer request.Body.Close()
 
 	decoder := json.NewDecoder(request.Body)
@@ -149,16 +154,22 @@ func (r *routesImpl) SimplifySRV(srvEnabled bool) {
 	r.simplifySRV = srvEnabled
 }
 
-func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, func(ctx context.Context) error) {
+func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddress string) (string, string, func(ctx context.Context) error) {
 	r.RLock()
 	defer r.RUnlock()
+
+	// Trim off Forge null-delimited address parts like \x00FML3\x00
+	serverAddress = strings.Split(serverAddress, "\x00")[0]
+
+	serverAddress = strings.ToLower(
+		// trim the root zone indicator, see https://en.wikipedia.org/wiki/Fully_qualified_domain_name
+		strings.TrimSuffix(serverAddress, "."))
 
 	logrus.WithFields(logrus.Fields{
 		"serverAddress": serverAddress,
 	}).Debug("Finding backend for server address")
 
 	if r.simplifySRV {
-		serverAddress = strings.TrimSuffix(serverAddress, ".")
 		parts := strings.Split(serverAddress, ".")
 		tcpIndex := -1
 		for i, part := range parts {
@@ -174,21 +185,15 @@ func (r *routesImpl) FindBackendForServerAddress(ctx context.Context, serverAddr
 		serverAddress = strings.Join(parts, ".")
 	}
 
-	addressParts := strings.Split(serverAddress, "\x00")
-
-	address := strings.ToLower(
-		// trim the root zone indicator, see https://en.wikipedia.org/wiki/Fully_qualified_domain_name
-		strings.TrimSuffix(addressParts[0], "."))
-
 	// Strip suffix of TCP Shield
-	address = tcpShieldPattern.ReplaceAllString(address, "")
+	serverAddress = tcpShieldPattern.ReplaceAllString(serverAddress, "")
 
 	if r.mappings != nil {
-		if mapping, exists := r.mappings[address]; exists {
-			return mapping.backend, address, mapping.waker
+		if mapping, exists := r.mappings[serverAddress]; exists {
+			return mapping.backend, serverAddress, mapping.waker
 		}
 	}
-	return r.defaultRoute, address, nil
+	return r.defaultRoute, serverAddress, nil
 }
 
 func (r *routesImpl) GetMappings() map[string]string {
