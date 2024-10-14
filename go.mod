@@ -10,7 +10,7 @@ require (
 	github.com/influxdata/influxdb1-client v0.0.0-20220302092344-a9ab5670611c
 	github.com/itzg/go-flagsfiller v1.14.0
 	github.com/juju/ratelimit v1.0.2
-	github.com/pires/go-proxyproto v0.7.0
+	github.com/pires/go-proxyproto v0.8.0
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.9.0
