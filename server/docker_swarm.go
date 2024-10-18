@@ -160,7 +160,7 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 
 	var result []*routableService
 	for _, service := range services {
-		if service.Spec.EndpointSpec.Mode != swarmtypes.ResolutionModeVIP {
+		if service.Spec.EndpointSpec == nil || service.Spec.EndpointSpec.Mode != swarmtypes.ResolutionModeVIP {
 			continue
 		}
 		if len(service.Endpoint.VirtualIPs) == 0 {
