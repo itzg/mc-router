@@ -26,10 +26,11 @@ const (
 var noDeadline time.Time
 
 type ConnectorMetrics struct {
-	Errors            metrics.Counter
-	BytesTransmitted  metrics.Counter
-	Connections       metrics.Counter
-	ActiveConnections metrics.Gauge
+	Errors              metrics.Counter
+	BytesTransmitted    metrics.Counter
+	ConnectionsFrontend metrics.Counter
+	ConnectionsBackend  metrics.Counter
+	ActiveConnections   metrics.Gauge
 }
 
 func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet) *Connector {
@@ -158,7 +159,7 @@ func (c *Connector) acceptConnections(ctx context.Context, ln net.Listener, conn
 }
 
 func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn) {
-	c.metrics.Connections.With("side", "frontend").Add(1)
+	c.metrics.ConnectionsFrontend.Add(1)
 	//noinspection GoUnhandledErrorResult
 	defer frontendConn.Close()
 
@@ -276,7 +277,7 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		return
 	}
 
-	c.metrics.Connections.With("side", "backend", "host", resolvedHost).Add(1)
+	c.metrics.ConnectionsBackend.With("host", resolvedHost).Add(1)
 
 	c.metrics.ActiveConnections.Set(float64(
 		atomic.AddInt32(&c.activeConnections, 1)))
