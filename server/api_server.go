@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
 
@@ -14,6 +15,8 @@ func StartApiServer(apiBinding string) {
 	logrus.WithField("binding", apiBinding).Info("Serving API requests")
 
 	apiRoutes.Path("/vars").Handler(expvar.Handler())
+
+	apiRoutes.Path("/metrics").Handler(promhttp.Handler())
 
 	go func() {
 		logrus.WithError(

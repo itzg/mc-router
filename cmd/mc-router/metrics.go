@@ -11,8 +11,11 @@ import (
 	discardMetrics "github.com/go-kit/kit/metrics/discard"
 	expvarMetrics "github.com/go-kit/kit/metrics/expvar"
 	kitinflux "github.com/go-kit/kit/metrics/influx"
+	prometheusMetrics "github.com/go-kit/kit/metrics/prometheus"
 	influx "github.com/influxdata/influxdb1-client/v2"
 	"github.com/itzg/mc-router/server"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 )
 
@@ -25,6 +28,8 @@ func NewMetricsBuilder(backend string, config *MetricsBackendConfig) MetricsBuil
 	switch strings.ToLower(backend) {
 	case "expvar":
 		return &expvarMetricsBuilder{}
+	case "prometheus":
+		return &prometheusMetricsBuilder{}
 	case "influxdb":
 		return &influxMetricsBuilder{config: config}
 	default:
@@ -41,11 +46,13 @@ func (b expvarMetricsBuilder) Start(ctx context.Context) error {
 }
 
 func (b expvarMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics {
+	c := expvarMetrics.NewCounter("connections")
 	return &server.ConnectorMetrics{
-		Errors:            expvarMetrics.NewCounter("errors").With("subsystem", "connector"),
-		BytesTransmitted:  expvarMetrics.NewCounter("bytes"),
-		Connections:       expvarMetrics.NewCounter("connections"),
-		ActiveConnections: expvarMetrics.NewGauge("active_connections"),
+		Errors:              expvarMetrics.NewCounter("errors").With("subsystem", "connector"),
+		BytesTransmitted:    expvarMetrics.NewCounter("bytes"),
+		ConnectionsFrontend: c,
+		ConnectionsBackend:  c,
+		ActiveConnections:   expvarMetrics.NewGauge("active_connections"),
 	}
 }
 
@@ -59,10 +66,11 @@ func (b discardMetricsBuilder) Start(ctx context.Context) error {
 
 func (b discardMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics {
 	return &server.ConnectorMetrics{
-		Errors:            discardMetrics.NewCounter(),
-		BytesTransmitted:  discardMetrics.NewCounter(),
-		Connections:       discardMetrics.NewCounter(),
-		ActiveConnections: discardMetrics.NewGauge(),
+		Errors:              discardMetrics.NewCounter(),
+		BytesTransmitted:    discardMetrics.NewCounter(),
+		ConnectionsFrontend: discardMetrics.NewCounter(),
+		ConnectionsBackend:  discardMetrics.NewCounter(),
+		ActiveConnections:   discardMetrics.NewGauge(),
 	}
 }
 
@@ -105,10 +113,58 @@ func (b *influxMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics 
 
 	b.metrics = metrics
 
+	c := metrics.NewCounter("mc_router_connections")
 	return &server.ConnectorMetrics{
-		Errors:            metrics.NewCounter("mc_router_errors"),
-		BytesTransmitted:  metrics.NewCounter("mc_router_transmitted_bytes"),
-		Connections:       metrics.NewCounter("mc_router_connections"),
-		ActiveConnections: metrics.NewGauge("mc_router_connections_active"),
+		Errors:              metrics.NewCounter("mc_router_errors"),
+		BytesTransmitted:    metrics.NewCounter("mc_router_transmitted_bytes"),
+		ConnectionsFrontend: c.With("side", "frontend"),
+		ConnectionsBackend:  c.With("side", "backend"),
+		ActiveConnections:   metrics.NewGauge("mc_router_connections_active"),
+	}
+}
+
+type prometheusMetricsBuilder struct {
+}
+
+var pcv *prometheusMetrics.Counter
+
+func (b prometheusMetricsBuilder) Start(ctx context.Context) error {
+
+	// nothing needed
+	return nil
+}
+
+func (b prometheusMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics {
+	pcv = prometheusMetrics.NewCounter(promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "mc_router",
+		Name:      "errors",
+		Help:      "The total number of errors",
+	}, []string{"type"}))
+	return &server.ConnectorMetrics{
+		Errors: pcv,
+		BytesTransmitted: prometheusMetrics.NewCounter(promauto.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "mc_router",
+			Name:      "bytes",
+			Help:      "The total number of bytes transmitted",
+		}, nil)),
+		ConnectionsFrontend: prometheusMetrics.NewCounter(promauto.NewCounterVec(prometheus.CounterOpts{
+			Namespace:   "mc_router",
+			Subsystem:   "frontend",
+			Name:        "connections",
+			Help:        "The total number of connections",
+			ConstLabels: prometheus.Labels{"side": "frontend"},
+		}, nil)),
+		ConnectionsBackend: prometheusMetrics.NewCounter(promauto.NewCounterVec(prometheus.CounterOpts{
+			Namespace:   "mc_router",
+			Subsystem:   "backend",
+			Name:        "connections",
+			Help:        "The total number of backend connections",
+			ConstLabels: prometheus.Labels{"side": "backend"},
+		}, []string{"host"})),
+		ActiveConnections: prometheusMetrics.NewGauge(promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "mc_router",
+			Name:      "active_connections",
+			Help:      "The number of active connections",
+		}, nil)),
 	}
 }

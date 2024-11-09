@@ -45,7 +45,7 @@ type Config struct {
 	DockerSocket          string            `default:"unix:///var/run/docker.sock" usage:"Path to Docker socket to use"`
 	DockerTimeout         int               `default:"0" usage:"Timeout configuration in seconds for the Docker integrations"`
 	DockerRefreshInterval int               `default:"15" usage:"Refresh interval in seconds for the Docker integrations"`
-	MetricsBackend        string            `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb"`
+	MetricsBackend        string            `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb,prometheus"`
 	UseProxyProtocol      bool              `default:"false" usage:"Send PROXY protocol to backend servers"`
 	ReceiveProxyProtocol  bool              `default:"false" usage:"Receive PROXY protocol from backend servers, by default trusts every proxy header that it receives, combine with -trusted-proxies to specify a list of trusted proxies"`
 	TrustedProxies        []string          `usage:"Comma delimited list of CIDR notation IP blocks to trust when receiving PROXY protocol"`
