@@ -11,65 +11,69 @@ Routes Minecraft client connections to backend servers based upon the requested 
 
 ```text
   -api-binding host:port
-        The host:port bound for servicing API requests (env API_BINDING)
+    	The host:port bound for servicing API requests (env API_BINDING)
   -auto-scale-up
-        Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed (env AUTO_SCALE_UP)
+    	Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed (env AUTO_SCALE_UP)
+  -clients-to-allow value
+    	Zero or more client IP addresses or CIDRs to allow. Takes precedence over deny. (env CLIENTS_TO_ALLOW)
+  -clients-to-deny value
+    	Zero or more client IP addresses or CIDRs to deny. Ignored if any configured to allow (env CLIENTS_TO_DENY)
   -connection-rate-limit int
-        Max number of connections to allow per second (env CONNECTION_RATE_LIMIT) (default 1)
+    	Max number of connections to allow per second (env CONNECTION_RATE_LIMIT) (default 1)
   -cpu-profile string
-        Enables CPU profiling and writes to given path (env CPU_PROFILE)
+    	Enables CPU profiling and writes to given path (env CPU_PROFILE)
   -debug
-        Enable debug logs (env DEBUG)
+    	Enable debug logs (env DEBUG)
   -default string
-        host:port of a default Minecraft server to use when mapping not found (env DEFAULT)
-  -docker-socket
-        Path to Docker socket to use (env DOCKER_SOCKET) (default "unix:///var/run/docker.sock")
+    	host:port of a default Minecraft server to use when mapping not found (env DEFAULT)
   -docker-refresh-interval int
-        Refresh interval in seconds for the Docker Swarm integration (env DOCKER_REFRESH_INTERVAL) (default 15)
+    	Refresh interval in seconds for the Docker integrations (env DOCKER_REFRESH_INTERVAL) (default 15)
+  -docker-socket string
+    	Path to Docker socket to use (env DOCKER_SOCKET) (default "unix:///var/run/docker.sock")
   -docker-timeout int
-        Timeout configuration in seconds for the Docker Swarm integration (env DOCKER_TIMEOUT)
+    	Timeout configuration in seconds for the Docker integrations (env DOCKER_TIMEOUT)
   -in-docker
-        Use Docker service discovery (env IN_DOCKER)
+    	Use Docker service discovery (env IN_DOCKER)
   -in-docker-swarm
-        Use Docker Swarm service discovery (env IN_DOCKER_SWARM)
+    	Use Docker Swarm service discovery (env IN_DOCKER_SWARM)
   -in-kube-cluster
-        Use in-cluster Kubernetes config (env IN_KUBE_CLUSTER)
+    	Use in-cluster Kubernetes config (env IN_KUBE_CLUSTER)
   -kube-config string
-        The path to a Kubernetes configuration file (env KUBE_CONFIG)
+    	The path to a Kubernetes configuration file (env KUBE_CONFIG)
   -mapping value
-        Comma-separated or repeated mappings of externalHostname=host:port (env MAPPING)
+    	Comma or newline delimited or repeated mappings of externalHostname=host:port (env MAPPING)
   -metrics-backend string
-        Backend to use for metrics exposure/publishing: discard,expvar,influxdb (env METRICS_BACKEND) (default "discard")
+    	Backend to use for metrics exposure/publishing: discard,expvar,influxdb (env METRICS_BACKEND) (default "discard")
   -metrics-backend-config-influxdb-addr string
-         (env METRICS_BACKEND_CONFIG_INFLUXDB_ADDR)
+    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_ADDR)
   -metrics-backend-config-influxdb-database string
-         (env METRICS_BACKEND_CONFIG_INFLUXDB_DATABASE)
+    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_DATABASE)
   -metrics-backend-config-influxdb-interval duration
-         (env METRICS_BACKEND_CONFIG_INFLUXDB_INTERVAL) (default 1m0s)
+    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_INTERVAL) (default 1m0s)
   -metrics-backend-config-influxdb-password string
-         (env METRICS_BACKEND_CONFIG_INFLUXDB_PASSWORD)
+    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_PASSWORD)
   -metrics-backend-config-influxdb-retention-policy string
-         (env METRICS_BACKEND_CONFIG_INFLUXDB_RETENTION_POLICY)
+    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_RETENTION_POLICY)
   -metrics-backend-config-influxdb-tags value
-        any extra tags to be included with all reported metrics (env METRICS_BACKEND_CONFIG_INFLUXDB_TAGS)
+    	any extra tags to be included with all reported metrics (env METRICS_BACKEND_CONFIG_INFLUXDB_TAGS)
   -metrics-backend-config-influxdb-username string
-         (env METRICS_BACKEND_CONFIG_INFLUXDB_USERNAME)
+    	 (env METRICS_BACKEND_CONFIG_INFLUXDB_USERNAME)
   -ngrok-token string
-        If set, an ngrok tunnel will be established. It is HIGHLY recommended to pass as an environment variable. (env NGROK_TOKEN)
+    	If set, an ngrok tunnel will be established. It is HIGHLY recommended to pass as an environment variable. (env NGROK_TOKEN)
   -port port
-        The port bound to listen for Minecraft client connections (env PORT) (default 25565)
+    	The port bound to listen for Minecraft client connections (env PORT) (default 25565)
   -receive-proxy-protocol
-        Receive PROXY protocol from backend servers, by default trusts every proxy header that it receives, combine with -trusted-proxies to specify a list of trusted proxies (env RECEIVE_PROXY_PROTOCOL)
+    	Receive PROXY protocol from backend servers, by default trusts every proxy header that it receives, combine with -trusted-proxies to specify a list of trusted proxies (env RECEIVE_PROXY_PROTOCOL)
   -routes-config string
-        Name or full path to routes config file (env ROUTES_CONFIG)
+    	Name or full path to routes config file (env ROUTES_CONFIG)
   -simplify-srv
-        Simplify fully qualified SRV records for mapping (env SIMPLIFY_SRV)
+    	Simplify fully qualified SRV records for mapping (env SIMPLIFY_SRV)
   -trusted-proxies value
-        Comma delimited list of CIDR notation IP blocks to trust when receiving PROXY protocol (env TRUSTED_PROXIES)
+    	Comma delimited list of CIDR notation IP blocks to trust when receiving PROXY protocol (env TRUSTED_PROXIES)
   -use-proxy-protocol
-        Send PROXY protocol to backend servers (env USE_PROXY_PROTOCOL)
+    	Send PROXY protocol to backend servers (env USE_PROXY_PROTOCOL)
   -version
-        Output version and exit (env VERSION)
+    	Output version and exit (env VERSION)
 ```
 
 
