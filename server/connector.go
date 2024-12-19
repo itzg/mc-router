@@ -32,13 +32,15 @@ type ConnectorMetrics struct {
 	ActiveConnections metrics.Gauge
 }
 
-func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet) *Connector {
+func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet,
+	clientFilter *ClientFilter) *Connector {
 	return &Connector{
 		metrics:           metrics,
 		sendProxyProto:    sendProxyProto,
 		connectionsCond:   sync.NewCond(&sync.Mutex{}),
 		receiveProxyProto: receiveProxyProto,
 		trustedProxyNets:  trustedProxyNets,
+		clientFilter:      clientFilter,
 	}
 }
 
@@ -52,6 +54,7 @@ type Connector struct {
 	activeConnections int32
 	connectionsCond   *sync.Cond
 	ngrokToken        string
+	clientFilter      *ClientFilter
 }
 
 func (c *Connector) StartAcceptingConnections(ctx context.Context, listenAddress string, connRateLimit int) error {
@@ -163,6 +166,17 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 	defer frontendConn.Close()
 
 	clientAddr := frontendConn.RemoteAddr()
+
+	if tcpAddr, ok := clientAddr.(*net.TCPAddr); ok {
+		allow := c.clientFilter.Allow(tcpAddr.AddrPort())
+		if !allow {
+			logrus.WithField("client", clientAddr).Debug("Client is blocked")
+			return
+		}
+	} else {
+		logrus.WithField("client", clientAddr).Warn("Remote address is not a TCP address, skipping filtering")
+	}
+
 	logrus.
 		WithField("client", clientAddr).
 		Info("Got connection")
