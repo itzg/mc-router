@@ -2,7 +2,7 @@ module github.com/itzg/mc-router
 
 go 1.21
 
-toolchain go1.22.5
+toolchain go1.22.11
 
 require (
 	github.com/go-kit/kit v0.13.0
