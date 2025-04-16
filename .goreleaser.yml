@@ -6,11 +6,11 @@ release:
 before:
   hooks:
     - go mod download
-brews:
-  - install: |
-      bin.install "mc-router"
 builds:
-  - goos:
+  - id: mc-router
+    main: ./cmd/mc-router
+    binary: mc-router
+    goos:
       - linux
       - darwin
       - windows
@@ -19,14 +19,12 @@ builds:
       - arm64
       - arm
     goarm:
-      - 6
+      - "6"
     ignore:
       - goos: windows
         goarch: arm
       - goos: windows
         goarch: arm64
-    main: ./cmd/mc-router
-    binary: mc-router
     env:
       - CGO_ENABLED=0
 archives:
@@ -40,22 +38,28 @@ archives:
       - README*
 snapshot:
   name_template: SNAPSHOT-{{ .ShortCommit }}
+brews:
+  - install: |
+      bin.install "mc-router"
 dockers:
   - image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
+      - "itzg/{{ .ProjectName }}:latest-amd64"
     dockerfile: Dockerfile.release
     goarch: amd64
+    use: buildx
     build_flag_templates:
       - --platform
       - linux/amd64
       - --load
       - --label=org.opencontainers.image.version={{ .Version }}
       - --label=org.opencontainers.image.revision={{ .FullCommit }}
-
   - image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
+      - "itzg/{{ .ProjectName }}:latest-arm64"
     dockerfile: Dockerfile.release
     goarch: arm64
+    use: buildx
     build_flag_templates:
       - --platform
       - linux/arm64
@@ -64,9 +68,48 @@ dockers:
       - --label=org.opencontainers.image.revision={{ .FullCommit }}
   - image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-arm32v6"
+      - "itzg/{{ .ProjectName }}:latest-arm32v6"
     dockerfile: Dockerfile.release
     goarch: arm
     goarm: "6"
+    use: buildx
+    build_flag_templates:
+      - --platform
+      - linux/arm/v6
+      - --load
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+  - image_templates:
+      - "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
+      - "ghcr.io/itzg/{{ .ProjectName }}:latest-amd64"
+    dockerfile: Dockerfile.release
+    goarch: amd64
+    use: buildx
+    build_flag_templates:
+      - --platform
+      - linux/amd64
+      - --load
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+  - image_templates:
+      - "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
+      - "ghcr.io/itzg/{{ .ProjectName }}:latest-arm64"
+    dockerfile: Dockerfile.release
+    goarch: arm64
+    use: buildx
+    build_flag_templates:
+      - --platform
+      - linux/arm64
+      - --load
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+  - image_templates:
+      - "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}-arm32v6"
+      - "ghcr.io/itzg/{{ .ProjectName }}:latest-arm32v6"
+    dockerfile: Dockerfile.release
+    goarch: arm
+    goarm: "6"
+    use: buildx
     build_flag_templates:
       - --platform
       - linux/arm/v6
@@ -82,9 +125,19 @@ docker_manifests:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-arm32v6"
   - name_template: "itzg/{{ .ProjectName }}:latest"
     image_templates:
-      - "itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
-      - "itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
-      - "itzg/{{ .ProjectName }}:{{ .Version }}-arm32v6"
+      - "itzg/{{ .ProjectName }}:latest-amd64"
+      - "itzg/{{ .ProjectName }}:latest-arm64"
+      - "itzg/{{ .ProjectName }}:latest-arm32v6"
+  - name_template: "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
+      - "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
+      - "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}-arm32v6"
+  - name_template: "ghcr.io/itzg/{{ .ProjectName }}:latest"
+    image_templates:
+      - "ghcr.io/itzg/{{ .ProjectName }}:latest-amd64"
+      - "ghcr.io/itzg/{{ .ProjectName }}:latest-arm64"
+      - "ghcr.io/itzg/{{ .ProjectName }}:latest-arm32v6"
 changelog:
   filters:
     exclude:
