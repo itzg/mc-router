@@ -1,14 +1,11 @@
 project_name: mc-router
-
 release:
   github:
     owner: itzg
     name: mc-router
-
 before:
   hooks:
     - go mod download
-
 builds:
   - id: mc-router
     main: ./cmd/mc-router
@@ -30,7 +27,6 @@ builds:
         goarch: arm64
     env:
       - CGO_ENABLED=0
-
 archives:
   - id: tar_gz
     format: tar.gz
@@ -40,16 +36,12 @@ archives:
     files:
       - LICENSE*
       - README*
-
 snapshot:
   name_template: SNAPSHOT-{{ .ShortCommit }}
-
 brews:
   - install: |
       bin.install "mc-router"
-
 dockers:
-  # Docker Hub: amd64
   - image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
       - "itzg/{{ .ProjectName }}:latest-amd64"
@@ -57,11 +49,11 @@ dockers:
     goarch: amd64
     use: buildx
     build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-
-  # Docker Hub: arm64
+      - --platform
+      - linux/amd64
+      - --load
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
   - image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
       - "itzg/{{ .ProjectName }}:latest-arm64"
@@ -69,11 +61,11 @@ dockers:
     goarch: arm64
     use: buildx
     build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-
-  # Docker Hub: arm32v6
+      - --platform
+      - linux/arm64
+      - --load
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
   - image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-arm32v6"
       - "itzg/{{ .ProjectName }}:latest-arm32v6"
@@ -82,11 +74,11 @@ dockers:
     goarm: "6"
     use: buildx
     build_flag_templates:
-      - "--platform=linux/arm/v6"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-
-  # GHCR: amd64
+      - --platform
+      - linux/arm/v6
+      - --load
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
   - image_templates:
       - "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
       - "ghcr.io/itzg/{{ .ProjectName }}:latest-amd64"
@@ -94,11 +86,11 @@ dockers:
     goarch: amd64
     use: buildx
     build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-
-  # GHCR: arm64
+      - --platform
+      - linux/amd64
+      - --load
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
   - image_templates:
       - "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
       - "ghcr.io/itzg/{{ .ProjectName }}:latest-arm64"
@@ -106,11 +98,11 @@ dockers:
     goarch: arm64
     use: buildx
     build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-
-  # GHCR: arm32v6
+      - --platform
+      - linux/arm64
+      - --load
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
   - image_templates:
       - "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}-arm32v6"
       - "ghcr.io/itzg/{{ .ProjectName }}:latest-arm32v6"
@@ -119,12 +111,13 @@ dockers:
     goarm: "6"
     use: buildx
     build_flag_templates:
-      - "--platform=linux/arm/v6"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - --platform
+      - linux/arm/v6
+      - --load
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
 
 docker_manifests:
-  # Docker Hub combined images
   - name_template: "itzg/{{ .ProjectName }}:{{ .Version }}"
     image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
@@ -135,8 +128,6 @@ docker_manifests:
       - "itzg/{{ .ProjectName }}:latest-amd64"
       - "itzg/{{ .ProjectName }}:latest-arm64"
       - "itzg/{{ .ProjectName }}:latest-arm32v6"
-
-  # GHCR combined images
   - name_template: "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}"
     image_templates:
       - "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
@@ -147,7 +138,6 @@ docker_manifests:
       - "ghcr.io/itzg/{{ .ProjectName }}:latest-amd64"
       - "ghcr.io/itzg/{{ .ProjectName }}:latest-arm64"
       - "ghcr.io/itzg/{{ .ProjectName }}:latest-arm32v6"
-
 changelog:
   filters:
     exclude:
