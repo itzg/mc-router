@@ -56,6 +56,10 @@ type Handshake struct {
 	NextState       int
 }
 
+const (
+	StateStatus State = 1
+)
+
 type LegacyServerListPing struct {
 	ProtocolVersion int
 	ServerAddress   string

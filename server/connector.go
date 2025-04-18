@@ -223,7 +223,7 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 			Debug("Got handshake")
 
 		serverAddress := handshake.ServerAddress
-		nextState := handshake.NextState
+		nextState := mcproto.State(handshake.NextState)
 
 		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, serverAddress, nextState)
 	} else if packet.PacketID == mcproto.PacketIdLegacyServerListPing {
@@ -243,9 +243,8 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 			Debug("Got legacy server list ping")
 
 		serverAddress := handshake.ServerAddress
-		nextStateStatus := 1
 
-		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, serverAddress, nextStateStatus)
+		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, serverAddress, mcproto.StateStatus)
 	} else {
 		logrus.
 			WithField("client", clientAddr).
@@ -257,11 +256,10 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 }
 
 func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.Conn,
-	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, nextState int) {
+	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, nextState mcproto.State) {
 
 	backendHostPort, resolvedHost, waker := Routes.FindBackendForServerAddress(ctx, serverAddress)
-	nextStateStatus := 1
-	if waker != nil && nextState > nextStateStatus {
+	if waker != nil && nextState > mcproto.StateStatus {
 		if err := waker(ctx); err != nil {
 			logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend")
 			c.metrics.Errors.With("type", "wakeup_failed").Add(1)
