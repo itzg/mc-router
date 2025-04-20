@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"io"
@@ -183,9 +184,11 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 		Info("Got connection")
 	defer logrus.WithField("client", clientAddr).Debug("Closing frontend connection")
 
+	// Tee-off the inspected content to a buffer so that we can retransmit it to the backend connection
 	inspectionBuffer := new(bytes.Buffer)
-
 	inspectionReader := io.TeeReader(frontendConn, inspectionBuffer)
+
+	bufferedReader := bufio.NewReader(inspectionReader)
 
 	if err := frontendConn.SetReadDeadline(time.Now().Add(handshakeTimeout)); err != nil {
 		logrus.
@@ -195,7 +198,7 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 		c.metrics.Errors.With("type", "read_deadline").Add(1)
 		return
 	}
-	packet, err := mcproto.ReadPacket(inspectionReader, clientAddr, c.state)
+	packet, err := mcproto.ReadPacket(bufferedReader, clientAddr, c.state)
 	if err != nil {
 		logrus.WithError(err).WithField("clientAddr", clientAddr).Error("Failed to read packet")
 		c.metrics.Errors.With("type", "read").Add(1)
@@ -209,7 +212,7 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 		Debug("Got packet")
 
 	if packet.PacketID == mcproto.PacketIdHandshake {
-		handshake, err := mcproto.ReadHandshake(packet.Data)
+		handshake, err := mcproto.DecodeHandshake(packet.Data)
 		if err != nil {
 			logrus.WithError(err).WithField("clientAddr", clientAddr).
 				Error("Failed to read handshake")
@@ -223,7 +226,7 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 			Debug("Got handshake")
 
 		serverAddress := handshake.ServerAddress
-		nextState := mcproto.State(handshake.NextState)
+		nextState := handshake.NextState
 
 		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, serverAddress, nextState)
 	} else if packet.PacketID == mcproto.PacketIdLegacyServerListPing {
