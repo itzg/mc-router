@@ -55,6 +55,7 @@ func (p *Packet) String() string {
 
 const (
 	PacketIdHandshake            = 0x00
+	PacketIdLogin                = 0x00 // during StateLogin
 	PacketIdLegacyServerListPing = 0xFE
 )
 

@@ -135,12 +135,14 @@ func main() {
 		trustedIpNets = append(trustedIpNets, ipNet)
 	}
 
+	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.ReceiveProxyProtocol, trustedIpNets)
+
 	clientFilter, err := server.NewClientFilter(config.ClientsToAllow, config.ClientsToDeny)
 	if err != nil {
 		logrus.WithError(err).Fatal("Unable to create client filter")
 	}
+	connector.SetClientFilter(clientFilter)
 
-	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.ReceiveProxyProtocol, trustedIpNets, clientFilter)
 	if config.NgrokToken != "" {
 		connector.UseNgrok(config.NgrokToken)
 	}

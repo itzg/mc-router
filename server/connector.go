@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
+	"github.com/google/uuid"
 	"io"
 	"net"
 	"sync"
@@ -34,15 +36,18 @@ type ConnectorMetrics struct {
 	ActiveConnections   metrics.Gauge
 }
 
-func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet,
-	clientFilter *ClientFilter) *Connector {
+type UserInfo struct {
+	Username   string
+	PlayerUuid uuid.UUID `json:"player-uuid"`
+}
+
+func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet) *Connector {
 	return &Connector{
 		metrics:           metrics,
 		sendProxyProto:    sendProxyProto,
 		connectionsCond:   sync.NewCond(&sync.Mutex{}),
 		receiveProxyProto: receiveProxyProto,
 		trustedProxyNets:  trustedProxyNets,
-		clientFilter:      clientFilter,
 	}
 }
 
@@ -57,6 +62,16 @@ type Connector struct {
 	connectionsCond   *sync.Cond
 	ngrokToken        string
 	clientFilter      *ClientFilter
+
+	connectionNotifier ConnectionNotifier
+}
+
+func (c *Connector) SetConnectionNotifier(notifier ConnectionNotifier) {
+	c.connectionNotifier = notifier
+}
+
+func (c *Connector) SetClientFilter(filter *ClientFilter) {
+	c.clientFilter = filter
 }
 
 func (c *Connector) StartAcceptingConnections(ctx context.Context, listenAddress string, connRateLimit int) error {
@@ -170,10 +185,12 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 	clientAddr := frontendConn.RemoteAddr()
 
 	if tcpAddr, ok := clientAddr.(*net.TCPAddr); ok {
-		allow := c.clientFilter.Allow(tcpAddr.AddrPort())
-		if !allow {
-			logrus.WithField("client", clientAddr).Debug("Client is blocked")
-			return
+		if c.clientFilter != nil {
+			allow := c.clientFilter.Allow(tcpAddr.AddrPort())
+			if !allow {
+				logrus.WithField("client", clientAddr).Debug("Client is blocked")
+				return
+			}
 		}
 	} else {
 		logrus.WithField("client", clientAddr).Warn("Remote address is not a TCP address, skipping filtering")
@@ -225,10 +242,26 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 			WithField("handshake", handshake).
 			Debug("Got handshake")
 
-		serverAddress := handshake.ServerAddress
-		nextState := handshake.NextState
+		if handshake.NextState == mcproto.StateLogin {
+			userInfo, err := c.readUserInfo(bufferedReader, clientAddr, handshake.NextState)
+			if err != nil {
+				logrus.
+					WithError(err).
+					WithField("clientAddr", clientAddr).
+					Error("Failed to read user info")
+				c.metrics.Errors.With("type", "read").Add(1)
+				return
+			}
+			logrus.
+				WithField("client", clientAddr).
+				WithField("userInfo", userInfo).
+				Debug("Got user info")
 
-		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, serverAddress, nextState)
+			c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, handshake.ServerAddress, userInfo, handshake.NextState)
+		} else {
+			c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, handshake.ServerAddress, nil, handshake.NextState)
+		}
+
 	} else if packet.PacketID == mcproto.PacketIdLegacyServerListPing {
 		handshake, ok := packet.Data.(*mcproto.LegacyServerListPing)
 		if !ok {
@@ -247,7 +280,7 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 
 		serverAddress := handshake.ServerAddress
 
-		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, serverAddress, mcproto.StateStatus)
+		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, serverAddress, nil, mcproto.StateStatus)
 	} else {
 		logrus.
 			WithField("client", clientAddr).
@@ -258,8 +291,28 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 	}
 }
 
+func (c *Connector) readUserInfo(bufferedReader *bufio.Reader, clientAddr net.Addr, state mcproto.State) (*UserInfo, error) {
+	loginPacket, err := mcproto.ReadPacket(bufferedReader, clientAddr, state)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read login packet: %w", err)
+	}
+
+	if loginPacket.PacketID == mcproto.PacketIdLogin {
+		loginStart, err := mcproto.DecodeLoginStart(loginPacket.Data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode login start: %w", err)
+		}
+		return &UserInfo{
+			Username:   loginStart.Name,
+			PlayerUuid: loginStart.PlayerUuid,
+		}, nil
+	} else {
+		return nil, fmt.Errorf("expected login packet, got %d", loginPacket.PacketID)
+	}
+}
+
 func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.Conn,
-	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, nextState mcproto.State) {
+	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, userInfo *UserInfo, nextState mcproto.State) {
 
 	backendHostPort, resolvedHost, waker := Routes.FindBackendForServerAddress(ctx, serverAddress)
 	if waker != nil && nextState > mcproto.StateStatus {
@@ -276,13 +329,20 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 			WithField("resolvedHost", resolvedHost).
 			Warn("Unable to find registered backend")
 		c.metrics.Errors.With("type", "missing_backend").Add(1)
+
+		if c.connectionNotifier != nil {
+			c.connectionNotifier.NotifyMissingBackend(ctx, clientAddr, serverAddress, userInfo)
+		}
+
 		return
 	}
+
 	logrus.
 		WithField("client", clientAddr).
 		WithField("server", serverAddress).
 		WithField("backendHostPort", backendHostPort).
 		Info("Connecting to backend")
+
 	backendConn, err := net.Dial("tcp", backendHostPort)
 	if err != nil {
 		logrus.
@@ -292,7 +352,16 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 			WithField("backend", backendHostPort).
 			Warn("Unable to connect to backend")
 		c.metrics.Errors.With("type", "backend_failed").Add(1)
+
+		if c.connectionNotifier != nil {
+			c.connectionNotifier.NotifyFailedBackendConnection(ctx, clientAddr, serverAddress, userInfo, backendHostPort, err)
+		}
+
 		return
+	}
+
+	if c.connectionNotifier != nil {
+		c.connectionNotifier.NotifyConnected(ctx, clientAddr, serverAddress, userInfo, backendHostPort)
 	}
 
 	c.metrics.ConnectionsBackend.With("host", resolvedHost).Add(1)
