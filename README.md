@@ -74,6 +74,8 @@ Routes Minecraft client connections to backend servers based upon the requested 
     	Send PROXY protocol to backend servers (env USE_PROXY_PROTOCOL)
   -version
     	Output version and exit (env VERSION)
+  -record-logins
+      Log and generate metrics on player logins. Metrics only supported with influxdb or prometheus backend
 ```
 
 

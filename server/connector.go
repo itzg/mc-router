@@ -31,10 +31,11 @@ type ConnectorMetrics struct {
 	ConnectionsFrontend metrics.Counter
 	ConnectionsBackend  metrics.Counter
 	ActiveConnections   metrics.Gauge
+	ServerActivePlayer  metrics.Gauge
 }
 
 func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet,
-	clientFilter *ClientFilter) *Connector {
+	clientFilter *ClientFilter, recordLogins bool) *Connector {
 	return &Connector{
 		metrics:           metrics,
 		sendProxyProto:    sendProxyProto,
@@ -42,6 +43,7 @@ func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyPr
 		receiveProxyProto: receiveProxyProto,
 		trustedProxyNets:  trustedProxyNets,
 		clientFilter:      clientFilter,
+		recordLogins:      recordLogins,
 	}
 }
 
@@ -50,6 +52,7 @@ type Connector struct {
 	metrics           *ConnectorMetrics
 	sendProxyProto    bool
 	receiveProxyProto bool
+	recordLogins      bool
 	trustedProxyNets  []*net.IPNet
 
 	activeConnections int32
@@ -225,7 +228,9 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 		serverAddress := handshake.ServerAddress
 		nextState := mcproto.State(handshake.NextState)
 
-		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, serverAddress, nextState)
+		login := c.recordLogin(inspectionBuffer, packet.Length, nextState, clientAddr, serverAddress)
+
+		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, serverAddress, nextState, login)
 	} else if packet.PacketID == mcproto.PacketIdLegacyServerListPing {
 		handshake, ok := packet.Data.(*mcproto.LegacyServerListPing)
 		if !ok {
@@ -244,7 +249,7 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 
 		serverAddress := handshake.ServerAddress
 
-		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, serverAddress, mcproto.StateStatus)
+		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, serverAddress, mcproto.StateStatus, nil)
 	} else {
 		logrus.
 			WithField("client", clientAddr).
@@ -255,8 +260,66 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 	}
 }
 
+func (c *Connector) recordLogin(preReadContent *bytes.Buffer, handshakePacketLength int, nextState mcproto.State, clientAddr net.Addr, serverAddress string) *mcproto.Login {
+	if !c.recordLogins {
+		return nil
+	}
+
+	if nextState != mcproto.StateLogin {
+		logrus.
+			WithField("client", clientAddr).
+			WithField("nextState", nextState).
+			Debug("Next state not a login state")
+		return nil
+	}
+
+	if preReadContent.Len() <= handshakePacketLength {
+		logrus.
+			WithField("client", clientAddr).
+			WithField("preReadContentLength", preReadContent.Len()).
+			WithField("handshakePacketLength", handshakePacketLength).
+			Debug("No more packets in preReadContent buffer")
+		return nil
+	}
+
+	packetBuffer := bytes.NewBuffer(preReadContent.Bytes()[handshakePacketLength:])
+	packet, err := mcproto.ReadPacket(packetBuffer, clientAddr, c.state)
+
+	if err != nil {
+		logrus.WithError(err).WithField("clientAddr", clientAddr).Error("Failed to read packet")
+		c.metrics.Errors.With("type", "read").Add(1)
+		return nil
+	}
+
+	if packet.PacketID != mcproto.PacketIdLogin {
+		logrus.
+			WithField("client", clientAddr).
+			WithField("packetID", packet.PacketID).
+			Error("Unexpected packetID, expected login")
+		c.metrics.Errors.With("type", "unexpected_content").Add(1)
+		return nil
+	}
+
+	login, err := mcproto.ReadLogin(packet.Data)
+	if err != nil {
+		logrus.WithError(err).WithField("clientAddr", clientAddr).
+			Error("Failed to read login")
+		c.metrics.Errors.With("type", "read").Add(1)
+		return nil
+	}
+
+	logrus.
+		WithField("client", clientAddr).
+		WithField("playerName", login.Name).
+		WithField("playerUUID", login.PlayerUUID).
+		WithField("serverAddress", serverAddress).
+		Info("Player attempted to login to server")
+
+	return login
+}
+
 func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.Conn,
-	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, nextState mcproto.State) {
+	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, nextState mcproto.State, login *mcproto.Login) {
 
 	backendHostPort, resolvedHost, waker := Routes.FindBackendForServerAddress(ctx, serverAddress)
 	if waker != nil && nextState > mcproto.StateStatus {
@@ -296,9 +359,24 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 
 	c.metrics.ActiveConnections.Set(float64(
 		atomic.AddInt32(&c.activeConnections, 1)))
+	if login != nil {
+		c.metrics.ServerActivePlayer.
+			With("player_name", login.Name).
+			With("player_uuid", login.PlayerUUID.String()).
+			With("server_address", serverAddress).
+			Set(1)
+	}
+
 	defer func() {
 		c.metrics.ActiveConnections.Set(float64(
 			atomic.AddInt32(&c.activeConnections, -1)))
+		if login != nil {
+			c.metrics.ServerActivePlayer.
+				With("player_name", login.Name).
+				With("player_uuid", login.PlayerUUID.String()).
+				With("server_address", serverAddress).
+				Set(0)
+		}
 		c.connectionsCond.Signal()
 	}()
 

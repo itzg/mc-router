@@ -1,6 +1,10 @@
 package mcproto
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/google/uuid"
+)
 
 type Frame struct {
 	Length  int
@@ -46,6 +50,7 @@ func (p *Packet) String() string {
 
 const (
 	PacketIdHandshake            = 0x00
+	PacketIdLogin                = 0x00
 	PacketIdLegacyServerListPing = 0xFE
 )
 
@@ -56,8 +61,14 @@ type Handshake struct {
 	NextState       int
 }
 
+type Login struct {
+	Name string
+	PlayerUUID uuid.UUID
+}
+
 const (
 	StateStatus State = 1
+	StateLogin State  = 2
 )
 
 type LegacyServerListPing struct {
@@ -69,3 +80,7 @@ type LegacyServerListPing struct {
 type ByteReader interface {
 	ReadByte() (byte, error)
 }
+
+const (
+	PacketLengthFieldBytes = 1
+)

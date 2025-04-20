@@ -53,6 +53,7 @@ func (b expvarMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics {
 		ConnectionsFrontend: c,
 		ConnectionsBackend:  c,
 		ActiveConnections:   expvarMetrics.NewGauge("active_connections"),
+		ServerActivePlayer:  expvarMetrics.NewGauge("server_active_player"),
 	}
 }
 
@@ -71,6 +72,7 @@ func (b discardMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics 
 		ConnectionsFrontend: discardMetrics.NewCounter(),
 		ConnectionsBackend:  discardMetrics.NewCounter(),
 		ActiveConnections:   discardMetrics.NewGauge(),
+		ServerActivePlayer:  discardMetrics.NewGauge(),
 	}
 }
 
@@ -120,6 +122,7 @@ func (b *influxMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics 
 		ConnectionsFrontend: c.With("side", "frontend"),
 		ConnectionsBackend:  c.With("side", "backend"),
 		ActiveConnections:   metrics.NewGauge("mc_router_connections_active"),
+		ServerActivePlayer:  metrics.NewGauge("mc_router_server_player_active"),
 	}
 }
 
@@ -166,5 +169,10 @@ func (b prometheusMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetri
 			Name:      "active_connections",
 			Help:      "The number of active connections",
 		}, nil)),
+		ServerActivePlayer: prometheusMetrics.NewGauge(promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "mc_router",
+			Name:      "server_active_player",
+			Help:      "Player is active on server",
+		}, []string{"player_name", "player_uuid", "server_address"})),
 	}
 }

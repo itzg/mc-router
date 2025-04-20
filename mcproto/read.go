@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/text/encoding/unicode"
@@ -39,7 +40,8 @@ func ReadPacket(reader io.Reader, addr net.Addr, state State) (*Packet, error) {
 		return nil, err
 	}
 
-	packet := &Packet{Length: frame.Length}
+	// Packet length is frame length (bytes for packetID and data) plus bytes used to store the frame length data
+	packet := &Packet{Length: frame.Length + PacketLengthFieldBytes}
 
 	remainder := bytes.NewBuffer(frame.Payload)
 
@@ -280,6 +282,16 @@ func ReadUnsignedInt(reader io.Reader) (uint32, error) {
 	return value, nil
 }
 
+func ReadUUID(reader io.Reader) (uuid.UUID, error) {
+	buf := make([]byte, 16)
+	_, err := reader.Read(buf)
+	uuidData, err := uuid.FromBytes(buf)
+	if err != nil {
+		return uuid.New(), err
+	}
+	return uuidData, nil
+}
+
 func ReadHandshake(data interface{}) (*Handshake, error) {
 
 	dataBytes, ok := data.([]byte)
@@ -312,4 +324,27 @@ func ReadHandshake(data interface{}) (*Handshake, error) {
 	}
 	handshake.NextState = nextState
 	return handshake, nil
+}
+
+func ReadLogin(data interface{}) (*Login, error) {
+	dataBytes, ok := data.([]byte)
+	if !ok {
+		return nil, errors.New("data is not expected byte slice")
+	}
+
+	login := &Login{}
+	buffer := bytes.NewBuffer(dataBytes)
+	var err error
+
+	login.Name, err = ReadString(buffer)
+	if err != nil {
+		return nil, err
+	}
+
+	login.PlayerUUID, err = ReadUUID(buffer)
+	if err != nil {
+		return nil, err
+	}
+
+	return login, nil
 }
