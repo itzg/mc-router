@@ -242,6 +242,7 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 			WithField("handshake", handshake).
 			Debug("Got handshake")
 
+		var userInfo *PlayerInfo = nil
 		if handshake.NextState == mcproto.StateLogin {
 			userInfo, err := c.readUserInfo(bufferedReader, clientAddr, handshake.NextState)
 			if err != nil {
@@ -256,11 +257,9 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 				WithField("client", clientAddr).
 				WithField("userInfo", userInfo).
 				Debug("Got user info")
-
-			c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, handshake.ServerAddress, userInfo, handshake.NextState)
-		} else {
-			c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, handshake.ServerAddress, nil, handshake.NextState)
 		}
+
+		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, handshake.ServerAddress, userInfo, handshake.NextState)
 
 	} else if packet.PacketID == mcproto.PacketIdLegacyServerListPing {
 		handshake, ok := packet.Data.(*mcproto.LegacyServerListPing)
