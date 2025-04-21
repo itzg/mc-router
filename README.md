@@ -395,7 +395,7 @@ Refer to [usage](#usage) for `--webhook-*` argument descriptions.
   "status": "missing-backend",
   "client-host": "127.0.0.1",
   "client-port": 51934,
-  "server-address": "localhost.itzg.me",
+  "server-address": "invalid.server.address",
   "player-info": {
     "name": "itzg",
     "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
