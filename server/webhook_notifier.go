@@ -1,47 +1,157 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/sirupsen/logrus"
+	"log"
 	"net"
+	"net/http"
+	"time"
 )
 
+// WebhookNotifier implements ConnectionNotifier by sending a POST request to a webhook URL.
+// The payload is a JSON object with the following fields:
+//
+//	event: the event type, one of "connecting", "missing-backend", "failed-backend-connection", "success"
+//	status: the status of the event, one of "missing-backend", "failed-backend-connection", "success"
+//	client-host: the client host
+//	client-port: the client port
+//	server-address: the server address
+//	player-info: the player info, if any
+//	backend: the backend host and port, if any
+//	error: the error, if any
 type WebhookNotifier struct {
-	method string
-	url    string
+	url         string
+	requireUser bool
+
+	client *http.Client
 }
 
 const (
 	WebhookEventConnecting = "connecting"
 )
 
+const (
+	WebhookStatusMissingBackend          = "missing-backend"
+	WebhookStatusFailedBackendConnection = "failed-backend-connection"
+	WebhookStatusSuccess                 = "success"
+)
+
 type WebhookNotifierPayload struct {
-	Event           string
-	Status          string    `json:"status,omitempty"`
-	ClientAddress   string    `json:"client-address"`
-	ServerAddress   string    `json:"server-address"`
-	UserInfo        *UserInfo `json:"user-info,omitempty"`
-	BackendHostPort string    `json:"backend,omitempty"`
-	Error           string    `json:"error,omitempty"`
+	Event           string      `json:"event"`
+	Status          string      `json:"status"`
+	ClientHost      string      `json:"client-host"`
+	ClientPort      int         `json:"client-port"`
+	ServerAddress   string      `json:"server-address"`
+	PlayerInfo      *PlayerInfo `json:"player-info,omitempty"`
+	BackendHostPort string      `json:"backend,omitempty"`
+	Error           string      `json:"error,omitempty"`
 }
 
-func NewWebhookNotifier(method, url string) *WebhookNotifier {
+func NewWebhookNotifier(url string, requireUser bool) *WebhookNotifier {
+
 	return &WebhookNotifier{
-		method: method,
-		url:    url,
+		url:         url,
+		requireUser: requireUser,
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 }
 
-func (w *WebhookNotifier) NotifyMissingBackend(ctx context.Context, clientAddr net.Addr, serverAddress string, userInfo *UserInfo) {
-	//TODO implement me
-	panic("implement me")
+func (w *WebhookNotifier) NotifyMissingBackend(ctx context.Context, clientAddr net.Addr, serverAddress string, playerInfo *PlayerInfo) error {
+	if w.requireUser && playerInfo == nil {
+		return nil
+	}
+
+	payload := &WebhookNotifierPayload{
+		Event:         WebhookEventConnecting,
+		Status:        WebhookStatusMissingBackend,
+		ClientHost:    clientAddr.(*net.TCPAddr).IP.String(),
+		ClientPort:    clientAddr.(*net.TCPAddr).Port,
+		ServerAddress: serverAddress,
+		PlayerInfo:    playerInfo,
+		Error:         "No backend found",
+	}
+
+	return w.send(ctx, payload)
 }
 
-func (w *WebhookNotifier) NotifyFailedBackendConnection(ctx context.Context, clientAddr net.Addr, serverAddress string, userInfo *UserInfo, backendHostPort string, err error) {
-	//TODO implement me
-	panic("implement me")
+func (w *WebhookNotifier) NotifyFailedBackendConnection(ctx context.Context, clientAddr net.Addr, serverAddress string,
+	playerInfo *PlayerInfo, backendHostPort string, err error) error {
+	if w.requireUser && playerInfo == nil {
+		return nil
+	}
+
+	payload := &WebhookNotifierPayload{
+		Event:           WebhookEventConnecting,
+		Status:          WebhookStatusFailedBackendConnection,
+		ClientHost:      clientAddr.(*net.TCPAddr).IP.String(),
+		ClientPort:      clientAddr.(*net.TCPAddr).Port,
+		ServerAddress:   serverAddress,
+		PlayerInfo:      playerInfo,
+		BackendHostPort: backendHostPort,
+		Error:           err.Error(),
+	}
+
+	return w.send(ctx, payload)
 }
 
-func (w *WebhookNotifier) NotifyConnected(ctx context.Context, clientAddr net.Addr, serverAddress string, info *UserInfo, backendHostPort string) {
-	//TODO implement me
-	panic("implement me")
+func (w *WebhookNotifier) NotifyConnected(ctx context.Context, clientAddr net.Addr, serverAddress string, playerInfo *PlayerInfo, backendHostPort string) error {
+	if w.requireUser && playerInfo == nil {
+		return nil
+	}
+
+	payload := &WebhookNotifierPayload{
+		Event:           WebhookEventConnecting,
+		Status:          WebhookStatusSuccess,
+		ClientHost:      clientAddr.(*net.TCPAddr).IP.String(),
+		ClientPort:      clientAddr.(*net.TCPAddr).Port,
+		ServerAddress:   serverAddress,
+		PlayerInfo:      playerInfo,
+		BackendHostPort: backendHostPort,
+	}
+
+	return w.send(ctx, payload)
+}
+
+func (w *WebhookNotifier) send(ctx context.Context, payload *WebhookNotifierPayload) error {
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal webhook payload: %v", err)
+	}
+
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		w.url,
+		bytes.NewBuffer(jsonPayload),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create webhook request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	go func() {
+		resp, err := w.client.Do(req)
+		if err != nil {
+			// Handle error
+			log.Printf("Failed to send webhook notification: %v", err)
+			return
+		}
+		_ = resp.Body.Close()
+
+		if resp.StatusCode >= 400 {
+			logrus.
+				WithField("status", resp.StatusCode).
+				Warn("webhook receiver responded with an error")
+		}
+
+	}()
+
+	return nil
 }

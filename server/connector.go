@@ -36,9 +36,9 @@ type ConnectorMetrics struct {
 	ActiveConnections   metrics.Gauge
 }
 
-type UserInfo struct {
-	Username   string
-	PlayerUuid uuid.UUID `json:"player-uuid"`
+type PlayerInfo struct {
+	Name string    `json:"name"`
+	Uuid uuid.UUID `json:"uuid"`
 }
 
 func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet) *Connector {
@@ -291,7 +291,7 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 	}
 }
 
-func (c *Connector) readUserInfo(bufferedReader *bufio.Reader, clientAddr net.Addr, state mcproto.State) (*UserInfo, error) {
+func (c *Connector) readUserInfo(bufferedReader *bufio.Reader, clientAddr net.Addr, state mcproto.State) (*PlayerInfo, error) {
 	loginPacket, err := mcproto.ReadPacket(bufferedReader, clientAddr, state)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read login packet: %w", err)
@@ -302,9 +302,9 @@ func (c *Connector) readUserInfo(bufferedReader *bufio.Reader, clientAddr net.Ad
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode login start: %w", err)
 		}
-		return &UserInfo{
-			Username:   loginStart.Name,
-			PlayerUuid: loginStart.PlayerUuid,
+		return &PlayerInfo{
+			Name: loginStart.Name,
+			Uuid: loginStart.PlayerUuid,
 		}, nil
 	} else {
 		return nil, fmt.Errorf("expected login packet, got %d", loginPacket.PacketID)
@@ -312,7 +312,7 @@ func (c *Connector) readUserInfo(bufferedReader *bufio.Reader, clientAddr net.Ad
 }
 
 func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.Conn,
-	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, userInfo *UserInfo, nextState mcproto.State) {
+	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, userInfo *PlayerInfo, nextState mcproto.State) {
 
 	backendHostPort, resolvedHost, waker := Routes.FindBackendForServerAddress(ctx, serverAddress)
 	if waker != nil && nextState > mcproto.StateStatus {

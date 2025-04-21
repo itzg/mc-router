@@ -28,6 +28,11 @@ type MetricsBackendConfig struct {
 	}
 }
 
+type WebhookConfig struct {
+	Url         string `usage:"If set, a webhook will be POST'ed to the given endpoint for connection status notifications"`
+	RequireUser bool   `default:"false" usage:"If set, the webhook will only be called if the user is connecting rather than just server list/ping"`
+}
+
 type Config struct {
 	Port                  int               `default:"25565" usage:"The [port] bound to listen for Minecraft client connections"`
 	Default               string            `usage:"host:port of a default Minecraft server to use when mapping not found"`
@@ -57,6 +62,8 @@ type Config struct {
 	ClientsToDeny  []string `usage:"Zero or more client IP addresses or CIDRs to deny. Ignored if any configured to allow"`
 
 	SimplifySRV bool `default:"false" usage:"Simplify fully qualified SRV records for mapping"`
+
+	Webhook WebhookConfig `usage:"Webhook configuration"`
 }
 
 var (
@@ -142,6 +149,15 @@ func main() {
 		logrus.WithError(err).Fatal("Unable to create client filter")
 	}
 	connector.SetClientFilter(clientFilter)
+
+	if config.Webhook.Url != "" {
+		logrus.
+			WithField("url", config.Webhook.Url).
+			WithField("require-user", config.Webhook.RequireUser).
+			Info("Using webhook for connection status notifications")
+		connector.SetConnectionNotifier(
+			server.NewWebhookNotifier(config.Webhook.Url, config.Webhook.RequireUser))
+	}
 
 	if config.NgrokToken != "" {
 		connector.UseNgrok(config.NgrokToken)

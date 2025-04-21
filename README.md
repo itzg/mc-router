@@ -43,7 +43,7 @@ Routes Minecraft client connections to backend servers based upon the requested 
   -mapping value
     	Comma or newline delimited or repeated mappings of externalHostname=host:port (env MAPPING)
   -metrics-backend string
-    	Backend to use for metrics exposure/publishing: discard,expvar,influxdb (env METRICS_BACKEND) (default "discard")
+    	Backend to use for metrics exposure/publishing: discard,expvar,influxdb,prometheus (env METRICS_BACKEND) (default "discard")
   -metrics-backend-config-influxdb-addr string
     	 (env METRICS_BACKEND_CONFIG_INFLUXDB_ADDR)
   -metrics-backend-config-influxdb-database string
@@ -74,6 +74,10 @@ Routes Minecraft client connections to backend servers based upon the requested 
     	Send PROXY protocol to backend servers (env USE_PROXY_PROTOCOL)
   -version
     	Output version and exit (env VERSION)
+  -webhook-require-user
+    	If set, the webhook will only be called if the user is connecting rather than just server list/ping (env WEBHOOK_REQUIRE_USER)
+  -webhook-url string
+    	If set, a webhook will be POST'ed to the given endpoint for connection status notifications (env WEBHOOK_URL)
 ```
 
 
@@ -352,6 +356,69 @@ docker compose logs router
 From those logs, locate the `ngrokUrl` parameter from the "Listening" info log message, such as `tcp://8.tcp.ngrok.io:99999`.
 
 In the Minecraft client, the server address will be the part after the "tcp://" prefix, such as `8.tcp.ngrok.io:99999`.
+
+## Webhook Support
+
+Refer to [usage](#usage) for `--webhook-*` argument descriptions.
+
+### Sample payloads
+
+```json
+{
+  "event": "connecting",
+  "status": "success",
+  "client-host": "127.0.0.1",
+  "client-port": 52076,
+  "server-address": "localhost",
+  "player-info": {
+    "name": "itzg",
+    "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
+  },
+  "backend": "localhost:25566"
+}
+```
+
+```json
+{
+  "event": "connecting",
+  "status": "success",
+  "client-host": "127.0.0.1",
+  "client-port": 51859,
+  "server-address": "localhost",
+  "backend": "localhost:25566"
+}
+```
+
+```json
+{
+  "event": "connecting",
+  "status": "missing-backend",
+  "client-host": "127.0.0.1",
+  "client-port": 51934,
+  "server-address": "localhost.itzg.me",
+  "player-info": {
+    "name": "itzg",
+    "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
+  },
+  "error": "No backend found"
+}
+```
+
+```json
+{
+  "event": "connecting",
+  "status": "failed-backend-connection",
+  "client-host": "127.0.0.1",
+  "client-port": 51951,
+  "server-address": "localhost",
+  "player-info": {
+    "name": "itzg",
+    "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
+  },
+  "backend": "localhost:25566",
+  "error": "dial tcp [::1]:25566: connectex: No connection could be made because the target machine actively refused it."
+}
+```
 
 ## Development
 
