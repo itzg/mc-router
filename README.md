@@ -75,7 +75,7 @@ Routes Minecraft client connections to backend servers based upon the requested 
   -version
     	Output version and exit (env VERSION)
   -webhook-require-user
-    	If set, the webhook will only be called if the user is connecting rather than just server list/ping (env WEBHOOK_REQUIRE_USER)
+    	If set, the webhook will only be called if the user is connect rather than just server list/ping (env WEBHOOK_REQUIRE_USER)
   -webhook-url string
     	If set, a webhook will be POST'ed to the given endpoint for connection status notifications (env WEBHOOK_URL)
 ```
@@ -359,13 +359,17 @@ In the Minecraft client, the server address will be the part after the "tcp://" 
 
 ## Webhook Support
 
-Refer to [usage](#usage) for `--webhook-*` argument descriptions.
+Refer to [the usage section above](#usage) for `-webhook-*` argument descriptions.
 
-### Sample payloads
+### Sample connect event payloads
+
+The following are sample payloads for the `connect` webhook events.
+
+#### Successful player backend connection
 
 ```json
 {
-  "event": "connecting",
+  "event": "connect",
   "status": "success",
   "client-host": "127.0.0.1",
   "client-port": 52076,
@@ -378,9 +382,14 @@ Refer to [usage](#usage) for `--webhook-*` argument descriptions.
 }
 ```
 
+#### Successful server ping backend connection
+
+**NOTE** the absence of `player-info` in this payload since the Minecraft client does not send
+player information in the server ping request.
+
 ```json
 {
-  "event": "connecting",
+  "event": "connect",
   "status": "success",
   "client-host": "127.0.0.1",
   "client-port": 51859,
@@ -389,13 +398,18 @@ Refer to [usage](#usage) for `--webhook-*` argument descriptions.
 }
 ```
 
+#### Missing backend
+
+In this the status is `missing-backend` since the requested server `invalid.example.com` does not 
+have a configured/discovered backend entry.
+
 ```json
 {
-  "event": "connecting",
+  "event": "connect",
   "status": "missing-backend",
   "client-host": "127.0.0.1",
   "client-port": 51934,
-  "server-address": "invalid.server.address",
+  "server-address": "invalid.example.com",
   "player-info": {
     "name": "itzg",
     "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
@@ -404,9 +418,14 @@ Refer to [usage](#usage) for `--webhook-*` argument descriptions.
 }
 ```
 
+#### Failed backend connection
+
+In this case the status is `failed-backend-connection` indicating that a backend server was
+located but a connection could not be established from mc-router.
+
 ```json
 {
-  "event": "connecting",
+  "event": "connect",
   "status": "failed-backend-connection",
   "client-host": "127.0.0.1",
   "client-port": 51951,

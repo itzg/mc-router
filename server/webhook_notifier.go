@@ -15,8 +15,8 @@ import (
 // WebhookNotifier implements ConnectionNotifier by sending a POST request to a webhook URL.
 // The payload is a JSON object with the following fields:
 //
-//	event: the event type, one of "connecting", "missing-backend", "failed-backend-connection", "success"
-//	status: the status of the event, one of "missing-backend", "failed-backend-connection", "success"
+//	event: the event type, one of "connect"
+//	status: the status of the event, one of  "success", "missing-backend", "failed-backend-connection"
 //	client-host: the client host
 //	client-port: the client port
 //	server-address: the server address
@@ -31,7 +31,7 @@ type WebhookNotifier struct {
 }
 
 const (
-	WebhookEventConnecting = "connecting"
+	WebhookEventConnecting = "connect"
 )
 
 const (

@@ -30,7 +30,7 @@ type MetricsBackendConfig struct {
 
 type WebhookConfig struct {
 	Url         string `usage:"If set, a webhook will be POST'ed to the given endpoint for connection status notifications"`
-	RequireUser bool   `default:"false" usage:"If set, the webhook will only be called if the user is connecting rather than just server list/ping"`
+	RequireUser bool   `default:"false" usage:"If set, the webhook will only be called if a user is connecting rather than just server list/ping"`
 }
 
 type Config struct {
