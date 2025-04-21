@@ -75,11 +75,10 @@ Routes Minecraft client connections to backend servers based upon the requested 
   -version
     	Output version and exit (env VERSION)
   -webhook-require-user
-    	If set, the webhook will only be called if the user is connect rather than just server list/ping (env WEBHOOK_REQUIRE_USER)
+    	Indicates if the webhook will only be called if a user is connecting rather than just server list/ping (env WEBHOOK_REQUIRE_USER)
   -webhook-url string
-    	If set, a webhook will be POST'ed to the given endpoint for connection status notifications (env WEBHOOK_URL)
+    	If set, a POST request that contains connection status notifications will be sent to this HTTP address (env WEBHOOK_URL)
 ```
-
 
 ## Docker Multi-Architecture Image
 

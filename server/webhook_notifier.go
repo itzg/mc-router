@@ -13,16 +13,7 @@ import (
 )
 
 // WebhookNotifier implements ConnectionNotifier by sending a POST request to a webhook URL.
-// The payload is a JSON object with the following fields:
-//
-//	event: the event type, one of "connect"
-//	status: the status of the event, one of  "success", "missing-backend", "failed-backend-connection"
-//	client-host: the client host
-//	client-port: the client port
-//	server-address: the server address
-//	player-info: the player info, if any
-//	backend: the backend host and port, if any
-//	error: the error, if any
+// The payload is a JSON object defined by WebhookNotifierPayload.
 type WebhookNotifier struct {
 	url         string
 	requireUser bool
