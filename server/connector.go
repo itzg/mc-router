@@ -36,6 +36,22 @@ type ConnectorMetrics struct {
 	ActiveConnections   metrics.Gauge
 }
 
+type ClientInfo struct {
+	Host string `json:"host"`
+	Port int    `json:"port"`
+}
+
+func ClientInfoFromAddr(addr net.Addr) *ClientInfo {
+	if addr == nil {
+		return nil
+	}
+
+	return &ClientInfo{
+		Host: addr.(*net.TCPAddr).IP.String(),
+		Port: addr.(*net.TCPAddr).Port,
+	}
+}
+
 type PlayerInfo struct {
 	Name string    `json:"name"`
 	Uuid uuid.UUID `json:"uuid"`
@@ -244,7 +260,7 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 
 		var userInfo *PlayerInfo = nil
 		if handshake.NextState == mcproto.StateLogin {
-			userInfo, err := c.readUserInfo(bufferedReader, clientAddr, handshake.NextState)
+			userInfo, err = c.readUserInfo(bufferedReader, clientAddr, handshake.NextState)
 			if err != nil {
 				logrus.
 					WithError(err).

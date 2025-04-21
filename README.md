@@ -371,10 +371,12 @@ The following are sample payloads for the `connect` webhook events.
 {
   "event": "connect",
   "status": "success",
-  "client-host": "127.0.0.1",
-  "client-port": 52076,
-  "server-address": "localhost",
-  "player-info": {
+  "client": {
+    "host": "127.0.0.1",
+    "port": 56860
+  },
+  "server": "localhost",
+  "player": {
     "name": "itzg",
     "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
   },
@@ -382,35 +384,39 @@ The following are sample payloads for the `connect` webhook events.
 }
 ```
 
+**NOTE** `client` refers to the machine where the Minecraft client is connecting from and is conveyed separately from the `player` starting a session. As seen below, the player information may not always be present, such as when the client is pinging the server list.
+
 #### Successful server ping backend connection
 
-**NOTE** the absence of `player-info` in this payload since the Minecraft client does not send
-player information in the server ping request.
+**NOTE** the absence of `player` in this payload since the Minecraft client does not send player information in the server ping request.
 
 ```json
 {
   "event": "connect",
   "status": "success",
-  "client-host": "127.0.0.1",
-  "client-port": 51859,
-  "server-address": "localhost",
+  "client": {
+    "host": "127.0.0.1",
+    "port": 56396
+  },
+  "server": "localhost",
   "backend": "localhost:25566"
 }
 ```
 
 #### Missing backend
 
-In this the status is `missing-backend` since the requested server `invalid.example.com` does not 
-have a configured/discovered backend entry.
+In this the status is `"missing-backend"` since the requested server `invalid.example.com` does not have a configured/discovered backend entry.
 
 ```json
 {
   "event": "connect",
   "status": "missing-backend",
-  "client-host": "127.0.0.1",
-  "client-port": 51934,
-  "server-address": "invalid.example.com",
-  "player-info": {
+  "client": {
+    "host": "127.0.0.1",
+    "port": 56891
+  },
+  "server": "invalid.example.com",
+  "player": {
     "name": "itzg",
     "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
   },
@@ -420,17 +426,18 @@ have a configured/discovered backend entry.
 
 #### Failed backend connection
 
-In this case the status is `failed-backend-connection` indicating that a backend server was
-located but a connection could not be established from mc-router.
+In this case the `status` is `"failed-backend-connection"` indicating that a backend server was located but a connection could not be established from mc-router.
 
 ```json
 {
   "event": "connect",
   "status": "failed-backend-connection",
-  "client-host": "127.0.0.1",
-  "client-port": 51951,
-  "server-address": "localhost",
-  "player-info": {
+  "client": {
+    "host": "127.0.0.1",
+    "port": 56905
+  },
+  "server": "localhost",
+  "player": {
     "name": "itzg",
     "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
   },

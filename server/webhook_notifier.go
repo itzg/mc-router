@@ -43,10 +43,9 @@ const (
 type WebhookNotifierPayload struct {
 	Event           string      `json:"event"`
 	Status          string      `json:"status"`
-	ClientHost      string      `json:"client-host"`
-	ClientPort      int         `json:"client-port"`
-	ServerAddress   string      `json:"server-address"`
-	PlayerInfo      *PlayerInfo `json:"player-info,omitempty"`
+	Client          *ClientInfo `json:"client"`
+	Server          string      `json:"server"`
+	PlayerInfo      *PlayerInfo `json:"player,omitempty"`
 	BackendHostPort string      `json:"backend,omitempty"`
 	Error           string      `json:"error,omitempty"`
 }
@@ -62,19 +61,18 @@ func NewWebhookNotifier(url string, requireUser bool) *WebhookNotifier {
 	}
 }
 
-func (w *WebhookNotifier) NotifyMissingBackend(ctx context.Context, clientAddr net.Addr, serverAddress string, playerInfo *PlayerInfo) error {
+func (w *WebhookNotifier) NotifyMissingBackend(ctx context.Context, clientAddr net.Addr, server string, playerInfo *PlayerInfo) error {
 	if w.requireUser && playerInfo == nil {
 		return nil
 	}
 
 	payload := &WebhookNotifierPayload{
-		Event:         WebhookEventConnecting,
-		Status:        WebhookStatusMissingBackend,
-		ClientHost:    clientAddr.(*net.TCPAddr).IP.String(),
-		ClientPort:    clientAddr.(*net.TCPAddr).Port,
-		ServerAddress: serverAddress,
-		PlayerInfo:    playerInfo,
-		Error:         "No backend found",
+		Event:      WebhookEventConnecting,
+		Status:     WebhookStatusMissingBackend,
+		Client:     ClientInfoFromAddr(clientAddr),
+		Server:     server,
+		PlayerInfo: playerInfo,
+		Error:      "No backend found",
 	}
 
 	return w.send(ctx, payload)
@@ -89,9 +87,8 @@ func (w *WebhookNotifier) NotifyFailedBackendConnection(ctx context.Context, cli
 	payload := &WebhookNotifierPayload{
 		Event:           WebhookEventConnecting,
 		Status:          WebhookStatusFailedBackendConnection,
-		ClientHost:      clientAddr.(*net.TCPAddr).IP.String(),
-		ClientPort:      clientAddr.(*net.TCPAddr).Port,
-		ServerAddress:   serverAddress,
+		Client:          ClientInfoFromAddr(clientAddr),
+		Server:          serverAddress,
 		PlayerInfo:      playerInfo,
 		BackendHostPort: backendHostPort,
 		Error:           err.Error(),
@@ -108,9 +105,8 @@ func (w *WebhookNotifier) NotifyConnected(ctx context.Context, clientAddr net.Ad
 	payload := &WebhookNotifierPayload{
 		Event:           WebhookEventConnecting,
 		Status:          WebhookStatusSuccess,
-		ClientHost:      clientAddr.(*net.TCPAddr).IP.String(),
-		ClientPort:      clientAddr.(*net.TCPAddr).Port,
-		ServerAddress:   serverAddress,
+		Client:          ClientInfoFromAddr(clientAddr),
+		Server:          serverAddress,
 		PlayerInfo:      playerInfo,
 		BackendHostPort: backendHostPort,
 	}
