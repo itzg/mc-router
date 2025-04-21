@@ -369,6 +369,7 @@ The following are sample payloads for the `connect` webhook events.
 ```json
 {
   "event": "connect",
+  "timestamp": "2025-04-20T22:26:30.2568775-05:00",
   "status": "success",
   "client": {
     "host": "127.0.0.1",
@@ -392,6 +393,7 @@ The following are sample payloads for the `connect` webhook events.
 ```json
 {
   "event": "connect",
+  "timestamp": "2025-04-20T22:26:30.2568775-05:00",
   "status": "success",
   "client": {
     "host": "127.0.0.1",
@@ -409,6 +411,7 @@ In this the status is `"missing-backend"` since the requested server `invalid.ex
 ```json
 {
   "event": "connect",
+  "timestamp": "2025-04-20T22:26:30.2568775-05:00",
   "status": "missing-backend",
   "client": {
     "host": "127.0.0.1",
@@ -430,6 +433,7 @@ In this case the `status` is `"failed-backend-connection"` indicating that a bac
 ```json
 {
   "event": "connect",
+  "timestamp": "2025-04-20T22:26:30.2568775-05:00",
   "status": "failed-backend-connection",
   "client": {
     "host": "127.0.0.1",

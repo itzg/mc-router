@@ -33,6 +33,7 @@ const (
 
 type WebhookNotifierPayload struct {
 	Event           string      `json:"event"`
+	Timestamp       time.Time   `json:"timestamp"`
 	Status          string      `json:"status"`
 	Client          *ClientInfo `json:"client"`
 	Server          string      `json:"server"`
@@ -59,6 +60,7 @@ func (w *WebhookNotifier) NotifyMissingBackend(ctx context.Context, clientAddr n
 
 	payload := &WebhookNotifierPayload{
 		Event:      WebhookEventConnecting,
+		Timestamp:  time.Now(),
 		Status:     WebhookStatusMissingBackend,
 		Client:     ClientInfoFromAddr(clientAddr),
 		Server:     server,
@@ -69,7 +71,7 @@ func (w *WebhookNotifier) NotifyMissingBackend(ctx context.Context, clientAddr n
 	return w.send(ctx, payload)
 }
 
-func (w *WebhookNotifier) NotifyFailedBackendConnection(ctx context.Context, clientAddr net.Addr, serverAddress string,
+func (w *WebhookNotifier) NotifyFailedBackendConnection(ctx context.Context, clientAddr net.Addr, server string,
 	playerInfo *PlayerInfo, backendHostPort string, err error) error {
 	if w.requireUser && playerInfo == nil {
 		return nil
@@ -77,9 +79,10 @@ func (w *WebhookNotifier) NotifyFailedBackendConnection(ctx context.Context, cli
 
 	payload := &WebhookNotifierPayload{
 		Event:           WebhookEventConnecting,
+		Timestamp:       time.Now(),
 		Status:          WebhookStatusFailedBackendConnection,
 		Client:          ClientInfoFromAddr(clientAddr),
-		Server:          serverAddress,
+		Server:          server,
 		PlayerInfo:      playerInfo,
 		BackendHostPort: backendHostPort,
 		Error:           err.Error(),
@@ -95,6 +98,7 @@ func (w *WebhookNotifier) NotifyConnected(ctx context.Context, clientAddr net.Ad
 
 	payload := &WebhookNotifierPayload{
 		Event:           WebhookEventConnecting,
+		Timestamp:       time.Now(),
 		Status:          WebhookStatusSuccess,
 		Client:          ClientInfoFromAddr(clientAddr),
 		Server:          serverAddress,
