@@ -16,6 +16,10 @@ import (
 	"golang.org/x/text/transform"
 )
 
+// MaxFrameLength is declared at https://minecraft.wiki/w/Java_Edition_protocol#Packet_format
+// to be 2^21 - 1
+const MaxFrameLength = 2097151
+
 // ReadPacket reads a packet from the given reader based on the provided connection state.
 // Returns a pointer to the Packet and an error if reading fails.
 // Handles legacy server list ping packet when in the handshaking state.
@@ -163,8 +167,7 @@ func ReadFrame(reader io.Reader, addr net.Addr) (*Frame, error) {
 		return nil, err
 	}
 
-	// Limit frame length to 2^21 - 1
-	if frame.Length > 2097151 {
+	if frame.Length > MaxFrameLength {
 		return nil, errors.Errorf("frame length %d too large", frame.Length)
 	}
 
