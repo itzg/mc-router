@@ -35,6 +35,7 @@ type ConnectorMetrics struct {
 	ConnectionsBackend  metrics.Counter
 	ActiveConnections   metrics.Gauge
 	ServerActivePlayer  metrics.Gauge
+	ServerLogins        metrics.Counter
 }
 
 type ClientInfo struct {
@@ -389,16 +390,22 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 	if c.recordLogins && userInfo != nil {
 		logrus.
 			WithField("client", clientAddr).
-			WithField("playerName", login.Name).
-			WithField("playerUUID", login.PlayerUUID).
+			WithField("playerName", userInfo.Name).
+			WithField("playerUUID", userInfo.Uuid).
 			WithField("serverAddress", serverAddress).
 			Info("Player attempted to login to server")
 
 		c.metrics.ServerActivePlayer.
-			With("player_name", login.Name).
-			With("player_uuid", login.PlayerUUID.String()).
+			With("player_name", userInfo.Name).
+			With("player_uuid", userInfo.Uuid.String()).
 			With("server_address", serverAddress).
 			Set(1)
+
+		c.metrics.ServerLogins.
+			With("player_name", userInfo.Name).
+			With("player_uuid", userInfo.Uuid.String()).
+			With("server_address", serverAddress).
+			Add(1)
 	}
 
 	defer func() {
@@ -406,8 +413,8 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 			atomic.AddInt32(&c.activeConnections, -1)))
 		if c.recordLogins && userInfo != nil {
 			c.metrics.ServerActivePlayer.
-				With("player_name", login.Name).
-				With("player_uuid", login.PlayerUUID.String()).
+				With("player_name", userInfo.Name).
+				With("player_uuid", userInfo.Uuid.String()).
 				With("server_address", serverAddress).
 				Set(0)
 		}
