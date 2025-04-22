@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"github.com/google/uuid"
 	"io"
 	"net"
 	"strings"

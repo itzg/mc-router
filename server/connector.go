@@ -279,6 +279,7 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 		}
 
 		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, handshake.ServerAddress, userInfo, handshake.NextState)
+
 	} else if packet.PacketID == mcproto.PacketIdLegacyServerListPing {
 		handshake, ok := packet.Data.(*mcproto.LegacyServerListPing)
 		if !ok {
@@ -380,7 +381,7 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 	if c.connectionNotifier != nil {
 		c.connectionNotifier.NotifyConnected(ctx, clientAddr, serverAddress, userInfo, backendHostPort)
 	}
-	
+
 	c.metrics.ConnectionsBackend.With("host", resolvedHost).Add(1)
 
 	c.metrics.ActiveConnections.Set(float64(
