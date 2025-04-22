@@ -2,7 +2,6 @@ package mcproto
 
 import (
 	"fmt"
-
 	"github.com/google/uuid"
 )
 
@@ -13,8 +12,14 @@ type Frame struct {
 
 type State int
 
+/*
+Handshaking -> Status
+Handshaking -> Login -> ...
+*/
 const (
-	StateHandshaking = iota
+	StateHandshaking State = 0
+	StateStatus      State = 1
+	StateLogin       State = 2
 )
 
 var trimLimit = 64
@@ -35,7 +40,7 @@ func (f *Frame) String() string {
 type Packet struct {
 	Length   int
 	PacketID int
-	// Data is either a byte slice of raw content or a parsed message
+	// Data is either a byte slice of raw content or a decoded message
 	Data interface{}
 }
 
@@ -50,7 +55,7 @@ func (p *Packet) String() string {
 
 const (
 	PacketIdHandshake            = 0x00
-	PacketIdLogin                = 0x00
+	PacketIdLogin                = 0x00 // during StateLogin
 	PacketIdLegacyServerListPing = 0xFE
 )
 
@@ -58,18 +63,13 @@ type Handshake struct {
 	ProtocolVersion int
 	ServerAddress   string
 	ServerPort      uint16
-	NextState       int
+	NextState       State
 }
 
-type Login struct {
-	Name string
-	PlayerUUID uuid.UUID
+type LoginStart struct {
+	Name       string
+	PlayerUuid uuid.UUID
 }
-
-const (
-	StateStatus State = 1
-	StateLogin State  = 2
-)
 
 type LegacyServerListPing struct {
 	ProtocolVersion int

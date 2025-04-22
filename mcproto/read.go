@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"github.com/google/uuid"
 	"io"
 	"net"
 	"strings"
@@ -16,22 +17,27 @@ import (
 	"golang.org/x/text/transform"
 )
 
-func ReadPacket(reader io.Reader, addr net.Addr, state State) (*Packet, error) {
+// MaxFrameLength is declared at https://minecraft.wiki/w/Java_Edition_protocol#Packet_format
+// to be 2^21 - 1
+const MaxFrameLength = 2097151
+
+// ReadPacket reads a packet from the given reader based on the provided connection state.
+// Returns a pointer to the Packet and an error if reading fails.
+// Handles legacy server list ping packet when in the handshaking state.
+// The provided addr is used for logging purposes.
+func ReadPacket(reader *bufio.Reader, addr net.Addr, state State) (*Packet, error) {
 	logrus.
 		WithField("client", addr).
 		Debug("Reading packet")
 
 	if state == StateHandshaking {
-		bufReader := bufio.NewReader(reader)
-		data, err := bufReader.Peek(1)
+		data, err := reader.Peek(1)
 		if err != nil {
 			return nil, err
 		}
 
 		if data[0] == PacketIdLegacyServerListPing {
-			return ReadLegacyServerListPing(bufReader, addr)
-		} else {
-			reader = bufReader
+			return ReadLegacyServerListPing(reader, addr)
 		}
 	}
 
@@ -163,8 +169,7 @@ func ReadFrame(reader io.Reader, addr net.Addr) (*Frame, error) {
 		return nil, err
 	}
 
-	// Limit frame length to 2^21 - 1
-	if frame.Length > 2097151 {
+	if frame.Length > MaxFrameLength {
 		return nil, errors.Errorf("frame length %d too large", frame.Length)
 	}
 
@@ -282,69 +287,11 @@ func ReadUnsignedInt(reader io.Reader) (uint32, error) {
 	return value, nil
 }
 
-func ReadUUID(reader io.Reader) (uuid.UUID, error) {
-	buf := make([]byte, 16)
-	_, err := reader.Read(buf)
-	uuidData, err := uuid.FromBytes(buf)
+func ReadUuid(reader io.Reader) (uuid.UUID, error) {
+	uuidBytes := make([]byte, 16)
+	_, err := io.ReadFull(reader, uuidBytes)
 	if err != nil {
-		return uuid.New(), err
+		return uuid.UUID{}, err
 	}
-	return uuidData, nil
-}
-
-func ReadHandshake(data interface{}) (*Handshake, error) {
-
-	dataBytes, ok := data.([]byte)
-	if !ok {
-		return nil, errors.New("data is not expected byte slice")
-	}
-
-	handshake := &Handshake{}
-	buffer := bytes.NewBuffer(dataBytes)
-	var err error
-
-	handshake.ProtocolVersion, err = ReadVarInt(buffer)
-	if err != nil {
-		return nil, err
-	}
-
-	handshake.ServerAddress, err = ReadString(buffer)
-	if err != nil {
-		return nil, err
-	}
-
-	handshake.ServerPort, err = ReadUnsignedShort(buffer)
-	if err != nil {
-		return nil, err
-	}
-
-	nextState, err := ReadVarInt(buffer)
-	if err != nil {
-		return nil, err
-	}
-	handshake.NextState = nextState
-	return handshake, nil
-}
-
-func ReadLogin(data interface{}) (*Login, error) {
-	dataBytes, ok := data.([]byte)
-	if !ok {
-		return nil, errors.New("data is not expected byte slice")
-	}
-
-	login := &Login{}
-	buffer := bytes.NewBuffer(dataBytes)
-	var err error
-
-	login.Name, err = ReadString(buffer)
-	if err != nil {
-		return nil, err
-	}
-
-	login.PlayerUUID, err = ReadUUID(buffer)
-	if err != nil {
-		return nil, err
-	}
-
-	return login, nil
+	return uuid.FromBytes(uuidBytes)
 }
