@@ -34,6 +34,8 @@ type ConnectorMetrics struct {
 	ConnectionsFrontend metrics.Counter
 	ConnectionsBackend  metrics.Counter
 	ActiveConnections   metrics.Gauge
+	ServerActivePlayer  metrics.Gauge
+	ServerLogins        metrics.Counter
 }
 
 type ClientInfo struct {
@@ -57,13 +59,14 @@ type PlayerInfo struct {
 	Uuid uuid.UUID `json:"uuid"`
 }
 
-func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet) *Connector {
+func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet, recordLogins bool) *Connector {
 	return &Connector{
 		metrics:           metrics,
 		sendProxyProto:    sendProxyProto,
 		connectionsCond:   sync.NewCond(&sync.Mutex{}),
 		receiveProxyProto: receiveProxyProto,
 		trustedProxyNets:  trustedProxyNets,
+		recordLogins:      recordLogins,
 	}
 }
 
@@ -72,6 +75,7 @@ type Connector struct {
 	metrics           *ConnectorMetrics
 	sendProxyProto    bool
 	receiveProxyProto bool
+	recordLogins      bool
 	trustedProxyNets  []*net.IPNet
 
 	activeConnections int32
@@ -383,9 +387,37 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 
 	c.metrics.ActiveConnections.Set(float64(
 		atomic.AddInt32(&c.activeConnections, 1)))
+	if c.recordLogins && userInfo != nil {
+		logrus.
+			WithField("client", clientAddr).
+			WithField("playerName", userInfo.Name).
+			WithField("playerUUID", userInfo.Uuid).
+			WithField("serverAddress", serverAddress).
+			Info("Player attempted to login to server")
+
+		c.metrics.ServerActivePlayer.
+			With("player_name", userInfo.Name).
+			With("player_uuid", userInfo.Uuid.String()).
+			With("server_address", serverAddress).
+			Set(1)
+
+		c.metrics.ServerLogins.
+			With("player_name", userInfo.Name).
+			With("player_uuid", userInfo.Uuid.String()).
+			With("server_address", serverAddress).
+			Add(1)
+	}
+
 	defer func() {
 		c.metrics.ActiveConnections.Set(float64(
 			atomic.AddInt32(&c.activeConnections, -1)))
+		if c.recordLogins && userInfo != nil {
+			c.metrics.ServerActivePlayer.
+				With("player_name", userInfo.Name).
+				With("player_uuid", userInfo.Uuid.String()).
+				With("server_address", serverAddress).
+				Set(0)
+		}
 		c.connectionsCond.Signal()
 	}()
 

@@ -45,7 +45,8 @@ func ReadPacket(reader *bufio.Reader, addr net.Addr, state State) (*Packet, erro
 		return nil, err
 	}
 
-	packet := &Packet{Length: frame.Length}
+	// Packet length is frame length (bytes for packetID and data) plus bytes used to store the frame length data
+	packet := &Packet{Length: frame.Length + PacketLengthFieldBytes}
 
 	remainder := bytes.NewBuffer(frame.Payload)
 

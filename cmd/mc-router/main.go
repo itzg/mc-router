@@ -54,6 +54,7 @@ type Config struct {
 	UseProxyProtocol      bool              `default:"false" usage:"Send PROXY protocol to backend servers"`
 	ReceiveProxyProtocol  bool              `default:"false" usage:"Receive PROXY protocol from backend servers, by default trusts every proxy header that it receives, combine with -trusted-proxies to specify a list of trusted proxies"`
 	TrustedProxies        []string          `usage:"Comma delimited list of CIDR notation IP blocks to trust when receiving PROXY protocol"`
+	RecordLogins          bool              `default:"false" usage:"Log and generate metrics on player logins. Metrics only supported with influxdb or prometheus backend"`
 	MetricsBackendConfig  MetricsBackendConfig
 	RoutesConfig          string `usage:"Name or full path to routes config file"`
 	NgrokToken            string `usage:"If set, an ngrok tunnel will be established. It is HIGHLY recommended to pass as an environment variable."`
@@ -142,7 +143,7 @@ func main() {
 		trustedIpNets = append(trustedIpNets, ipNet)
 	}
 
-	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.ReceiveProxyProtocol, trustedIpNets)
+	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.ReceiveProxyProtocol, trustedIpNets, config.RecordLogins)
 
 	clientFilter, err := server.NewClientFilter(config.ClientsToAllow, config.ClientsToDeny)
 	if err != nil {

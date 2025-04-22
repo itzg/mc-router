@@ -78,6 +78,8 @@ Routes Minecraft client connections to backend servers based upon the requested 
     	Indicates if the webhook will only be called if a user is connecting rather than just server list/ping (env WEBHOOK_REQUIRE_USER)
   -webhook-url string
     	If set, a POST request that contains connection status notifications will be sent to this HTTP address (env WEBHOOK_URL)
+  -record-logins
+      Log and generate metrics on player logins. Metrics only supported with influxdb or prometheus backend
 ```
 
 ## Docker Multi-Architecture Image

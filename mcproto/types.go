@@ -80,3 +80,7 @@ type LegacyServerListPing struct {
 type ByteReader interface {
 	ReadByte() (byte, error)
 }
+
+const (
+	PacketLengthFieldBytes = 1
+)
