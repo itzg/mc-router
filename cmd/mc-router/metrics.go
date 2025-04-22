@@ -24,14 +24,26 @@ type MetricsBuilder interface {
 	Start(ctx context.Context) error
 }
 
+const (
+	MetricsBackendExpvar     = "expvar"
+	MetricsBackendPrometheus = "prometheus"
+	MetricsBackendInfluxDB   = "influxdb"
+	MetricsBackendDiscard    = "discard"
+)
+
+// NewMetricsBuilder creates a new MetricsBuilder based on the specified backend.
+// If the backend is not recognized, a discard builder is returned.
+// config can be nil if the backend is not influxdb.
 func NewMetricsBuilder(backend string, config *MetricsBackendConfig) MetricsBuilder {
 	switch strings.ToLower(backend) {
-	case "expvar":
+	case MetricsBackendExpvar:
 		return &expvarMetricsBuilder{}
-	case "prometheus":
+	case MetricsBackendPrometheus:
 		return &prometheusMetricsBuilder{}
-	case "influxdb":
+	case MetricsBackendInfluxDB:
 		return &influxMetricsBuilder{config: config}
+	case MetricsBackendDiscard:
+		return &discardMetricsBuilder{}
 	default:
 		return &discardMetricsBuilder{}
 	}

@@ -67,6 +67,10 @@ type ClientFilter struct {
 	deny  *addrMatcher
 }
 
+func NewClientFilterAllowAll() *ClientFilter {
+	return &ClientFilter{}
+}
+
 // NewClientFilter provides a mechanism to evaluate client IP addresses and determine if
 // they should be allowed access or not.
 // The allows and denies can each or both be nil or netip.ParseAddr allowed values.

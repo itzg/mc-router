@@ -43,7 +43,7 @@ Routes Minecraft client connections to backend servers based upon the requested 
   -mapping value
     	Comma or newline delimited or repeated mappings of externalHostname=host:port (env MAPPING)
   -metrics-backend string
-    	Backend to use for metrics exposure/publishing: discard,expvar,influxdb (env METRICS_BACKEND) (default "discard")
+    	Backend to use for metrics exposure/publishing: discard,expvar,influxdb,prometheus (env METRICS_BACKEND) (default "discard")
   -metrics-backend-config-influxdb-addr string
     	 (env METRICS_BACKEND_CONFIG_INFLUXDB_ADDR)
   -metrics-backend-config-influxdb-database string
@@ -74,8 +74,11 @@ Routes Minecraft client connections to backend servers based upon the requested 
     	Send PROXY protocol to backend servers (env USE_PROXY_PROTOCOL)
   -version
     	Output version and exit (env VERSION)
+  -webhook-require-user
+    	Indicates if the webhook will only be called if a user is connecting rather than just server list/ping (env WEBHOOK_REQUIRE_USER)
+  -webhook-url string
+    	If set, a POST request that contains connection status notifications will be sent to this HTTP address (env WEBHOOK_URL)
 ```
-
 
 ## Docker Multi-Architecture Image
 
@@ -352,6 +355,99 @@ docker compose logs router
 From those logs, locate the `ngrokUrl` parameter from the "Listening" info log message, such as `tcp://8.tcp.ngrok.io:99999`.
 
 In the Minecraft client, the server address will be the part after the "tcp://" prefix, such as `8.tcp.ngrok.io:99999`.
+
+## Webhook Support
+
+Refer to [the usage section above](#usage) for `-webhook-*` argument descriptions.
+
+### Sample connect event payloads
+
+The following are sample payloads for the `connect` webhook events.
+
+#### Successful player backend connection
+
+```json
+{
+  "event": "connect",
+  "timestamp": "2025-04-20T22:26:30.2568775-05:00",
+  "status": "success",
+  "client": {
+    "host": "127.0.0.1",
+    "port": 56860
+  },
+  "server": "localhost",
+  "player": {
+    "name": "itzg",
+    "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
+  },
+  "backend": "localhost:25566"
+}
+```
+
+**NOTE** `client` refers to the machine where the Minecraft client is connecting from and is conveyed separately from the `player` starting a session. As seen below, the player information may not always be present, such as when the client is pinging the server list.
+
+#### Successful server ping backend connection
+
+**NOTE** the absence of `player` in this payload since the Minecraft client does not send player information in the server ping request.
+
+```json
+{
+  "event": "connect",
+  "timestamp": "2025-04-20T22:26:30.2568775-05:00",
+  "status": "success",
+  "client": {
+    "host": "127.0.0.1",
+    "port": 56396
+  },
+  "server": "localhost",
+  "backend": "localhost:25566"
+}
+```
+
+#### Missing backend
+
+In this the status is `"missing-backend"` since the requested server `invalid.example.com` does not have a configured/discovered backend entry.
+
+```json
+{
+  "event": "connect",
+  "timestamp": "2025-04-20T22:26:30.2568775-05:00",
+  "status": "missing-backend",
+  "client": {
+    "host": "127.0.0.1",
+    "port": 56891
+  },
+  "server": "invalid.example.com",
+  "player": {
+    "name": "itzg",
+    "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
+  },
+  "error": "No backend found"
+}
+```
+
+#### Failed backend connection
+
+In this case the `status` is `"failed-backend-connection"` indicating that a backend server was located but a connection could not be established from mc-router.
+
+```json
+{
+  "event": "connect",
+  "timestamp": "2025-04-20T22:26:30.2568775-05:00",
+  "status": "failed-backend-connection",
+  "client": {
+    "host": "127.0.0.1",
+    "port": 56905
+  },
+  "server": "localhost",
+  "player": {
+    "name": "itzg",
+    "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
+  },
+  "backend": "localhost:25566",
+  "error": "dial tcp [::1]:25566: connectex: No connection could be made because the target machine actively refused it."
+}
+```
 
 ## Development
 
