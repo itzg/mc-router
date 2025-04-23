@@ -409,6 +409,9 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 	}
 
 	defer func() {
+		if c.connectionNotifier != nil {
+			c.connectionNotifier.NotifyDisconnected(ctx, clientAddr, serverAddress, userInfo, backendHostPort)
+		}
 		c.metrics.ActiveConnections.Set(float64(
 			atomic.AddInt32(&c.activeConnections, -1)))
 		if c.recordLogins && userInfo != nil {

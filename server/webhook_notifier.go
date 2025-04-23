@@ -29,6 +29,7 @@ const (
 	WebhookStatusMissingBackend          = "missing-backend"
 	WebhookStatusFailedBackendConnection = "failed-backend-connection"
 	WebhookStatusSuccess                 = "success"
+	WebhookStatusDisconnected            = "disconnected"
 )
 
 type WebhookNotifierPayload struct {
@@ -100,6 +101,24 @@ func (w *WebhookNotifier) NotifyConnected(ctx context.Context, clientAddr net.Ad
 		Event:           WebhookEventConnecting,
 		Timestamp:       time.Now(),
 		Status:          WebhookStatusSuccess,
+		Client:          ClientInfoFromAddr(clientAddr),
+		Server:          serverAddress,
+		PlayerInfo:      playerInfo,
+		BackendHostPort: backendHostPort,
+	}
+
+	return w.send(ctx, payload)
+}
+
+func (w *WebhookNotifier) NotifyDisconnected(ctx context.Context, clientAddr net.Addr, serverAddress string, playerInfo *PlayerInfo, backendHostPort string) error {
+	if w.requireUser && playerInfo == nil {
+		return nil
+	}
+
+	payload := &WebhookNotifierPayload{
+		Event:           WebhookEventConnecting,
+		Timestamp:       time.Now(),
+		Status:          WebhookStatusDisconnected,
 		Client:          ClientInfoFromAddr(clientAddr),
 		Server:          serverAddress,
 		PlayerInfo:      playerInfo,
