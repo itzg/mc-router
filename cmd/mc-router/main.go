@@ -58,6 +58,7 @@ type Config struct {
 	MetricsBackendConfig  MetricsBackendConfig
 	RoutesConfig          string `usage:"Name or full path to routes config file"`
 	NgrokToken            string `usage:"If set, an ngrok tunnel will be established. It is HIGHLY recommended to pass as an environment variable."`
+	AllowDenyList         string `usage:"Path to config for server allowlists and denylists. If -auto-scale-up is enabled and a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up"`
 
 	ClientsToAllow []string `usage:"Zero or more client IP addresses or CIDRs to allow. Takes precedence over deny."`
 	ClientsToDeny  []string `usage:"Zero or more client IP addresses or CIDRs to deny. Ignored if any configured to allow"`
@@ -110,6 +111,14 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
+	var allowDenyConfig *server.AllowDenyConfig = nil
+	if config.AllowDenyList != "" {
+		allowDenyConfig, err = server.ParseAllowDenyConfig(config.AllowDenyList)
+		if err != nil {
+			logrus.WithError(err).Fatal("trying to parse allow-deny-list file")
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -143,7 +152,7 @@ func main() {
 		trustedIpNets = append(trustedIpNets, ipNet)
 	}
 
-	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.ReceiveProxyProtocol, trustedIpNets, config.RecordLogins)
+	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.ReceiveProxyProtocol, trustedIpNets, config.RecordLogins, allowDenyConfig)
 
 	clientFilter, err := server.NewClientFilter(config.ClientsToAllow, config.ClientsToDeny)
 	if err != nil {

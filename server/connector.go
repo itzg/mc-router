@@ -59,7 +59,7 @@ type PlayerInfo struct {
 	Uuid uuid.UUID `json:"uuid"`
 }
 
-func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet, recordLogins bool) *Connector {
+func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet, recordLogins bool, allowDenyConfig *AllowDenyConfig) *Connector {
 	return &Connector{
 		metrics:           metrics,
 		sendProxyProto:    sendProxyProto,
@@ -67,6 +67,7 @@ func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyPr
 		receiveProxyProto: receiveProxyProto,
 		trustedProxyNets:  trustedProxyNets,
 		recordLogins:      recordLogins,
+		allowDenyConfig:   allowDenyConfig,
 	}
 }
 
@@ -82,6 +83,7 @@ type Connector struct {
 	connectionsCond   *sync.Cond
 	ngrokToken        string
 	clientFilter      *ClientFilter
+	allowDenyConfig   *AllowDenyConfig
 
 	connectionNotifier ConnectionNotifier
 }
@@ -334,7 +336,15 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, userInfo *PlayerInfo, nextState mcproto.State) {
 
 	backendHostPort, resolvedHost, waker := Routes.FindBackendForServerAddress(ctx, serverAddress)
-	if waker != nil && nextState > mcproto.StateStatus {
+
+	serverAllowsPlayer := c.allowDenyConfig.ServerAllowsPlayer(serverAddress, userInfo)
+	logrus.
+		WithField("client", clientAddr).
+		WithField("server", serverAddress).
+		WithField("userInfo", userInfo).
+		WithField("serverAllowsPlayer", serverAllowsPlayer).
+		Debug("checked if player is allowed to wake up the server")
+	if waker != nil && nextState > mcproto.StateStatus && serverAllowsPlayer {
 		if err := waker(ctx); err != nil {
 			logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend")
 			c.metrics.Errors.With("type", "wakeup_failed").Add(1)

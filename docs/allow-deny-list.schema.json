@@ -1,0 +1,62 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://github.com/itzg/mc-router/docs/allow-deny-list.schema.json",
+	"title": "Player allow/deny list",
+	"description": "Per-server and/or global player allow/deny list",
+	"type": "object",
+	"$defs": {
+		"userInfo": {
+			"description": "Player to allow/deny by uuid and/or name",
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"description": "Player username (takes priority over name if specified)",
+					"type": "string",
+					"format": "uuid"
+				},
+				"name": {
+					"description": "Player name",
+					"type": "string"
+				}
+			},
+			"additionalProperties": false
+		},
+		"allowDenyLists": {
+			"description": "Allow and deny lists of player information",
+			"type": "object",
+			"properties": {
+				"allowlist": {
+					"description": "List of allowed players (takes priority over denylist if specified)",
+					"type": "array",
+					"items": {
+						"$ref": "#/$defs/userInfo"
+					}
+				},
+				"denylist": {
+					"description": "List of denied players",
+					"type": "array",
+					"items": {
+						"$ref": "#/$defs/userInfo"
+					}
+				}
+			},
+			"additionalProperties": false
+		}
+	},
+	"properties": {
+		"global": {
+			"description": "Global allow and deny lists of player information (allowlists take priority over denylists so if a player is denylisted globally but allowlisted in a server block, they will be allowed on that server)",
+			"$ref": "#/$defs/allowDenyLists"
+		},
+		"servers": {
+			"description": "Server-specific allow and deny lists of player information with each object key being a server address",
+			"type": "object",
+			"patternProperties": {
+				"^.+$": {
+					"$ref": "#/$defs/allowDenyLists"
+				}
+			}
+		}
+	},
+	"additionalProperties": false
+}
