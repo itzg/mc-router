@@ -16,4 +16,8 @@ type ConnectionNotifier interface {
 	// NotifyConnected is called when the backend connection succeeded.
 	NotifyConnected(ctx context.Context,
 		clientAddr net.Addr, serverAddress string, playerInfo *PlayerInfo, backendHostPort string) error
+
+	// NotifyDisconnected is called when the backend connection terminates.
+	NotifyDisconnected(ctx context.Context,
+		clientAddr net.Addr, serverAddress string, playerInfo *PlayerInfo, backendHostPort string) error
 }
