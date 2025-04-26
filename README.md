@@ -81,7 +81,7 @@ Routes Minecraft client connections to backend servers based upon the requested 
   -record-logins
       Log and generate metrics on player logins. Metrics only supported with influxdb or prometheus backend (env RECORD_LOGINS)
   -auto-scale-up-allow-deny string
-      Path to config for server allowlists and denylists. If -auto-scale-up is enabled and a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up (env ALLOW_DENY_LIST)
+      Path to config for server allowlists and denylists. If -auto-scale-up is enabled and a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up (env AUTO_SCALE_UP_ALLOW_DENY)
 ```
 
 ## Docker Multi-Architecture Image
