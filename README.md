@@ -79,7 +79,9 @@ Routes Minecraft client connections to backend servers based upon the requested 
   -webhook-url string
     	If set, a POST request that contains connection status notifications will be sent to this HTTP address (env WEBHOOK_URL)
   -record-logins
-      Log and generate metrics on player logins. Metrics only supported with influxdb or prometheus backend
+      Log and generate metrics on player logins. Metrics only supported with influxdb or prometheus backend (env RECORD_LOGINS)
+  -auto-scale-up-allow-deny string
+      Path to config for server allowlists and denylists. If -auto-scale-up is enabled and a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up (env AUTO_SCALE_UP_ALLOW_DENY)
 ```
 
 ## Docker Multi-Architecture Image
@@ -169,6 +171,41 @@ The following shows a JSON file for routes config, where `default-server` can al
   }
 }
 ```
+
+## Auto Scale Up Allow/Deny List
+
+The allow/deny list configuration allows limiting which players can scale up servers when using the `-auto-scale-up` option or the `AUTO_SCALE_UP` env variable. Global allow/deny lists can be configured that apply to all backend servers, but server-specific lists can be added as well. There are a few important things to note about the configuration:
+- The `mc-router` process will not automatically pick up changes to the config. If updates to the config are made, the router must be restarted.
+- Allowlists always take priority over denylists. This means if a player is included in a sever-specific allowlist and the global denylist, the player will still be considered allowed on that server. If a player is listed in both a global allowlist and denylist, the denylist entry will be ignored.
+- Player entries only require a `uuid` or `name`. Both will be checked if specified, but otherwise a `uuid` will take priority over a `name`.
+
+An example configuration might look something like:
+
+```json
+{
+  "global": {
+    "denylist": [
+      {"uuid": "<some player's uuid>", "name": "<some player's name>"}
+    ]
+  },
+  "servers": {
+    "my.server.domain": {
+      "allowlist": [
+        {"uuid": "<some player's uuid>"}
+      ]
+    },
+    "my.other-server.domain": {
+      "denylist": [
+        {"uuid": "<some player's uuid>"}
+      ]
+    }
+  }
+}
+```
+
+In the example, players in the `my.server.domain` allowlist will be able to scale up `my.server.domain`. Players in the global denylist and the `my.other-server.domain` denylist will **not** be able to scale up `my.other-server.domain`. Any servers not listed in the config will also be affected by the global allowlist. Note that if a global allowlist is specified, no denylists will have any effect as that global allowlist will affect all servers.
+
+For more information on the allow/deny list configuration, see the [json schema](docs/allow-deny-list.schema.json).
 
 ## Kubernetes Usage
 

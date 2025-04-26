@@ -59,14 +59,15 @@ type PlayerInfo struct {
 	Uuid uuid.UUID `json:"uuid"`
 }
 
-func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet, recordLogins bool) *Connector {
+func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet, recordLogins bool, autoScaleUpAllowDenyConfig *AllowDenyConfig) *Connector {
 	return &Connector{
-		metrics:           metrics,
-		sendProxyProto:    sendProxyProto,
-		connectionsCond:   sync.NewCond(&sync.Mutex{}),
-		receiveProxyProto: receiveProxyProto,
-		trustedProxyNets:  trustedProxyNets,
-		recordLogins:      recordLogins,
+		metrics:                      metrics,
+		sendProxyProto:               sendProxyProto,
+		connectionsCond:              sync.NewCond(&sync.Mutex{}),
+		receiveProxyProto:            receiveProxyProto,
+		trustedProxyNets:             trustedProxyNets,
+		recordLogins:                 recordLogins,
+		autoScaleUpAllowDenyConfig:   autoScaleUpAllowDenyConfig,
 	}
 }
 
@@ -78,10 +79,11 @@ type Connector struct {
 	recordLogins      bool
 	trustedProxyNets  []*net.IPNet
 
-	activeConnections int32
-	connectionsCond   *sync.Cond
-	ngrokToken        string
-	clientFilter      *ClientFilter
+	activeConnections            int32
+	connectionsCond              *sync.Cond
+	ngrokToken                   string
+	clientFilter                 *ClientFilter
+	autoScaleUpAllowDenyConfig   *AllowDenyConfig
 
 	connectionNotifier ConnectionNotifier
 }
@@ -335,10 +337,19 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 
 	backendHostPort, resolvedHost, waker := Routes.FindBackendForServerAddress(ctx, serverAddress)
 	if waker != nil && nextState > mcproto.StateStatus {
-		if err := waker(ctx); err != nil {
-			logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend")
-			c.metrics.Errors.With("type", "wakeup_failed").Add(1)
-			return
+		serverAllowsPlayer := c.autoScaleUpAllowDenyConfig.ServerAllowsPlayer(serverAddress, userInfo)
+		logrus.
+			WithField("client", clientAddr).
+			WithField("server", serverAddress).
+			WithField("userInfo", userInfo).
+			WithField("serverAllowsPlayer", serverAllowsPlayer).
+			Debug("checked if player is allowed to wake up the server")
+		if serverAllowsPlayer {
+			if err := waker(ctx); err != nil {
+				logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend")
+				c.metrics.Errors.With("type", "wakeup_failed").Add(1)
+				return
+			}
 		}
 	}
 
