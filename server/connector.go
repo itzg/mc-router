@@ -337,18 +337,20 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 
 	backendHostPort, resolvedHost, waker := Routes.FindBackendForServerAddress(ctx, serverAddress)
 
-	serverAllowsPlayer := c.allowDenyConfig.ServerAllowsPlayer(serverAddress, userInfo)
-	logrus.
-		WithField("client", clientAddr).
-		WithField("server", serverAddress).
-		WithField("userInfo", userInfo).
-		WithField("serverAllowsPlayer", serverAllowsPlayer).
-		Debug("checked if player is allowed to wake up the server")
-	if waker != nil && nextState > mcproto.StateStatus && serverAllowsPlayer {
-		if err := waker(ctx); err != nil {
-			logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend")
-			c.metrics.Errors.With("type", "wakeup_failed").Add(1)
-			return
+	if waker != nil && nextState > mcproto.StateStatus {
+		serverAllowsPlayer := c.allowDenyConfig.ServerAllowsPlayer(serverAddress, userInfo)
+		logrus.
+			WithField("client", clientAddr).
+			WithField("server", serverAddress).
+			WithField("userInfo", userInfo).
+			WithField("serverAllowsPlayer", serverAllowsPlayer).
+			Debug("checked if player is allowed to wake up the server")
+		if serverAllowsPlayer {
+			if err := waker(ctx); err != nil {
+				logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend")
+				c.metrics.Errors.With("type", "wakeup_failed").Add(1)
+				return
+			}
 		}
 	}
 

@@ -55,11 +55,15 @@ func (allowDenyConfig *AllowDenyConfig) ServerAllowsPlayer(serverAddress string,
 	allowlist := allowDenyConfig.Global.Allowlist
 	denylist := allowDenyConfig.Global.Denylist
 	serverAllowDenyConfig, ok := allowDenyConfig.Servers[serverAddress]
+	// Merges global allow/deny lists with server-specific allow/deny lists if provided
 	if ok {
 		allowlist = append(allowlist, serverAllowDenyConfig.Allowlist...)
 		denylist = append(denylist, serverAllowDenyConfig.Denylist...)
 	}
 
+	// If the allowlist is not empty, the player must have an entry or they will be denied
+	// If the allowlist is empty, then the denylist is checked
+	// If the allowlist is empty and the player was not in the denylist, then they are allowed
 	for _, allowedPlayer := range allowlist {
 		if entryMatchesPlayer(&allowedPlayer, userInfo) {
 			return true
