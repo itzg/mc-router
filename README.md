@@ -172,7 +172,7 @@ The following shows a JSON file for routes config, where `default-server` can al
 }
 ```
 
-## Allow/Deny List
+## Auto Scale Up Allow/Deny List
 
 The allow/deny list configuration allows limiting which players can scale up servers when using the `-auto-scale-up` option or the `AUTO_SCALE_UP` env variable. Global allow/deny lists can be configured that apply to all backend servers, but server-specific lists can be added as well. There are a few important things to note about the configuration:
 - The `mc-router` process will not automatically pick up changes to the config. If updates to the config are made, the router must be restarted.
