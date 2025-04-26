@@ -59,15 +59,22 @@ type PlayerInfo struct {
 	Uuid uuid.UUID `json:"uuid"`
 }
 
+func (p *PlayerInfo) String() string {
+	if p == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s/%s", p.Name, p.Uuid)
+}
+
 func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet, recordLogins bool, autoScaleUpAllowDenyConfig *AllowDenyConfig) *Connector {
 	return &Connector{
-		metrics:                      metrics,
-		sendProxyProto:               sendProxyProto,
-		connectionsCond:              sync.NewCond(&sync.Mutex{}),
-		receiveProxyProto:            receiveProxyProto,
-		trustedProxyNets:             trustedProxyNets,
-		recordLogins:                 recordLogins,
-		autoScaleUpAllowDenyConfig:   autoScaleUpAllowDenyConfig,
+		metrics:                    metrics,
+		sendProxyProto:             sendProxyProto,
+		connectionsCond:            sync.NewCond(&sync.Mutex{}),
+		receiveProxyProto:          receiveProxyProto,
+		trustedProxyNets:           trustedProxyNets,
+		recordLogins:               recordLogins,
+		autoScaleUpAllowDenyConfig: autoScaleUpAllowDenyConfig,
 	}
 }
 
@@ -79,11 +86,11 @@ type Connector struct {
 	recordLogins      bool
 	trustedProxyNets  []*net.IPNet
 
-	activeConnections            int32
-	connectionsCond              *sync.Cond
-	ngrokToken                   string
-	clientFilter                 *ClientFilter
-	autoScaleUpAllowDenyConfig   *AllowDenyConfig
+	activeConnections          int32
+	connectionsCond            *sync.Cond
+	ngrokToken                 string
+	clientFilter               *ClientFilter
+	autoScaleUpAllowDenyConfig *AllowDenyConfig
 
 	connectionNotifier ConnectionNotifier
 }
@@ -264,9 +271,9 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 			WithField("handshake", handshake).
 			Debug("Got handshake")
 
-		var userInfo *PlayerInfo = nil
+		var playerInfo *PlayerInfo = nil
 		if handshake.NextState == mcproto.StateLogin {
-			userInfo, err = c.readUserInfo(bufferedReader, clientAddr, handshake.NextState)
+			playerInfo, err = c.readUserInfo(bufferedReader, clientAddr, handshake.NextState)
 			if err != nil {
 				logrus.
 					WithError(err).
@@ -277,11 +284,11 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 			}
 			logrus.
 				WithField("client", clientAddr).
-				WithField("userInfo", userInfo).
+				WithField("player", playerInfo).
 				Debug("Got user info")
 		}
 
-		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, handshake.ServerAddress, userInfo, handshake.NextState)
+		c.findAndConnectBackend(ctx, frontendConn, clientAddr, inspectionBuffer, handshake.ServerAddress, playerInfo, handshake.NextState)
 
 	} else if packet.PacketID == mcproto.PacketIdLegacyServerListPing {
 		handshake, ok := packet.Data.(*mcproto.LegacyServerListPing)
@@ -333,15 +340,15 @@ func (c *Connector) readUserInfo(bufferedReader *bufio.Reader, clientAddr net.Ad
 }
 
 func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.Conn,
-	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, userInfo *PlayerInfo, nextState mcproto.State) {
+	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, playerInfo *PlayerInfo, nextState mcproto.State) {
 
 	backendHostPort, resolvedHost, waker := Routes.FindBackendForServerAddress(ctx, serverAddress)
 	if waker != nil && nextState > mcproto.StateStatus {
-		serverAllowsPlayer := c.autoScaleUpAllowDenyConfig.ServerAllowsPlayer(serverAddress, userInfo)
+		serverAllowsPlayer := c.autoScaleUpAllowDenyConfig.ServerAllowsPlayer(serverAddress, playerInfo)
 		logrus.
 			WithField("client", clientAddr).
 			WithField("server", serverAddress).
-			WithField("userInfo", userInfo).
+			WithField("player", playerInfo).
 			WithField("serverAllowsPlayer", serverAllowsPlayer).
 			Debug("checked if player is allowed to wake up the server")
 		if serverAllowsPlayer {
@@ -357,11 +364,15 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		logrus.
 			WithField("serverAddress", serverAddress).
 			WithField("resolvedHost", resolvedHost).
+			WithField("player", playerInfo).
 			Warn("Unable to find registered backend")
 		c.metrics.Errors.With("type", "missing_backend").Add(1)
 
 		if c.connectionNotifier != nil {
-			c.connectionNotifier.NotifyMissingBackend(ctx, clientAddr, serverAddress, userInfo)
+			err := c.connectionNotifier.NotifyMissingBackend(ctx, clientAddr, serverAddress, playerInfo)
+			if err != nil {
+				logrus.WithError(err).Warn("failed to notify missing backend")
+			}
 		}
 
 		return
@@ -371,6 +382,7 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		WithField("client", clientAddr).
 		WithField("server", serverAddress).
 		WithField("backendHostPort", backendHostPort).
+		WithField("player", playerInfo).
 		Info("Connecting to backend")
 
 	backendConn, err := net.Dial("tcp", backendHostPort)
@@ -380,55 +392,64 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 			WithField("client", clientAddr).
 			WithField("serverAddress", serverAddress).
 			WithField("backend", backendHostPort).
+			WithField("player", playerInfo).
 			Warn("Unable to connect to backend")
 		c.metrics.Errors.With("type", "backend_failed").Add(1)
 
 		if c.connectionNotifier != nil {
-			c.connectionNotifier.NotifyFailedBackendConnection(ctx, clientAddr, serverAddress, userInfo, backendHostPort, err)
+			notifyErr := c.connectionNotifier.NotifyFailedBackendConnection(ctx, clientAddr, serverAddress, playerInfo, backendHostPort, err)
+			if notifyErr != nil {
+				logrus.WithError(notifyErr).Warn("failed to notify failed backend connection")
+			}
 		}
 
 		return
 	}
 
 	if c.connectionNotifier != nil {
-		c.connectionNotifier.NotifyConnected(ctx, clientAddr, serverAddress, userInfo, backendHostPort)
+		err := c.connectionNotifier.NotifyConnected(ctx, clientAddr, serverAddress, playerInfo, backendHostPort)
+		if err != nil {
+			logrus.WithError(err).Warn("failed to notify connected")
+		}
 	}
 
 	c.metrics.ConnectionsBackend.With("host", resolvedHost).Add(1)
 
 	c.metrics.ActiveConnections.Set(float64(
 		atomic.AddInt32(&c.activeConnections, 1)))
-	if c.recordLogins && userInfo != nil {
+	if c.recordLogins && playerInfo != nil {
 		logrus.
 			WithField("client", clientAddr).
-			WithField("playerName", userInfo.Name).
-			WithField("playerUUID", userInfo.Uuid).
+			WithField("player", playerInfo).
 			WithField("serverAddress", serverAddress).
 			Info("Player attempted to login to server")
 
 		c.metrics.ServerActivePlayer.
-			With("player_name", userInfo.Name).
-			With("player_uuid", userInfo.Uuid.String()).
+			With("player_name", playerInfo.Name).
+			With("player_uuid", playerInfo.Uuid.String()).
 			With("server_address", serverAddress).
 			Set(1)
 
 		c.metrics.ServerLogins.
-			With("player_name", userInfo.Name).
-			With("player_uuid", userInfo.Uuid.String()).
+			With("player_name", playerInfo.Name).
+			With("player_uuid", playerInfo.Uuid.String()).
 			With("server_address", serverAddress).
 			Add(1)
 	}
 
 	defer func() {
 		if c.connectionNotifier != nil {
-			c.connectionNotifier.NotifyDisconnected(ctx, clientAddr, serverAddress, userInfo, backendHostPort)
+			err := c.connectionNotifier.NotifyDisconnected(ctx, clientAddr, serverAddress, playerInfo, backendHostPort)
+			if err != nil {
+				logrus.WithError(err).Warn("failed to notify disconnected")
+			}
 		}
 		c.metrics.ActiveConnections.Set(float64(
 			atomic.AddInt32(&c.activeConnections, -1)))
-		if c.recordLogins && userInfo != nil {
+		if c.recordLogins && playerInfo != nil {
 			c.metrics.ServerActivePlayer.
-				With("player_name", userInfo.Name).
-				With("player_uuid", userInfo.Uuid.String()).
+				With("player_name", playerInfo.Name).
+				With("player_uuid", playerInfo.Uuid.String()).
 				With("server_address", serverAddress).
 				Set(0)
 		}
@@ -492,10 +513,10 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		return
 	}
 
-	c.pumpConnections(ctx, frontendConn, backendConn)
+	c.pumpConnections(ctx, frontendConn, backendConn, playerInfo)
 }
 
-func (c *Connector) pumpConnections(ctx context.Context, frontendConn, backendConn net.Conn) {
+func (c *Connector) pumpConnections(ctx context.Context, frontendConn, backendConn net.Conn, playerInfo *PlayerInfo) {
 	//noinspection GoUnhandledErrorResult
 	defer backendConn.Close()
 
@@ -504,8 +525,8 @@ func (c *Connector) pumpConnections(ctx context.Context, frontendConn, backendCo
 
 	errors := make(chan error, 2)
 
-	go c.pumpFrames(backendConn, frontendConn, errors, "backend", "frontend", clientAddr)
-	go c.pumpFrames(frontendConn, backendConn, errors, "frontend", "backend", clientAddr)
+	go c.pumpFrames(backendConn, frontendConn, errors, "backend", "frontend", clientAddr, playerInfo)
+	go c.pumpFrames(frontendConn, backendConn, errors, "frontend", "backend", clientAddr, playerInfo)
 
 	select {
 	case err := <-errors:
@@ -521,11 +542,13 @@ func (c *Connector) pumpConnections(ctx context.Context, frontendConn, backendCo
 	}
 }
 
-func (c *Connector) pumpFrames(incoming io.Reader, outgoing io.Writer, errors chan<- error, from, to string, clientAddr net.Addr) {
+func (c *Connector) pumpFrames(incoming io.Reader, outgoing io.Writer, errors chan<- error, from, to string,
+	clientAddr net.Addr, playerInfo *PlayerInfo) {
 	amount, err := io.Copy(outgoing, incoming)
 	logrus.
 		WithField("client", clientAddr).
 		WithField("amount", amount).
+		WithField("player", playerInfo).
 		Infof("Finished relay %s->%s", from, to)
 
 	c.metrics.BytesTransmitted.Add(float64(amount))
