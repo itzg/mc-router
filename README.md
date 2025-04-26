@@ -80,7 +80,7 @@ Routes Minecraft client connections to backend servers based upon the requested 
     	If set, a POST request that contains connection status notifications will be sent to this HTTP address (env WEBHOOK_URL)
   -record-logins
       Log and generate metrics on player logins. Metrics only supported with influxdb or prometheus backend (env RECORD_LOGINS)
-  -allow-deny-list string
+  -auto-scale-up-allow-deny string
       Path to config for server allowlists and denylists. If -auto-scale-up is enabled and a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up (env ALLOW_DENY_LIST)
 ```
 

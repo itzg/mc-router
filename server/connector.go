@@ -59,15 +59,15 @@ type PlayerInfo struct {
 	Uuid uuid.UUID `json:"uuid"`
 }
 
-func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet, recordLogins bool, allowDenyConfig *AllowDenyConfig) *Connector {
+func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet, recordLogins bool, autoScaleUpAllowDenyConfig *AllowDenyConfig) *Connector {
 	return &Connector{
-		metrics:           metrics,
-		sendProxyProto:    sendProxyProto,
-		connectionsCond:   sync.NewCond(&sync.Mutex{}),
-		receiveProxyProto: receiveProxyProto,
-		trustedProxyNets:  trustedProxyNets,
-		recordLogins:      recordLogins,
-		allowDenyConfig:   allowDenyConfig,
+		metrics:                      metrics,
+		sendProxyProto:               sendProxyProto,
+		connectionsCond:              sync.NewCond(&sync.Mutex{}),
+		receiveProxyProto:            receiveProxyProto,
+		trustedProxyNets:             trustedProxyNets,
+		recordLogins:                 recordLogins,
+		autoScaleUpAllowDenyConfig:   autoScaleUpAllowDenyConfig,
 	}
 }
 
@@ -79,11 +79,11 @@ type Connector struct {
 	recordLogins      bool
 	trustedProxyNets  []*net.IPNet
 
-	activeConnections int32
-	connectionsCond   *sync.Cond
-	ngrokToken        string
-	clientFilter      *ClientFilter
-	allowDenyConfig   *AllowDenyConfig
+	activeConnections            int32
+	connectionsCond              *sync.Cond
+	ngrokToken                   string
+	clientFilter                 *ClientFilter
+	autoScaleUpAllowDenyConfig   *AllowDenyConfig
 
 	connectionNotifier ConnectionNotifier
 }
@@ -336,9 +336,8 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, userInfo *PlayerInfo, nextState mcproto.State) {
 
 	backendHostPort, resolvedHost, waker := Routes.FindBackendForServerAddress(ctx, serverAddress)
-
 	if waker != nil && nextState > mcproto.StateStatus {
-		serverAllowsPlayer := c.allowDenyConfig.ServerAllowsPlayer(serverAddress, userInfo)
+		serverAllowsPlayer := c.autoScaleUpAllowDenyConfig.ServerAllowsPlayer(serverAddress, userInfo)
 		logrus.
 			WithField("client", clientAddr).
 			WithField("server", serverAddress).
