@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"github.com/google/uuid"
 	"io"
@@ -227,7 +228,7 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 
 	logrus.
 		WithField("client", clientAddr).
-		Info("Got connection")
+		Debug("Got connection")
 	defer logrus.WithField("client", clientAddr).Debug("Closing frontend connection")
 
 	// Tee-off the inspected content to a buffer so that we can retransmit it to the backend connection
@@ -273,14 +274,22 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 
 		var playerInfo *PlayerInfo = nil
 		if handshake.NextState == mcproto.StateLogin {
-			playerInfo, err = c.readUserInfo(bufferedReader, clientAddr, handshake.NextState)
+			playerInfo, err = c.readPlayerInfo(bufferedReader, clientAddr, handshake.NextState)
 			if err != nil {
-				logrus.
-					WithError(err).
-					WithField("clientAddr", clientAddr).
-					Error("Failed to read user info")
-				c.metrics.Errors.With("type", "read").Add(1)
-				return
+				if errors.Is(err, io.EOF) {
+					logrus.
+						WithError(err).
+						WithField("clientAddr", clientAddr).
+						WithField("player", playerInfo).
+						Warn("Truncated buffer while reading player info")
+				} else {
+					logrus.
+						WithError(err).
+						WithField("clientAddr", clientAddr).
+						Error("Failed to read user info")
+					c.metrics.Errors.With("type", "read").Add(1)
+					return
+				}
 			}
 			logrus.
 				WithField("client", clientAddr).
@@ -319,7 +328,7 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 	}
 }
 
-func (c *Connector) readUserInfo(bufferedReader *bufio.Reader, clientAddr net.Addr, state mcproto.State) (*PlayerInfo, error) {
+func (c *Connector) readPlayerInfo(bufferedReader *bufio.Reader, clientAddr net.Addr, state mcproto.State) (*PlayerInfo, error) {
 	loginPacket, err := mcproto.ReadPacket(bufferedReader, clientAddr, state)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read login packet: %w", err)

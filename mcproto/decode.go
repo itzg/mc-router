@@ -55,12 +55,12 @@ func DecodeLoginStart(data interface{}) (*LoginStart, error) {
 
 	loginStart.Name, err = ReadString(buffer)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to read username")
+		return loginStart, errors.Wrap(err, "failed to read username")
 	}
 
 	loginStart.PlayerUuid, err = ReadUuid(buffer)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to read player uuid")
+		return loginStart, errors.Wrap(err, "failed to read player uuid")
 	}
 
 	return loginStart, nil
