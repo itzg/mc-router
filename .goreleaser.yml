@@ -1,3 +1,5 @@
+version: 2
+
 project_name: mc-router
 release:
   github:
@@ -28,19 +30,12 @@ builds:
     env:
       - CGO_ENABLED=0
 archives:
-  - id: tar_gz
-    format: tar.gz
-    format_overrides:
+  - format_overrides:
       - goos: windows
-        format: zip
+        formats: ['zip']
     files:
       - LICENSE*
       - README*
-snapshot:
-  name_template: SNAPSHOT-{{ .ShortCommit }}
-brews:
-  - install: |
-      bin.install "mc-router"
 dockers:
   - image_templates:
       - "itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
