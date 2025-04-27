@@ -1,3 +1,5 @@
+// Package mcproto provides functions to read types and decode frames declared
+// at https://minecraft.wiki/w/Java_Edition_protocol
 package mcproto
 
 import (
@@ -27,7 +29,7 @@ const MaxFrameLength = 2097151
 func ReadPacket(reader *bufio.Reader, addr net.Addr, state State) (*Packet, error) {
 	logrus.
 		WithField("client", addr).
-		Debug("Reading packet")
+		Trace("Reading packet")
 
 	if state == StateHandshaking {
 		data, err := reader.Peek(1)
@@ -158,7 +160,7 @@ func ReadUTF16BEString(reader io.Reader, symbolLen uint16) (string, error) {
 func ReadFrame(reader io.Reader, addr net.Addr) (*Frame, error) {
 	logrus.
 		WithField("client", addr).
-		Debug("Reading frame")
+		Trace("Reading frame")
 
 	var err error
 	frame := &Frame{}
