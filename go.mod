@@ -1,7 +1,6 @@
 module github.com/itzg/mc-router
 
 go 1.23.0
-
 toolchain go1.24.2
 
 require (
@@ -17,8 +16,8 @@ require (
 	github.com/stretchr/testify v1.10.0
 	golang.ngrok.com/ngrok v1.13.0
 	golang.org/x/text v0.24.0
-	k8s.io/api v0.32.3
-	k8s.io/apimachinery v0.32.3
+	k8s.io/api v0.33.0
+	k8s.io/apimachinery v0.33.0
 	k8s.io/client-go v0.32.3
 )
 
@@ -63,7 +62,7 @@ require (
 	golang.org/x/sync v0.13.0 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
-	k8s.io/kube-openapi v0.0.0-20250304201544-e5f78fe3ede9 // indirect
+	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
 	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
@@ -81,7 +80,6 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/uuid v1.6.0
 	github.com/iancoleman/strcase v0.3.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
@@ -97,7 +95,7 @@ require (
 	golang.org/x/oauth2 v0.24.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/term v0.30.0 // indirect
-	golang.org/x/time v0.7.0 // indirect
+	golang.org/x/time v0.9.0 // indirect
 	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
