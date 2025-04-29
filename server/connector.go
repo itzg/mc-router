@@ -25,7 +25,9 @@ import (
 
 const (
 	handshakeTimeout = 5 * time.Second
-	backendTimeout = 1 * time.Second
+	backendTimeout = 30 * time.Second
+	backendRetryInterval = 5 * time.Second
+	backendStatusTimeout = 1 * time.Second
 )
 
 var noDeadline time.Time
@@ -428,7 +430,7 @@ func (c *Connector) cleanupBackendConnection(ctx context.Context, clientAddr net
 }
 
 func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.Conn,
-	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, playerInfo *PlayerInfo, nextState mcproto.State) {
+    clientAddr net.Addr, preReadContent io.Reader, serverAddress string, playerInfo *PlayerInfo, nextState mcproto.State) {
 
 	backendHostPort, resolvedHost, waker, _ := Routes.FindBackendForServerAddress(ctx, serverAddress)
 	cleanupMetrics := false
@@ -458,72 +460,137 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		}
 	}
 
-	if backendHostPort == "" {
+    if backendHostPort == "" {
+        logrus.
+            WithField("serverAddress", serverAddress).
+            WithField("resolvedHost", resolvedHost).
+            WithField("player", playerInfo).
+            Warn("Unable to find registered backend")
+        c.metrics.Errors.With("type", "missing_backend").Add(1)
+
+        if c.connectionNotifier != nil {
+            err := c.connectionNotifier.NotifyMissingBackend(ctx, clientAddr, serverAddress, playerInfo)
+            if err != nil {
+                logrus.WithError(err).Warn("failed to notify missing backend")
+            }
+        }
+
+        return
+    }
+
+    logrus.
+        WithField("client", clientAddr).
+        WithField("server", serverAddress).
+        WithField("backendHostPort", backendHostPort).
+        WithField("player", playerInfo).
+        Info("Connecting to backend")
+
+    var backendConn net.Conn
+    var err error
+
+    if nextState == mcproto.StateStatus {
+        // Status request: try to connect once with backendStatusTimeout
+        backendConn, err = net.DialTimeout("tcp", backendHostPort, backendStatusTimeout)
+        if err != nil {
+            logrus.
+                WithError(err).
+                WithField("client", clientAddr).
+                WithField("serverAddress", serverAddress).
+                WithField("backend", backendHostPort).
+                WithField("player", playerInfo).
+                Warn("Unable to connect to backend for status request")
+            c.metrics.Errors.With("type", "backend_failed").Add(1)
+
+            if c.connectionNotifier != nil {
+                notifyErr := c.connectionNotifier.NotifyFailedBackendConnection(ctx, clientAddr, serverAddress, playerInfo, backendHostPort, err)
+                if notifyErr != nil {
+                    logrus.WithError(notifyErr).Warn("failed to notify failed backend connection")
+                }
+            }
+
+            // Return fakeOnline MOTD
+            if c.fakeOnline && waker != nil {
+                logrus.Info("Server is offline, sending fakeOnlineMOTD for status request")
+                writeStatusErr := mcproto.WriteStatusResponse(
+                    frontendConn, 
+                    c.fakeOnlineMOTD,
+                )
+                if writeStatusErr != nil {
+                    logrus.
+                        WithError(writeStatusErr).
+                        WithField("client", clientAddr).
+                        WithField("serverAddress", serverAddress).
+                        WithField("backend", backendHostPort).
+                        WithField("player", playerInfo).
+                        Error("Failed to write status response")
+                }
+            }
+            return
+        }
+    } else if nextState == mcproto.StateLogin {
+        // Connect request
+        if waker != nil {
+			logrus.Debug("Connect: Autoscaler is enabled, waiting for backend to be ready")
+            // Autoscaler enabled: retry until backendTimeout is reached
+            deadline := time.Now().Add(backendTimeout)
+            for {
+                backendConn, err = net.DialTimeout("tcp", backendHostPort, backendRetryInterval)
+				logrus.Debug("Tries to connect to backend")
+
+                if err == nil {
+                    break
+                }
+                if time.Now().After(deadline) {
+                    logrus.
+                        WithError(err).
+                        WithField("client", clientAddr).
+                        WithField("serverAddress", serverAddress).
+                        WithField("backend", backendHostPort).
+                        WithField("player", playerInfo).
+                        Warn("Unable to connect to backend after retries (autoscaler enabled)")
+                    c.metrics.Errors.With("type", "backend_failed").Add(1)
+                    if c.connectionNotifier != nil {
+                        notifyErr := c.connectionNotifier.NotifyFailedBackendConnection(ctx, clientAddr, serverAddress, playerInfo, backendHostPort, err)
+                        if notifyErr != nil {
+                            logrus.WithError(notifyErr).Warn("failed to notify failed backend connection")
+                        }
+                    }
+                    return
+                }
+                time.Sleep(backendRetryInterval)
+            }
+        } else {
+			logrus.Debug("Connect: Autoscaler is disabled, trying to connect once")
+            // Autoscaler disabled: try to connect once with backendTimeout
+            backendConn, err = net.DialTimeout("tcp", backendHostPort, backendTimeout)
+            if err != nil {
+                logrus.
+                    WithError(err).
+                    WithField("client", clientAddr).
+                    WithField("serverAddress", serverAddress).
+                    WithField("backend", backendHostPort).
+                    WithField("player", playerInfo).
+                    Warn("Unable to connect to backend (autoscaler disabled)")
+                c.metrics.Errors.With("type", "backend_failed").Add(1)
+                if c.connectionNotifier != nil {
+                    notifyErr := c.connectionNotifier.NotifyFailedBackendConnection(ctx, clientAddr, serverAddress, playerInfo, backendHostPort, err)
+                    if notifyErr != nil {
+                        logrus.WithError(notifyErr).Warn("failed to notify failed backend connection")
+                    }
+                }
+                return
+            }
+        }
+    } else {
+        // Unknown state, do nothing
 		logrus.
-			WithField("serverAddress", serverAddress).
-			WithField("resolvedHost", resolvedHost).
-			WithField("player", playerInfo).
-			Warn("Unable to find registered backend")
-		c.metrics.Errors.With("type", "missing_backend").Add(1)
-
-		if c.connectionNotifier != nil {
-			err := c.connectionNotifier.NotifyMissingBackend(ctx, clientAddr, serverAddress, playerInfo)
-			if err != nil {
-				logrus.WithError(err).Warn("failed to notify missing backend")
-			}
-		}
-
-		return
-	}
-
-	logrus.
-		WithField("client", clientAddr).
-		WithField("server", serverAddress).
-		WithField("backendHostPort", backendHostPort).
-		WithField("player", playerInfo).
-		Info("Connecting to backend")
-
-	backendConn, err := net.DialTimeout("tcp", backendHostPort, backendTimeout)
-	if err != nil {
-		logrus.
-			WithError(err).
 			WithField("client", clientAddr).
 			WithField("serverAddress", serverAddress).
-			WithField("backend", backendHostPort).
+			WithField("nextState", nextState).
 			WithField("player", playerInfo).
-			Warn("Unable to connect to backend")
-		c.metrics.Errors.With("type", "backend_failed").Add(1)
-
-		if c.connectionNotifier != nil {
-			notifyErr := c.connectionNotifier.NotifyFailedBackendConnection(ctx, clientAddr, serverAddress, playerInfo, backendHostPort, err)
-			if notifyErr != nil {
-				logrus.WithError(notifyErr).Warn("failed to notify failed backend connection")
-			}
-		}
-
-		// Verify that the packet is a status request && autoScaleUp is enabled
-		if c.fakeOnline && waker != nil && nextState == mcproto.StateStatus {
-			logrus.Info("Server is offline, sending fakeOnlineMOTD")
-
-			// Send a response to the client indicating that the server is sleeping
-			writeStatusErr := mcproto.WriteStatusResponse(
-				frontendConn, 
-				c.fakeOnlineMOTD,
-			)
-
-			if writeStatusErr != nil {
-				logrus.
-					WithError(writeStatusErr).
-					WithField("client", clientAddr).
-					WithField("serverAddress", serverAddress).
-					WithField("backend", backendHostPort).
-					WithField("player", playerInfo).
-					Error("Failed to write status response")
-			}
-		}
-
-		return
-	}
+			Warn("Unknown state, unable to connect to backend")
+        return
+    }
 
 	if c.connectionNotifier != nil {
 		err := c.connectionNotifier.NotifyConnected(ctx, clientAddr, serverAddress, playerInfo, backendHostPort)
