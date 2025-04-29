@@ -71,6 +71,9 @@ type Config struct {
 
 	SimplifySRV bool `default:"false" usage:"Simplify fully qualified SRV records for mapping"`
 
+	FakeOnline 		bool   	`default:"false" usage:"Enable fake online MOTD when backend is offline and auto-scale-up is enabled"`
+    FakeOnlineMOTD 	string 	`default:"Server is sleeping\nJoin to wake it up" usage:"Custom MOTD to show when backend is offline and auto-scale-up is enabled"`
+
 	Webhook WebhookConfig `usage:"Webhook configuration"`
 }
 
@@ -167,7 +170,7 @@ func main() {
 		trustedIpNets = append(trustedIpNets, ipNet)
 	}
 
-	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.ReceiveProxyProtocol, trustedIpNets, config.RecordLogins, autoScaleAllowDenyConfig)
+	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.ReceiveProxyProtocol, trustedIpNets, config.RecordLogins, autoScaleUpAllowDenyConfig, config.FakeOnline, config.FakeOnlineMOTD)
 
 	clientFilter, err := server.NewClientFilter(config.ClientsToAllow, config.ClientsToDeny)
 	if err != nil {

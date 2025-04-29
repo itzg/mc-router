@@ -25,6 +25,7 @@ import (
 
 const (
 	handshakeTimeout = 5 * time.Second
+	backendTimeout = 1 * time.Second
 )
 
 var noDeadline time.Time
@@ -136,6 +137,9 @@ type Connector struct {
 	ngrokToken                 string
 	clientFilter               *ClientFilter
 	autoScaleUpAllowDenyConfig *AllowDenyConfig
+
+	fakeOnline bool
+    fakeOnlineMOTD string
 
 	connectionNotifier ConnectionNotifier
 }
@@ -479,7 +483,7 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		WithField("player", playerInfo).
 		Info("Connecting to backend")
 
-	backendConn, err := net.Dial("tcp", backendHostPort)
+	backendConn, err := net.DialTimeout("tcp", backendHostPort, backendTimeout)
 	if err != nil {
 		logrus.
 			WithError(err).
@@ -494,6 +498,27 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 			notifyErr := c.connectionNotifier.NotifyFailedBackendConnection(ctx, clientAddr, serverAddress, playerInfo, backendHostPort, err)
 			if notifyErr != nil {
 				logrus.WithError(notifyErr).Warn("failed to notify failed backend connection")
+			}
+		}
+
+		// Verify that the packet is a status request && autoScaleUp is enabled
+		if c.fakeOnline && waker != nil && nextState == mcproto.StateStatus {
+			logrus.Info("Server is offline, sending fakeOnlineMOTD")
+
+			// Send a response to the client indicating that the server is sleeping
+			writeStatusErr := mcproto.WriteStatusResponse(
+				frontendConn, 
+				c.fakeOnlineMOTD,
+			)
+
+			if writeStatusErr != nil {
+				logrus.
+					WithError(writeStatusErr).
+					WithField("client", clientAddr).
+					WithField("serverAddress", serverAddress).
+					WithField("backend", backendHostPort).
+					WithField("player", playerInfo).
+					Error("Failed to write status response")
 			}
 		}
 
