@@ -41,6 +41,12 @@ func (w *dockerWatcherImpl) makeWakerFunc(_ *routableContainer) func(ctx context
 	}
 }
 
+func (w *dockerWatcherImpl) makeSleeperFunc(_ *routableContainer) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		return nil
+	}
+}
+
 func (w *dockerWatcherImpl) Start(socket string, timeoutSeconds int, refreshIntervalSeconds int) error {
 	var err error
 
@@ -75,7 +81,7 @@ func (w *dockerWatcherImpl) Start(socket string, timeoutSeconds int, refreshInte
 	for _, c := range initialContainers {
 		containerMap[c.externalContainerName] = c
 		if c.externalContainerName != "" {
-			Routes.CreateMapping(c.externalContainerName, c.containerEndpoint, w.makeWakerFunc(c))
+			Routes.CreateMapping(c.externalContainerName, c.containerEndpoint, w.makeWakerFunc(c), w.makeSleeperFunc(c))
 		} else {
 			Routes.SetDefaultRoute(c.containerEndpoint)
 		}
@@ -97,7 +103,7 @@ func (w *dockerWatcherImpl) Start(socket string, timeoutSeconds int, refreshInte
 						containerMap[rs.externalContainerName] = rs
 						logrus.WithField("routableContainer", rs).Debug("ADD")
 						if rs.externalContainerName != "" {
-							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, w.makeWakerFunc(rs))
+							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, w.makeWakerFunc(rs), w.makeSleeperFunc(rs))
 						} else {
 							Routes.SetDefaultRoute(rs.containerEndpoint)
 						}
@@ -105,7 +111,7 @@ func (w *dockerWatcherImpl) Start(socket string, timeoutSeconds int, refreshInte
 						containerMap[rs.externalContainerName] = rs
 						if rs.externalContainerName != "" {
 							Routes.DeleteMapping(rs.externalContainerName)
-							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, w.makeWakerFunc(rs))
+							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, w.makeWakerFunc(rs), w.makeSleeperFunc(rs))
 						} else {
 							Routes.SetDefaultRoute(rs.containerEndpoint)
 						}

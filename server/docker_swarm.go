@@ -33,6 +33,12 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(_ *routableService) func(ctx cont
 	}
 }
 
+func (w *dockerSwarmWatcherImpl) makeSleeperFunc(_ *routableService) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		return nil
+	}
+}
+
 func (w *dockerSwarmWatcherImpl) Start(socket string, timeoutSeconds int, refreshIntervalSeconds int) error {
 	var err error
 
@@ -67,7 +73,7 @@ func (w *dockerSwarmWatcherImpl) Start(socket string, timeoutSeconds int, refres
 	for _, s := range initialServices {
 		serviceMap[s.externalServiceName] = s
 		if s.externalServiceName != "" {
-			Routes.CreateMapping(s.externalServiceName, s.containerEndpoint, w.makeWakerFunc(s))
+			Routes.CreateMapping(s.externalServiceName, s.containerEndpoint, w.makeWakerFunc(s), w.makeSleeperFunc(s))
 		} else {
 			Routes.SetDefaultRoute(s.containerEndpoint)
 		}
@@ -89,7 +95,7 @@ func (w *dockerSwarmWatcherImpl) Start(socket string, timeoutSeconds int, refres
 						serviceMap[rs.externalServiceName] = rs
 						logrus.WithField("routableService", rs).Debug("ADD")
 						if rs.externalServiceName != "" {
-							Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, w.makeWakerFunc(rs))
+							Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, w.makeWakerFunc(rs), w.makeSleeperFunc(rs))
 						} else {
 							Routes.SetDefaultRoute(rs.containerEndpoint)
 						}
@@ -97,7 +103,7 @@ func (w *dockerSwarmWatcherImpl) Start(socket string, timeoutSeconds int, refres
 						serviceMap[rs.externalServiceName] = rs
 						if rs.externalServiceName != "" {
 							Routes.DeleteMapping(rs.externalServiceName)
-							Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, w.makeWakerFunc(rs))
+							Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, w.makeWakerFunc(rs), w.makeSleeperFunc(rs))
 						} else {
 							Routes.SetDefaultRoute(rs.containerEndpoint)
 						}

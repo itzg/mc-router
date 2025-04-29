@@ -66,9 +66,9 @@ func Test_routesImpl_FindBackendForServerAddress(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := NewRoutes()
 
-			r.CreateMapping(tt.mapping.serverAddress, tt.mapping.backend, func(ctx context.Context) error { return nil })
+			r.CreateMapping(tt.mapping.serverAddress, tt.mapping.backend, func(ctx context.Context) error { return nil }, func(ctx context.Context) error { return nil })
 
-			if got, server, _ := r.FindBackendForServerAddress(context.Background(), tt.args.serverAddress); got != tt.want {
+			if got, server, _, _ := r.FindBackendForServerAddress(context.Background(), tt.args.serverAddress); got != tt.want {
 				t.Errorf("routesImpl.FindBackendForServerAddress() = %v, want %v", got, tt.want)
 			} else {
 				assert.Equal(t, tt.mapping.serverAddress, server)

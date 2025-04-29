@@ -59,6 +59,8 @@ type Config struct {
 	RoutesConfig          string `usage:"Name or full path to routes config file"`
 	NgrokToken            string `usage:"If set, an ngrok tunnel will be established. It is HIGHLY recommended to pass as an environment variable."`
 	AutoScaleUpAllowDeny  string `usage:"Path to config for server allowlists and denylists. If -auto-scale-up is enabled and a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up"`
+	AutoScaleDown         bool   `default:"false" usage:"Decrease Kubernetes StatefulSet Replicas (only) from 1 to 0 on respective backend servers after there are no connections"`
+	AutoScaleDownAfter    string `default:"10m" usage:"Server scale down delay after there are no connections"`
 
 	ClientsToAllow []string `usage:"Zero or more client IP addresses or CIDRs to allow. Takes precedence over deny."`
 	ClientsToDeny  []string `usage:"Zero or more client IP addresses or CIDRs to deny. Ignored if any configured to allow"`
@@ -123,6 +125,14 @@ func main() {
 	defer cancel()
 
 	metricsBuilder := NewMetricsBuilder(config.MetricsBackend, &config.MetricsBackendConfig)
+
+	downScalerEnabled := config.AutoScaleDown && (config.InKubeCluster || config.KubeConfig != "")
+	downScalerDelay, err := time.ParseDuration(config.AutoScaleDownAfter)
+	if err != nil {
+		logrus.WithError(err).Error("Unable to parse down scale after duration")
+	}
+	server.DownScaler = server.NewDownScaler(ctx, downScalerEnabled, downScalerDelay)
+
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)

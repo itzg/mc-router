@@ -87,7 +87,7 @@ func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 
 			watcher.handleAdd(&initialSvc)
 			for _, s := range test.initial.scenarios {
-				backend, _, _ := Routes.FindBackendForServerAddress(context.Background(), s.given)
+				backend, _, _, _ := Routes.FindBackendForServerAddress(context.Background(), s.given)
 				assert.Equal(t, s.expect, backend, "initial: given=%s", s.given)
 			}
 
@@ -97,7 +97,7 @@ func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 
 			watcher.handleUpdate(&initialSvc, &updatedSvc)
 			for _, s := range test.update.scenarios {
-				backend, _, _ := Routes.FindBackendForServerAddress(context.Background(), s.given)
+				backend, _, _, _ := Routes.FindBackendForServerAddress(context.Background(), s.given)
 				assert.Equal(t, s.expect, backend, "update: given=%s", s.given)
 			}
 		})
@@ -158,13 +158,13 @@ func TestK8sWatcherImpl_handleAddThenDelete(t *testing.T) {
 
 			watcher.handleAdd(&initialSvc)
 			for _, s := range test.initial.scenarios {
-				backend, _, _ := Routes.FindBackendForServerAddress(context.Background(), s.given)
+				backend, _, _, _ := Routes.FindBackendForServerAddress(context.Background(), s.given)
 				assert.Equal(t, s.expect, backend, "initial: given=%s", s.given)
 			}
 
 			watcher.handleDelete(&initialSvc)
 			for _, s := range test.delete {
-				backend, _, _ := Routes.FindBackendForServerAddress(context.Background(), s.given)
+				backend, _, _, _ := Routes.FindBackendForServerAddress(context.Background(), s.given)
 				assert.Equal(t, s.expect, backend, "update: given=%s", s.given)
 			}
 		})

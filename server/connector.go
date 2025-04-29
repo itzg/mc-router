@@ -342,7 +342,7 @@ func (c *Connector) readUserInfo(bufferedReader *bufio.Reader, clientAddr net.Ad
 func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.Conn,
 	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, playerInfo *PlayerInfo, nextState mcproto.State) {
 
-	backendHostPort, resolvedHost, waker := Routes.FindBackendForServerAddress(ctx, serverAddress)
+	backendHostPort, resolvedHost, waker, _ := Routes.FindBackendForServerAddress(ctx, serverAddress)
 	if waker != nil && nextState > mcproto.StateStatus {
 		serverAllowsPlayer := c.autoScaleUpAllowDenyConfig.ServerAllowsPlayer(serverAddress, playerInfo)
 		logrus.
@@ -352,6 +352,15 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 			WithField("serverAllowsPlayer", serverAllowsPlayer).
 			Debug("checked if player is allowed to wake up the server")
 		if serverAllowsPlayer {
+			// Cancel down scaler if active before scale up
+			DownScaler.Cancel(serverAddress)
+			// Needs to trigger after defer where c.activeConnections is decremented
+			defer func() {
+				activeConnections := atomic.LoadInt32(&c.activeConnections)
+				if activeConnections <= 0 {
+					DownScaler.Begin(serverAddress)
+				}
+			}()
 			if err := waker(ctx); err != nil {
 				logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend")
 				c.metrics.Errors.With("type", "wakeup_failed").Add(1)
