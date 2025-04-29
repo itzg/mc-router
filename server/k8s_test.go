@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,6 +79,8 @@ func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			// DownScaler needs to be instantiated
+			DownScaler = NewDownScaler(context.Background(), false, 1 * time.Second)
 			Routes.Reset()
 
 			watcher := &k8sWatcherImpl{}
@@ -149,6 +152,8 @@ func TestK8sWatcherImpl_handleAddThenDelete(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			// DownScaler needs to be instantiated
+			DownScaler = NewDownScaler(context.Background(), false, 1 * time.Second)
 			Routes.Reset()
 
 			watcher := &k8sWatcherImpl{}

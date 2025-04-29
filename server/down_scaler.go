@@ -36,6 +36,7 @@ type downScalerImpl struct {
 }
 
 func (ds *downScalerImpl) Reset() {
+	// Cancel all existing scale down routines
 	for _, scaleDownCancel := range ds.contextCancellations {
 		scaleDownCancel()
 	}

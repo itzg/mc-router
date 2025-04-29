@@ -129,8 +129,9 @@ func main() {
 	downScalerEnabled := config.AutoScaleDown && (config.InKubeCluster || config.KubeConfig != "")
 	downScalerDelay, err := time.ParseDuration(config.AutoScaleDownAfter)
 	if err != nil {
-		logrus.WithError(err).Error("Unable to parse down scale after duration")
+		logrus.WithError(err).Fatal("Unable to parse down scale after duration")
 	}
+	// Only one instance should be created
 	server.DownScaler = server.NewDownScaler(ctx, downScalerEnabled, downScalerDelay)
 
 

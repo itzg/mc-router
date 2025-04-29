@@ -237,5 +237,6 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, waker f
 	}).Info("Created route mapping")
 	r.mappings[serverAddress] = mapping{backend: backend, waker: waker, sleeper: sleeper}
 
+	// Trigger auto scale down when mapping is created to ensure servers are shut down if router restarts
 	DownScaler.Begin(serverAddress)
 }

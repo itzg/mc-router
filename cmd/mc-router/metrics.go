@@ -60,13 +60,14 @@ func (b expvarMetricsBuilder) Start(ctx context.Context) error {
 func (b expvarMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics {
 	c := expvarMetrics.NewCounter("connections")
 	return &server.ConnectorMetrics{
-		Errors:              expvarMetrics.NewCounter("errors").With("subsystem", "connector"),
-		BytesTransmitted:    expvarMetrics.NewCounter("bytes"),
-		ConnectionsFrontend: c,
-		ConnectionsBackend:  c,
-		ActiveConnections:   expvarMetrics.NewGauge("active_connections"),
-		ServerActivePlayer:  expvarMetrics.NewGauge("server_active_player"),
-		ServerLogins:        expvarMetrics.NewCounter("server_logins"),
+		Errors:                  expvarMetrics.NewCounter("errors").With("subsystem", "connector"),
+		BytesTransmitted:        expvarMetrics.NewCounter("bytes"),
+		ConnectionsFrontend:     c,
+		ConnectionsBackend:      c,
+		ActiveConnections:       expvarMetrics.NewGauge("active_connections"),
+		ServerActivePlayer:      expvarMetrics.NewGauge("server_active_player"),
+		ServerLogins:            expvarMetrics.NewCounter("server_logins"),
+		ServerActiveConnections: expvarMetrics.NewGauge("server_active_connections"),
 	}
 }
 
@@ -80,13 +81,14 @@ func (b discardMetricsBuilder) Start(ctx context.Context) error {
 
 func (b discardMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics {
 	return &server.ConnectorMetrics{
-		Errors:              discardMetrics.NewCounter(),
-		BytesTransmitted:    discardMetrics.NewCounter(),
-		ConnectionsFrontend: discardMetrics.NewCounter(),
-		ConnectionsBackend:  discardMetrics.NewCounter(),
-		ActiveConnections:   discardMetrics.NewGauge(),
-		ServerActivePlayer:  discardMetrics.NewGauge(),
-		ServerLogins:        discardMetrics.NewCounter(),
+		Errors:                  discardMetrics.NewCounter(),
+		BytesTransmitted:        discardMetrics.NewCounter(),
+		ConnectionsFrontend:     discardMetrics.NewCounter(),
+		ConnectionsBackend:      discardMetrics.NewCounter(),
+		ActiveConnections:       discardMetrics.NewGauge(),
+		ServerActivePlayer:      discardMetrics.NewGauge(),
+		ServerLogins:            discardMetrics.NewCounter(),
+		ServerActiveConnections: discardMetrics.NewGauge(),
 	}
 }
 
@@ -131,13 +133,14 @@ func (b *influxMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics 
 
 	c := metrics.NewCounter("mc_router_connections")
 	return &server.ConnectorMetrics{
-		Errors:              metrics.NewCounter("mc_router_errors"),
-		BytesTransmitted:    metrics.NewCounter("mc_router_transmitted_bytes"),
-		ConnectionsFrontend: c.With("side", "frontend"),
-		ConnectionsBackend:  c.With("side", "backend"),
-		ActiveConnections:   metrics.NewGauge("mc_router_connections_active"),
-		ServerActivePlayer:  metrics.NewGauge("mc_router_server_player_active"),
-		ServerLogins:        metrics.NewCounter("mc_router_server_logins"),
+		Errors:                  metrics.NewCounter("mc_router_errors"),
+		BytesTransmitted:        metrics.NewCounter("mc_router_transmitted_bytes"),
+		ConnectionsFrontend:     c.With("side", "frontend"),
+		ConnectionsBackend:      c.With("side", "backend"),
+		ActiveConnections:       metrics.NewGauge("mc_router_connections_active"),
+		ServerActivePlayer:      metrics.NewGauge("mc_router_server_player_active"),
+		ServerLogins:            metrics.NewCounter("mc_router_server_logins"),
+		ServerActiveConnections: metrics.NewGauge("mc_router_server_active_connections"),
 	}
 }
 
@@ -194,5 +197,10 @@ func (b prometheusMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetri
 			Name:      "server_logins",
 			Help:      "The total number of player logins",
 		}, []string{"player_name", "player_uuid", "server_address"})),
+		ServerActiveConnections: prometheusMetrics.NewGauge(promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "mc_router",
+			Name:      "server_active_connections",
+			Help:      "The number of active connections per server",
+		}, []string{"server_address"})),
 	}
 }
