@@ -33,6 +33,13 @@ type WebhookConfig struct {
 	RequireUser bool   `default:"false" usage:"Indicates if the webhook will only be called if a user is connecting rather than just server list/ping"`
 }
 
+type AutoScale struct {
+	Up        bool   `usage:"Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed"`
+	Down      bool   `default:"false" usage:"Decrease Kubernetes StatefulSet Replicas (only) from 1 to 0 on respective backend servers after there are no connections"`
+	DownAfter string `default:"10m" usage:"Server scale down delay after there are no connections"`
+	AllowDeny string `usage:"Path to config for server allowlists and denylists. If -auto-scale-up is enabled and a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up". If -auto-scale-down is enabled and a global/server entry is specified, only players allowed to connect to the server will be able to cancel active down scalers`
+}
+
 type Config struct {
 	Port                  int               `default:"25565" usage:"The [port] bound to listen for Minecraft client connections"`
 	Default               string            `usage:"host:port of a default Minecraft server to use when mapping not found"`
@@ -44,7 +51,6 @@ type Config struct {
 	ConnectionRateLimit   int               `default:"1" usage:"Max number of connections to allow per second"`
 	InKubeCluster         bool              `usage:"Use in-cluster Kubernetes config"`
 	KubeConfig            string            `usage:"The path to a Kubernetes configuration file"`
-	AutoScaleUp           bool              `usage:"Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed"`
 	InDocker              bool              `usage:"Use Docker service discovery"`
 	InDockerSwarm         bool              `usage:"Use Docker Swarm service discovery"`
 	DockerSocket          string            `default:"unix:///var/run/docker.sock" usage:"Path to Docker socket to use"`
@@ -58,9 +64,7 @@ type Config struct {
 	MetricsBackendConfig  MetricsBackendConfig
 	RoutesConfig          string `usage:"Name or full path to routes config file"`
 	NgrokToken            string `usage:"If set, an ngrok tunnel will be established. It is HIGHLY recommended to pass as an environment variable."`
-	AutoScaleUpAllowDeny  string `usage:"Path to config for server allowlists and denylists. If -auto-scale-up is enabled and a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up"`
-	AutoScaleDown         bool   `default:"false" usage:"Decrease Kubernetes StatefulSet Replicas (only) from 1 to 0 on respective backend servers after there are no connections"`
-	AutoScaleDownAfter    string `default:"10m" usage:"Server scale down delay after there are no connections"`
+	AutoScale             AutoScale
 
 	ClientsToAllow []string `usage:"Zero or more client IP addresses or CIDRs to allow. Takes precedence over deny."`
 	ClientsToDeny  []string `usage:"Zero or more client IP addresses or CIDRs to deny. Ignored if any configured to allow"`
@@ -113,9 +117,9 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	var autoScaleUpAllowDenyConfig *server.AllowDenyConfig = nil
-	if config.AutoScaleUpAllowDeny != "" {
-		autoScaleUpAllowDenyConfig, err = server.ParseAllowDenyConfig(config.AutoScaleUpAllowDeny)
+	var autoScaleAllowDenyConfig *server.AllowDenyConfig = nil
+	if config.AutoScale.AllowDeny != "" {
+		autoScaleAllowDenyConfig, err = server.ParseAllowDenyConfig(config.AutoScale.AllowDeny)
 		if err != nil {
 			logrus.WithError(err).Fatal("trying to parse autoscale up allow-deny-list file")
 		}
@@ -126,10 +130,10 @@ func main() {
 
 	metricsBuilder := NewMetricsBuilder(config.MetricsBackend, &config.MetricsBackendConfig)
 
-	downScalerEnabled := config.AutoScaleDown && (config.InKubeCluster || config.KubeConfig != "")
-	downScalerDelay, err := time.ParseDuration(config.AutoScaleDownAfter)
+	downScalerEnabled := config.AutoScale.Down && (config.InKubeCluster || config.KubeConfig != "")
+	downScalerDelay, err := time.ParseDuration(config.AutoScale.DownAfter)
 	if err != nil {
-		logrus.WithError(err).Fatal("Unable to parse down scale after duration")
+		logrus.WithError(err).Fatal("Unable to parse auto scale down after duration")
 	}
 	// Only one instance should be created
 	server.DownScaler = server.NewDownScaler(ctx, downScalerEnabled, downScalerDelay)
@@ -163,7 +167,7 @@ func main() {
 		trustedIpNets = append(trustedIpNets, ipNet)
 	}
 
-	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.ReceiveProxyProtocol, trustedIpNets, config.RecordLogins, autoScaleUpAllowDenyConfig)
+	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.ReceiveProxyProtocol, trustedIpNets, config.RecordLogins, autoScaleAllowDenyConfig)
 
 	clientFilter, err := server.NewClientFilter(config.ClientsToAllow, config.ClientsToDeny)
 	if err != nil {
@@ -196,14 +200,14 @@ func main() {
 	}
 
 	if config.InKubeCluster {
-		err = server.K8sWatcher.StartInCluster(config.AutoScaleUp)
+		err = server.K8sWatcher.StartInCluster(config.AutoScale.Up)
 		if err != nil {
 			logrus.WithError(err).Fatal("Unable to start k8s integration")
 		} else {
 			defer server.K8sWatcher.Stop()
 		}
 	} else if config.KubeConfig != "" {
-		err := server.K8sWatcher.StartWithConfig(config.KubeConfig, config.AutoScaleUp)
+		err := server.K8sWatcher.StartWithConfig(config.KubeConfig, config.AutoScale.Up)
 		if err != nil {
 			logrus.WithError(err).Fatal("Unable to start k8s integration")
 		} else {

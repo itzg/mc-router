@@ -29,12 +29,14 @@ type dockerSwarmWatcherImpl struct {
 
 func (w *dockerSwarmWatcherImpl) makeWakerFunc(_ *routableService) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
+		logrus.Fatal("Auto scale up is not yet supported for docker swarm")
 		return nil
 	}
 }
 
 func (w *dockerSwarmWatcherImpl) makeSleeperFunc(_ *routableService) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
+		logrus.Fatal("Auto scale down is not yet supported for docker swarm")
 		return nil
 	}
 }

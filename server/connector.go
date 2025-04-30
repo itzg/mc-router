@@ -72,6 +72,12 @@ type ServerMetrics struct {
 	activeConnections map[string]int
 }
 
+func NewServerMetrics() *ServerMetrics {
+	return &ServerMetrics{
+		activeConnections: make(map[string]int),
+	}
+}
+
 func (sm *ServerMetrics) IncrementActiveConnections(serverAddress string) {
 	sm.Lock()
 	defer sm.Unlock()
@@ -102,9 +108,6 @@ func (sm *ServerMetrics) ActiveConnectionsValue(serverAddress string) int {
 }
 
 func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet, recordLogins bool, autoScaleUpAllowDenyConfig *AllowDenyConfig) *Connector {
-	serverMetrics := &ServerMetrics{
-		activeConnections: make(map[string]int),
-	}
 
 	return &Connector{
 		metrics:                    metrics,
@@ -114,7 +117,7 @@ func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyPr
 		trustedProxyNets:           trustedProxyNets,
 		recordLogins:               recordLogins,
 		autoScaleUpAllowDenyConfig: autoScaleUpAllowDenyConfig,
-		serverMetrics:              serverMetrics,
+		serverMetrics:              NewServerMetrics(),
 	}
 }
 
@@ -380,13 +383,48 @@ func (c *Connector) readUserInfo(bufferedReader *bufio.Reader, clientAddr net.Ad
 	}
 }
 
+func (c *Connector) cleanupBackendConnection(ctx context.Context, clientAddr net.Addr, serverAddress string, playerInfo *PlayerInfo, backendHostPort string, cleanupMetrics bool, checkScaleDown bool) {
+	if c.connectionNotifier != nil {
+		err := c.connectionNotifier.NotifyDisconnected(ctx, clientAddr, serverAddress, playerInfo, backendHostPort)
+		if err != nil {
+			logrus.WithError(err).Warn("failed to notify disconnected")
+		}
+	}
+
+	if cleanupMetrics {
+		c.metrics.ActiveConnections.Set(float64(
+			atomic.AddInt32(&c.activeConnections, -1)))
+
+		c.serverMetrics.DecrementActiveConnections(serverAddress)
+		c.metrics.ServerActiveConnections.
+			With("server_address", serverAddress).
+			Set(float64(c.serverMetrics.ActiveConnectionsValue(serverAddress)))
+
+		if c.recordLogins && playerInfo != nil {
+			c.metrics.ServerActivePlayer.
+				With("player_name", playerInfo.Name).
+				With("player_uuid", playerInfo.Uuid.String()).
+				With("server_address", serverAddress).
+				Set(0)
+		}
+	}
+	if checkScaleDown && c.serverMetrics.ActiveConnectionsValue(serverAddress) <= 0 {
+		DownScaler.Begin(serverAddress)
+	}
+	c.connectionsCond.Signal()
+}
+
 func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.Conn,
 	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, playerInfo *PlayerInfo, nextState mcproto.State) {
 
-	// Should always be the last defer statement
-	defer c.connectionsCond.Signal()
-
 	backendHostPort, resolvedHost, waker, _ := Routes.FindBackendForServerAddress(ctx, serverAddress)
+	cleanupMetrics := false
+	cleanupCheckScaleDown := false
+
+	defer func() {
+		c.cleanupBackendConnection(ctx, clientAddr, serverAddress, playerInfo, backendHostPort, cleanupMetrics, cleanupCheckScaleDown)
+	}()
+
 	if waker != nil && nextState > mcproto.StateStatus {
 		serverAllowsPlayer := c.autoScaleUpAllowDenyConfig.ServerAllowsPlayer(serverAddress, playerInfo)
 		logrus.
@@ -398,12 +436,7 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		if serverAllowsPlayer {
 			// Cancel down scaler if active before scale up
 			DownScaler.Cancel(serverAddress)
-			// Needs to trigger after defer where c.serverMetrics.activeConnections is decremented
-			defer func() {
-				if c.serverMetrics.ActiveConnectionsValue(serverAddress) <= 0 {
-					DownScaler.Begin(serverAddress)
-				}
-			}()
+			cleanupCheckScaleDown = true
 			if err := waker(ctx); err != nil {
 				logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend")
 				c.metrics.Errors.With("type", "wakeup_failed").Add(1)
@@ -495,29 +528,7 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 			Add(1)
 	}
 
-	defer func() {
-		if c.connectionNotifier != nil {
-			err := c.connectionNotifier.NotifyDisconnected(ctx, clientAddr, serverAddress, playerInfo, backendHostPort)
-			if err != nil {
-				logrus.WithError(err).Warn("failed to notify disconnected")
-			}
-		}
-		c.metrics.ActiveConnections.Set(float64(
-			atomic.AddInt32(&c.activeConnections, -1)))
-
-		c.serverMetrics.DecrementActiveConnections(serverAddress)
-		c.metrics.ServerActiveConnections.
-			With("server_address", serverAddress).
-			Set(float64(c.serverMetrics.ActiveConnectionsValue(serverAddress)))
-
-		if c.recordLogins && playerInfo != nil {
-			c.metrics.ServerActivePlayer.
-				With("player_name", playerInfo.Name).
-				With("player_uuid", playerInfo.Uuid.String()).
-				With("server_address", serverAddress).
-				Set(0)
-		}
-	}()
+	cleanupMetrics = true
 
 	// PROXY protocol implementation
 	if c.sendProxyProto {
