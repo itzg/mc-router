@@ -35,14 +35,14 @@ type dockerWatcherImpl struct {
 	contextCancel context.CancelFunc
 }
 
-func (w *dockerWatcherImpl) makeWakerFunc(_ *routableContainer) func(ctx context.Context) error {
+func (w *dockerWatcherImpl) makeWakerFunc(_ *routableContainer) ScalerFunc {
 	return func(ctx context.Context) error {
 		logrus.Fatal("Auto scale up is not yet supported for docker")
 		return nil
 	}
 }
 
-func (w *dockerWatcherImpl) makeSleeperFunc(_ *routableContainer) func(ctx context.Context) error {
+func (w *dockerWatcherImpl) makeSleeperFunc(_ *routableContainer) ScalerFunc {
 	return func(ctx context.Context) error {
 		logrus.Fatal("Auto scale down is not yet supported for docker")
 		return nil

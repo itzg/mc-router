@@ -204,8 +204,8 @@ func (w *k8sWatcherImpl) Stop() {
 type routableService struct {
 	externalServiceName string
 	containerEndpoint   string
-	autoScaleUp         func(ctx context.Context) error
-	autoScaleDown       func(ctx context.Context) error
+	autoScaleUp         ScalerFunc
+	autoScaleDown       ScalerFunc
 }
 
 // obj is expected to be a *v1.Service

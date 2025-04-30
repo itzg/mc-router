@@ -135,8 +135,8 @@ func (r *routesImpl) RegisterAll(mappings map[string]string) {
 
 type mapping struct {
 	backend string
-	waker   func(ctx context.Context) error
-	sleeper func(ctx context.Context) error
+	waker   ScalerFunc
+	sleeper ScalerFunc
 }
 
 type routesImpl struct {

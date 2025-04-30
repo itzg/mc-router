@@ -14,6 +14,12 @@ Routes Minecraft client connections to backend servers based upon the requested 
     	The host:port bound for servicing API requests (env API_BINDING)
   -auto-scale-up
     	Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed (env AUTO_SCALE_UP)
+  -auto-scale-down
+      Decrease Kubernetes StatefulSet Replicas (only) from 1 to 0 after all backend connections have stopped and a configurable amount of delay has passed (env AUTO_SCALE_DOWN)
+  -auto-scale-down-after
+      String indicating how long an auto scale down should wait before scaling down a backend server. If a player rejoins the server during this delay, the scale down will be canceled (env AUTO_SCALE_DOWN_AFTER)
+  -auto-scale-allow-deny string
+      Path to config for server allowlists and denylists. If a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up when -auto-scale-up is enabled or cancel active down scalers when -auto-scale-down is enabled (env AUTO_SCALE_ALLOW_DENY)
   -clients-to-allow value
     	Zero or more client IP addresses or CIDRs to allow. Takes precedence over deny. (env CLIENTS_TO_ALLOW)
   -clients-to-deny value
@@ -80,8 +86,6 @@ Routes Minecraft client connections to backend servers based upon the requested 
     	If set, a POST request that contains connection status notifications will be sent to this HTTP address (env WEBHOOK_URL)
   -record-logins
       Log and generate metrics on player logins. Metrics only supported with influxdb or prometheus backend (env RECORD_LOGINS)
-  -auto-scale-up-allow-deny string
-      Path to config for server allowlists and denylists. If -auto-scale-up is enabled and a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up (env AUTO_SCALE_UP_ALLOW_DENY)
 ```
 
 ## Docker Multi-Architecture Image
@@ -172,9 +176,9 @@ The following shows a JSON file for routes config, where `default-server` can al
 }
 ```
 
-## Auto Scale Up Allow/Deny List
+## Auto Scale Allow/Deny List
 
-The allow/deny list configuration allows limiting which players can scale up servers when using the `-auto-scale-up` option or the `AUTO_SCALE_UP` env variable. Global allow/deny lists can be configured that apply to all backend servers, but server-specific lists can be added as well. There are a few important things to note about the configuration:
+The allow/deny list configuration allows limiting which players can scale up servers when using the `-auto-scale-up` option (`AUTO_SCALE_UP` env variable) and which players can cancel an active down scaler when using the `-auto-scale-down` option (`AUTO_SCALE_DOWN` env variable). Global allow/deny lists can be configured that apply to all backend servers, but server-specific lists can be added as well. There are a few important things to note about the configuration:
 - The `mc-router` process will not automatically pick up changes to the config. If updates to the config are made, the router must be restarted.
 - Allowlists always take priority over denylists. This means if a player is included in a sever-specific allowlist and the global denylist, the player will still be considered allowed on that server. If a player is listed in both a global allowlist and denylist, the denylist entry will be ignored.
 - Player entries only require a `uuid` or `name`. Both will be checked if specified, but otherwise a `uuid` will take priority over a `name`.
@@ -267,13 +271,13 @@ kubectl apply -f https://raw.githubusercontent.com/itzg/mc-router/master/docs/k8
 * I extended the allowed node port range by adding `--service-node-port-range=25000-32767`
   to `/etc/kubernetes/manifests/kube-apiserver.yaml`
 
-##### Auto Scale Up
+##### Auto Scale Up/Down
 
-The `-auto-scale-up` flag argument makes the router "wake up" any stopped backend servers, by changing `replicas: 0` to `replicas: 1`.
+The `-auto-scale-up` flag argument makes the router "wake up" any stopped backend servers by changing `replicas: 0` to `replicas: 1`. The `-auto-scale-down` flag argument makes the router shut down any running backend servers with no active connections by changing `replicas: 1` to `replicas: 0`. The scale down will occure after a configurable (using the `-auto-scale-down-after` argument) waiting period, such as `10m` (10 minutes), `2h` (2 hours), etc. If any players connect to the server during this period the scale down will be canceled. It is recommended to set this value high enough so a temporary player disconnect will not immediately shut down the server (`1m` or higher).
 
-This requires using `kind: StatefulSet` instead of `kind: Service` for the Minecraft backend servers.
+Both options requires using `kind: StatefulSet` instead of `kind: Service` for the Minecraft backend servers.
 
-It also requires the `ClusterRole` to permit `get` + `update` for `statefulsets` & `statefulsets/scale`,
+They also require the `ClusterRole` to permit `get` + `update` for `statefulsets` & `statefulsets/scale`,
 e.g. like this (or some equivalent more fine-grained one to only watch/list services+statefulsets, and only get+update scale):
 
 ```yaml
