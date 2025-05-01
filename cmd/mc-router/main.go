@@ -170,7 +170,18 @@ func main() {
 		trustedIpNets = append(trustedIpNets, ipNet)
 	}
 
-	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.ReceiveProxyProtocol, trustedIpNets, config.RecordLogins, autoScaleUpAllowDenyConfig, config.FakeOnline, config.FakeOnlineMOTD)
+	connectorConfig := server.ConnectorConfig{
+		SendProxyProto:     config.UseProxyProtocol,
+		ReceiveProxyProto: config.ReceiveProxyProtocol,
+		TrustedProxyNets:       trustedIpNets,
+		RecordLogins:         config.RecordLogins,
+		AutoScaleUpAllowDenyConfig: autoScaleUpAllowDenyConfig,
+		AutoScaleUp:      config.AutoScaleUp,
+		FakeOnline:          config.FakeOnline,
+		FakeOnlineMOTD:      config.FakeOnlineMOTD,
+	}
+
+	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), connectorConfig)
 
 	clientFilter, err := server.NewClientFilter(config.ClientsToAllow, config.ClientsToDeny)
 	if err != nil {

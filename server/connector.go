@@ -116,7 +116,6 @@ func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyPr
 
 	return &Connector{
 		metrics:                    metrics,
-		sendProxyProto:             sendProxyProto,
 		connectionsCond:            sync.NewCond(&sync.Mutex{}),
 		receiveProxyProto:          receiveProxyProto,
 		trustedProxyNets:           trustedProxyNets,
@@ -129,20 +128,14 @@ func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyPr
 type Connector struct {
 	state             mcproto.State
 	metrics           *ConnectorMetrics
-	sendProxyProto    bool
-	receiveProxyProto bool
-	recordLogins      bool
-	trustedProxyNets  []*net.IPNet
 
 	activeConnections          int32
 	serverMetrics              *ServerMetrics
 	connectionsCond            *sync.Cond
 	ngrokToken                 string
 	clientFilter               *ClientFilter
-	autoScaleUpAllowDenyConfig *AllowDenyConfig
 
-	fakeOnline bool
-	fakeOnlineMOTD string
+	config 	ConnectorConfig
 
 	connectionNotifier ConnectionNotifier
 }
@@ -187,7 +180,7 @@ func (c *Connector) createListener(ctx context.Context, listenAddress string) (n
 	}
 	logrus.WithField("listenAddress", listenAddress).Info("Listening for Minecraft client connections")
 
-	if c.receiveProxyProto {
+	if c.config.ReceiveProxyProto {
 		proxyListener := &proxyproto.Listener{
 			Listener: listener,
 			Policy:   c.createProxyProtoPolicy(),
@@ -201,7 +194,7 @@ func (c *Connector) createListener(ctx context.Context, listenAddress string) (n
 
 func (c *Connector) createProxyProtoPolicy() func(upstream net.Addr) (proxyproto.Policy, error) {
 	return func(upstream net.Addr) (proxyproto.Policy, error) {
-		trustedIpNets := c.trustedProxyNets
+		trustedIpNets := c.config.TrustedProxyNets
 
 		if len(trustedIpNets) == 0 {
 			logrus.Debug("No trusted proxy networks configured, using the PROXY header by default")
@@ -497,7 +490,7 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		case mcproto.StateLogin:
 			backendTry = retry.NewConstant(backendRetryInterval)
 			// Connect request: if autoscaler is enabled, try to connect until backendTimeout is reached
-			if waker != nil {
+			if c.config.AutoScaleUp {
 				// Autoscaler enabled: retry until backendTimeout is reached
 				backendTry = retry.WithMaxDuration(backendTimeout, backendTry)
 			} else {
@@ -539,11 +532,11 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 			}
 		}
 
-		if nextState == mcproto.StateStatus && c.fakeOnline && waker != nil {
+		if nextState == mcproto.StateStatus && c.config.FakeOnline && c.config.AutoScaleUp {
 			logrus.Info("Server is offline, sending fakeOnlineMOTD for status request")
 			writeStatusErr := mcproto.WriteStatusResponse(
 				frontendConn,
-				c.fakeOnlineMOTD,
+				c.config.FakeOnlineMOTD,
 			)
 
 			if writeStatusErr != nil {
@@ -600,7 +593,7 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 	cleanupMetrics = true
 
 	// PROXY protocol implementation
-	if c.sendProxyProto {
+	if c.config.SendProxyProto {
 
 		// Determine transport protocol for the PROXY header by "analyzing" the frontend connection's address
 		transportProtocol := proxyproto.TCPv4
