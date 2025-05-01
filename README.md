@@ -273,9 +273,9 @@ kubectl apply -f https://raw.githubusercontent.com/itzg/mc-router/master/docs/k8
 
 ##### Auto Scale Up/Down
 
-The `-auto-scale-up` flag argument makes the router "wake up" any stopped backend servers by changing `replicas: 0` to `replicas: 1`. The `-auto-scale-down` flag argument makes the router shut down any running backend servers with no active connections by changing `replicas: 1` to `replicas: 0`. The scale down will occure after a configurable (using the `-auto-scale-down-after` argument) waiting period, such as `10m` (10 minutes), `2h` (2 hours), etc. If any players connect to the server during this period the scale down will be canceled. It is recommended to set this value high enough so a temporary player disconnect will not immediately shut down the server (`1m` or higher).
+The `-auto-scale-up` flag argument makes the router "wake up" any stopped backend servers by changing `replicas: 0` to `replicas: 1`. The `-auto-scale-down` flag argument makes the router shut down any running backend servers with no active connections by changing `replicas: 1` to `replicas: 0`. The scale down will occur after a configurable (using the `-auto-scale-down-after` argument) waiting period, such as `10m` (10 minutes), `2h` (2 hours), etc. If any players connect to the server during this period the scale down will be canceled. It is recommended to set this value high enough so a temporary player disconnect will not immediately shut down the server (`1m` or higher).
 
-Both options requires using `kind: StatefulSet` instead of `kind: Service` for the Minecraft backend servers.
+Both options require using `kind: StatefulSet` instead of `kind: Service` for the Minecraft backend servers.
 
 They also require the `ClusterRole` to permit `get` + `update` for `statefulsets` & `statefulsets/scale`,
 e.g. like this (or some equivalent more fine-grained one to only watch/list services+statefulsets, and only get+update scale):

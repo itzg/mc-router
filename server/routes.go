@@ -14,9 +14,7 @@ import (
 
 type ScalerFunc func(ctx context.Context) error
 
-func EmptyScalerFunc() ScalerFunc {
-	return func(ctx context.Context) error { return nil }
-}
+var EmptyScalerFunc = func(ctx context.Context) error { return nil }
 
 var tcpShieldPattern = regexp.MustCompile("///.*")
 
@@ -76,7 +74,7 @@ func routesCreateHandler(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	Routes.CreateMapping(definition.ServerAddress, definition.Backend, EmptyScalerFunc(), EmptyScalerFunc())
+	Routes.CreateMapping(definition.ServerAddress, definition.Backend, EmptyScalerFunc, EmptyScalerFunc)
 	RoutesConfig.AddMapping(definition.ServerAddress, definition.Backend)
 	writer.WriteHeader(http.StatusCreated)
 }
@@ -129,7 +127,7 @@ func NewRoutes() IRoutes {
 
 func (r *routesImpl) RegisterAll(mappings map[string]string) {
 	for k, v := range mappings {
-		r.CreateMapping(k, v, EmptyScalerFunc(), EmptyScalerFunc())
+		r.CreateMapping(k, v, EmptyScalerFunc, EmptyScalerFunc)
 	}
 }
 

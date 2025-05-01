@@ -246,7 +246,7 @@ func (w *k8sWatcherImpl) buildDetails(service *core.Service, externalServiceName
 	return rs
 }
 
-func (w *k8sWatcherImpl) buildScaleFunction(service *core.Service, from int, to int) ScalerFunc {
+func (w *k8sWatcherImpl) buildScaleFunction(service *core.Service, from int32, to int32) ScalerFunc {
 	return func(ctx context.Context) error {
 		serviceName := service.Name
 		if statefulSetName, exists := w.mappings[serviceName]; exists {
@@ -257,7 +257,7 @@ func (w *k8sWatcherImpl) buildScaleFunction(service *core.Service, from int, to 
 					"statefulSet": statefulSetName,
 					"replicas":    replicas,
 				}).Debug("StatefulSet of Service Replicas")
-				if replicas == int32(from) {
+				if replicas == from {
 					if _, err := w.clientset.AppsV1().StatefulSets(service.Namespace).UpdateScale(ctx, statefulSetName, &autoscaling.Scale{
 						ObjectMeta: meta.ObjectMeta{
 							Name:            scale.Name,
@@ -265,15 +265,15 @@ func (w *k8sWatcherImpl) buildScaleFunction(service *core.Service, from int, to 
 							UID:             scale.UID,
 							ResourceVersion: scale.ResourceVersion,
 						},
-						Spec: autoscaling.ScaleSpec{Replicas: int32(to)}}, meta.UpdateOptions{},
+						Spec: autoscaling.ScaleSpec{Replicas: to}}, meta.UpdateOptions{},
 					); err == nil {
 						logrus.WithFields(logrus.Fields{
 							"service":     serviceName,
 							"statefulSet": statefulSetName,
 							"replicas":    replicas,
-						}).Info("StatefulSet Replicas Autoscaled from "+strconv.Itoa(from)+" to "+strconv.Itoa(to))
+						}).Infof("StatefulSet Replicas Autoscaled from %d to %d", from, to)
 					} else {
-						return errors.Wrap(err, "UpdateScale for Replicas="+strconv.Itoa(to)+" failed for StatefulSet: "+statefulSetName)
+						return errors.Wrapf(err, "UpdateScale for Replicas=%d failed for StatefulSet: %s", to, statefulSetName)
 					}
 				}
 			} else {
