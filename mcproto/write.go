@@ -5,21 +5,8 @@ import (
 	"io"
 )
 
-func WriteStatusResponse(w io.Writer, motd string) error {
-	resp := StatusResponse{
-		Version: StatusVersion{
-			Name:     "1.21.5",
-			Protocol: 770,
-		},
-		Players: StatusPlayers{
-			Max:    0,
-			Online: 0,
-		},
-		Description: StatusText{
-			Text: motd,
-		},
-	}
-	data, err := json.Marshal(resp)
+func WriteStatusResponse(w io.Writer, status *StatusResponse) error {
+	data, err := json.Marshal(status)
 	if err != nil {
 		return err
 	}

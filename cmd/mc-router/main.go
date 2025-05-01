@@ -74,6 +74,9 @@ type Config struct {
 	FakeOnline     bool   `default:"false" usage:"Enable fake online MOTD when backend is offline and auto-scale-up is enabled"`
 	FakeOnlineMOTD string `default:"Server is sleeping\nJoin to wake it up" usage:"Custom MOTD to show when backend is offline and auto-scale-up is enabled"`
 
+	CacheStatus         bool   `default:"false" usage:"Cache status response for backends"`
+	CacheStatusInterval string `default:"30s" usage:"Interval to update the status cache"`
+
 	Webhook WebhookConfig `usage:"Webhook configuration"`
 }
 
@@ -141,7 +144,6 @@ func main() {
 	// Only one instance should be created
 	server.DownScaler = server.NewDownScaler(ctx, downScalerEnabled, downScalerDelay)
 
-
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 
@@ -175,10 +177,11 @@ func main() {
 		ReceiveProxyProto:          config.ReceiveProxyProtocol,
 		TrustedProxyNets:           trustedIpNets,
 		RecordLogins:               config.RecordLogins,
-		AutoScaleUpAllowDenyConfig: autoScaleUpAllowDenyConfig,
-		AutoScaleUp:                config.AutoScaleUp,
+		AutoScaleUpAllowDenyConfig: autoScaleAllowDenyConfig,
+		AutoScaleUp:                config.AutoScale.Up,
 		FakeOnline:                 config.FakeOnline,
 		FakeOnlineMOTD:             config.FakeOnlineMOTD,
+		CacheStatus:                config.CacheStatus,
 	}
 
 	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), connectorConfig)
@@ -196,6 +199,15 @@ func main() {
 			Info("Using webhook for connection status notifications")
 		connector.SetConnectionNotifier(
 			server.NewWebhookNotifier(config.Webhook.Url, config.Webhook.RequireUser))
+	}
+
+	var cacheInterval time.Duration
+	if config.CacheStatus {
+		cacheInterval, err = time.ParseDuration(config.CacheStatusInterval)
+		if err != nil {
+			logrus.WithError(err).Fatal("Unable to parse cache status interval")
+		}
+		logrus.WithField("interval", config.CacheStatusInterval).Info("Using cache status interval")
 	}
 
 	if config.NgrokToken != "" {
@@ -252,6 +264,15 @@ func main() {
 	err = metricsBuilder.Start(ctx)
 	if err != nil {
 		logrus.WithError(err).Fatal("Unable to start metrics reporter")
+	}
+
+	if config.CacheStatus {
+		logrus.Info("Starting status cache updater")
+		connector.StatusCache.StartUpdater(connector, cacheInterval, func() map[string]string {
+			mappings := server.Routes.GetMappings()
+			logrus.WithField("mappings", mappings).Debug("Status cache updater")
+			return mappings
+		})
 	}
 
 	// wait for process-stop signal

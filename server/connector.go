@@ -30,6 +30,7 @@ const (
 	backendTimeout       = 30 * time.Second
 	backendRetryInterval = 3 * time.Second
 	backendStatusTimeout = 1 * time.Second
+	cacheTTL             = 5 * time.Minute
 )
 
 var noDeadline time.Time
@@ -113,17 +114,27 @@ func (sm *ServerMetrics) ActiveConnectionsValue(serverAddress string) int {
 	return 0
 }
 
-func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet, recordLogins bool, autoScaleUpAllowDenyConfig *AllowDenyConfig) *Connector {
+func NewConnector(metrics *ConnectorMetrics, cfg ConnectorConfig) *Connector {
 
 	return &Connector{
-		metrics:                    metrics,
-		connectionsCond:            sync.NewCond(&sync.Mutex{}),
-		receiveProxyProto:          receiveProxyProto,
-		trustedProxyNets:           trustedProxyNets,
-		recordLogins:               recordLogins,
-		autoScaleUpAllowDenyConfig: autoScaleUpAllowDenyConfig,
-		serverMetrics:              NewServerMetrics(),
+		metrics:         metrics,
+		connectionsCond: sync.NewCond(&sync.Mutex{}),
+		config:          cfg,
+		serverMetrics:   NewServerMetrics(),
+		StatusCache:     NewStatusCache(backendTimeout),
 	}
+}
+
+type ConnectorConfig struct {
+	SendProxyProto             bool
+	ReceiveProxyProto          bool
+	TrustedProxyNets           []*net.IPNet
+	RecordLogins               bool
+	AutoScaleUpAllowDenyConfig *AllowDenyConfig
+	AutoScaleUp                bool
+	FakeOnline                 bool
+	FakeOnlineMOTD             string
+	CacheStatus                bool
 }
 
 type Connector struct {
@@ -137,6 +148,8 @@ type Connector struct {
 	clientFilter      *ClientFilter
 
 	config ConnectorConfig
+
+	StatusCache *StatusCache
 
 	connectionNotifier ConnectionNotifier
 }
@@ -410,7 +423,7 @@ func (c *Connector) cleanupBackendConnection(ctx context.Context, clientAddr net
 			With("server_address", serverAddress).
 			Set(float64(c.serverMetrics.ActiveConnectionsValue(serverAddress)))
 
-		if c.recordLogins && playerInfo != nil {
+		if c.config.RecordLogins && playerInfo != nil {
 			c.metrics.ServerActivePlayer.
 				With("player_name", playerInfo.Name).
 				With("player_uuid", playerInfo.Uuid.String()).
@@ -436,7 +449,7 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 	}()
 
 	if waker != nil && nextState > mcproto.StateStatus {
-		serverAllowsPlayer := c.autoScaleUpAllowDenyConfig.ServerAllowsPlayer(serverAddress, playerInfo)
+		serverAllowsPlayer := c.config.AutoScaleUpAllowDenyConfig.ServerAllowsPlayer(serverAddress, playerInfo)
 		logrus.
 			WithField("client", clientAddr).
 			WithField("server", serverAddress).
@@ -536,10 +549,36 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		}
 
 		if nextState == mcproto.StateStatus && c.config.FakeOnline && c.config.AutoScaleUp {
-			logrus.Info("Server is offline, sending fakeOnlineMOTD for status request")
+			logrus.Info("Server is offline, sending fakeOnlineMOTD or cache for status request")
+
+			var status *mcproto.StatusResponse
+
+			if c.config.CacheStatus {
+				cachedStatus, ok := c.StatusCache.Get(serverAddress)
+				if ok {
+					logrus.WithField("cachedStatus", cachedStatus).Debug("Using cached status")
+					status = &mcproto.StatusResponse{
+						Players:     cachedStatus.Players,
+						Description: cachedStatus.Description,
+						Favicon:     cachedStatus.Favicon,
+					}
+				} else {
+					logrus.WithField("serverAddress", serverAddress).Debug("No cached status found")
+				}
+			}
+
+			if status == nil {
+				status = &mcproto.StatusResponse{
+					Version:     mcproto.StatusVersion{Name: "1.20.2", Protocol: 770},
+					Players:     mcproto.StatusPlayers{Max: 0, Online: 0},
+					Description: mcproto.StatusText{Text: c.config.FakeOnlineMOTD},
+					Favicon:     "",
+				}
+			}
+
 			writeStatusErr := mcproto.WriteStatusResponse(
 				frontendConn,
-				c.config.FakeOnlineMOTD,
+				status,
 			)
 
 			if writeStatusErr != nil {
@@ -573,7 +612,7 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		With("server_address", serverAddress).
 		Set(float64(c.serverMetrics.ActiveConnectionsValue(serverAddress)))
 
-	if c.recordLogins && playerInfo != nil {
+	if c.config.RecordLogins && playerInfo != nil {
 		logrus.
 			WithField("client", clientAddr).
 			WithField("player", playerInfo).
