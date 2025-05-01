@@ -10,7 +10,7 @@ import (
 func Test_allowDenyConfig_ServerAllowsPlayer(t *testing.T) {
 	type args struct {
 		serverAddress string
-		userInfo *PlayerInfo
+		userInfo      *PlayerInfo
 	}
 	validUserInfo := &PlayerInfo{
 		Name: "player_name",
@@ -27,20 +27,20 @@ func Test_allowDenyConfig_ServerAllowsPlayer(t *testing.T) {
 		want            bool
 	}{
 		{
-			name: "nil config",
+			name:            "nil config",
 			allowDenyConfig: nil,
 			args: args{
 				serverAddress: "server.my.domain",
-				userInfo: validUserInfo,
+				userInfo:      validUserInfo,
 			},
 			want: true,
 		},
 		{
-			name: "empty config",
+			name:            "empty config",
 			allowDenyConfig: &AllowDenyConfig{},
 			args: args{
 				serverAddress: "server.my.domain",
-				userInfo: validUserInfo,
+				userInfo:      validUserInfo,
 			},
 			want: true,
 		},
@@ -58,7 +58,7 @@ func Test_allowDenyConfig_ServerAllowsPlayer(t *testing.T) {
 			},
 			args: args{
 				serverAddress: "server.my.domain",
-				userInfo: validUserInfo,
+				userInfo:      validUserInfo,
 			},
 			want: false,
 		},
@@ -73,7 +73,7 @@ func Test_allowDenyConfig_ServerAllowsPlayer(t *testing.T) {
 			},
 			args: args{
 				serverAddress: "server.my.domain",
-				userInfo: validUserInfo,
+				userInfo:      validUserInfo,
 			},
 			want: true,
 		},
@@ -88,7 +88,7 @@ func Test_allowDenyConfig_ServerAllowsPlayer(t *testing.T) {
 			},
 			args: args{
 				serverAddress: "server.my.domain",
-				userInfo: validUserInfo,
+				userInfo:      validUserInfo,
 			},
 			want: false,
 		},
@@ -103,7 +103,7 @@ func Test_allowDenyConfig_ServerAllowsPlayer(t *testing.T) {
 			},
 			args: args{
 				serverAddress: "server.my.domain",
-				userInfo: validUserInfo,
+				userInfo:      validUserInfo,
 			},
 			want: false,
 		},
@@ -121,7 +121,7 @@ func Test_allowDenyConfig_ServerAllowsPlayer(t *testing.T) {
 			},
 			args: args{
 				serverAddress: "server.my.domain",
-				userInfo: validUserInfo,
+				userInfo:      validUserInfo,
 			},
 			want: true,
 		},
@@ -138,7 +138,7 @@ func Test_allowDenyConfig_ServerAllowsPlayer(t *testing.T) {
 			},
 			args: args{
 				serverAddress: "server.my.domain",
-				userInfo: validUserInfo,
+				userInfo:      validUserInfo,
 			},
 			want: true,
 		},
@@ -155,7 +155,7 @@ func Test_allowDenyConfig_ServerAllowsPlayer(t *testing.T) {
 			},
 			args: args{
 				serverAddress: "server.my.domain",
-				userInfo: validUserInfo,
+				userInfo:      validUserInfo,
 			},
 			want: false,
 		},
@@ -172,7 +172,7 @@ func Test_allowDenyConfig_ServerAllowsPlayer(t *testing.T) {
 			},
 			args: args{
 				serverAddress: "server.my.domain",
-				userInfo: validUserInfo,
+				userInfo:      validUserInfo,
 			},
 			want: false,
 		},
@@ -194,7 +194,7 @@ func Test_allowDenyConfig_ServerAllowsPlayer(t *testing.T) {
 			},
 			args: args{
 				serverAddress: "server.my.domain",
-				userInfo: validUserInfo,
+				userInfo:      validUserInfo,
 			},
 			want: true,
 		},
@@ -216,7 +216,7 @@ func Test_allowDenyConfig_ServerAllowsPlayer(t *testing.T) {
 			},
 			args: args{
 				serverAddress: "server.my.domain",
-				userInfo: validUserInfo,
+				userInfo:      validUserInfo,
 			},
 			want: true,
 		},

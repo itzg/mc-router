@@ -6,12 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"io"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 
 	"golang.ngrok.com/ngrok"
 	"golang.ngrok.com/ngrok/config"
@@ -20,13 +21,13 @@ import (
 	"github.com/itzg/mc-router/mcproto"
 	"github.com/juju/ratelimit"
 	"github.com/pires/go-proxyproto"
-	"github.com/sirupsen/logrus"
 	"github.com/sethvargo/go-retry"
+	"github.com/sirupsen/logrus"
 )
 
 const (
-	handshakeTimeout = 5 * time.Second
-	backendTimeout = 30 * time.Second
+	handshakeTimeout     = 5 * time.Second
+	backendTimeout       = 30 * time.Second
 	backendRetryInterval = 3 * time.Second
 	backendStatusTimeout = 1 * time.Second
 )
@@ -126,16 +127,16 @@ func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyPr
 }
 
 type Connector struct {
-	state             mcproto.State
-	metrics           *ConnectorMetrics
+	state   mcproto.State
+	metrics *ConnectorMetrics
 
-	activeConnections          int32
-	serverMetrics              *ServerMetrics
-	connectionsCond            *sync.Cond
-	ngrokToken                 string
-	clientFilter               *ClientFilter
+	activeConnections int32
+	serverMetrics     *ServerMetrics
+	connectionsCond   *sync.Cond
+	ngrokToken        string
+	clientFilter      *ClientFilter
 
-	config 	ConnectorConfig
+	config ConnectorConfig
 
 	connectionNotifier ConnectionNotifier
 }
@@ -481,31 +482,31 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 
 	// We want to try to connect to the backend every backendRetryInterval
 	var backendTry retry.Backoff
-	
+
 	switch nextState {
-		case mcproto.StateStatus:
-			// Status request: try to connect once with backendStatusTimeout
-			backendTry = retry.NewConstant(backendStatusTimeout)
+	case mcproto.StateStatus:
+		// Status request: try to connect once with backendStatusTimeout
+		backendTry = retry.NewConstant(backendStatusTimeout)
+		backendTry = retry.WithMaxRetries(0, backendTry)
+	case mcproto.StateLogin:
+		backendTry = retry.NewConstant(backendRetryInterval)
+		// Connect request: if autoscaler is enabled, try to connect until backendTimeout is reached
+		if c.config.AutoScaleUp {
+			// Autoscaler enabled: retry until backendTimeout is reached
+			backendTry = retry.WithMaxDuration(backendTimeout, backendTry)
+		} else {
+			// Autoscaler disabled: try to connect once with backendRetryInterval
 			backendTry = retry.WithMaxRetries(0, backendTry)
-		case mcproto.StateLogin:
-			backendTry = retry.NewConstant(backendRetryInterval)
-			// Connect request: if autoscaler is enabled, try to connect until backendTimeout is reached
-			if c.config.AutoScaleUp {
-				// Autoscaler enabled: retry until backendTimeout is reached
-				backendTry = retry.WithMaxDuration(backendTimeout, backendTry)
-			} else {
-				// Autoscaler disabled: try to connect once with backendRetryInterval
-				backendTry = retry.WithMaxRetries(0, backendTry)
-			}
-		default:
-			// Unknown state, do nothing
-			logrus.
-				WithField("client", clientAddr).
-				WithField("serverAddress", serverAddress).
-				WithField("nextState", nextState).
-				WithField("player", playerInfo).
-				Error("Unknown state, unable to connect to backend")
-			return
+		}
+	default:
+		// Unknown state, do nothing
+		logrus.
+			WithField("client", clientAddr).
+			WithField("serverAddress", serverAddress).
+			WithField("nextState", nextState).
+			WithField("player", playerInfo).
+			Error("Unknown state, unable to connect to backend")
+		return
 	}
 
 	var backendConn net.Conn
@@ -513,16 +514,18 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		logrus.Debug("Attempting to connect")
 		var err error
 		backendConn, err = net.Dial("tcp", backendHostPort)
-		if err != nil { return retry.RetryableError(err) }
+		if err != nil {
+			return retry.RetryableError(err)
+		}
 		return nil
 	}); retryErr != nil {
 		logrus.
-		WithError(retryErr).
-		WithField("client", clientAddr).
-		WithField("serverAddress", serverAddress).
-		WithField("backend", backendHostPort).
-		WithField("player", playerInfo).
-		Warn("Unable to connect to backend")
+			WithError(retryErr).
+			WithField("client", clientAddr).
+			WithField("serverAddress", serverAddress).
+			WithField("backend", backendHostPort).
+			WithField("player", playerInfo).
+			Warn("Unable to connect to backend")
 		c.metrics.Errors.With("type", "backend_failed").Add(1)
 
 		if c.connectionNotifier != nil {

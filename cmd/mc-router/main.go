@@ -71,8 +71,8 @@ type Config struct {
 
 	SimplifySRV bool `default:"false" usage:"Simplify fully qualified SRV records for mapping"`
 
-	FakeOnline 		bool   	`default:"false" usage:"Enable fake online MOTD when backend is offline and auto-scale-up is enabled"`
-    FakeOnlineMOTD 	string 	`default:"Server is sleeping\nJoin to wake it up" usage:"Custom MOTD to show when backend is offline and auto-scale-up is enabled"`
+	FakeOnline     bool   `default:"false" usage:"Enable fake online MOTD when backend is offline and auto-scale-up is enabled"`
+	FakeOnlineMOTD string `default:"Server is sleeping\nJoin to wake it up" usage:"Custom MOTD to show when backend is offline and auto-scale-up is enabled"`
 
 	Webhook WebhookConfig `usage:"Webhook configuration"`
 }
@@ -171,14 +171,14 @@ func main() {
 	}
 
 	connectorConfig := server.ConnectorConfig{
-		SendProxyProto:     config.UseProxyProtocol,
-		ReceiveProxyProto: config.ReceiveProxyProtocol,
-		TrustedProxyNets:       trustedIpNets,
-		RecordLogins:         config.RecordLogins,
+		SendProxyProto:             config.UseProxyProtocol,
+		ReceiveProxyProto:          config.ReceiveProxyProtocol,
+		TrustedProxyNets:           trustedIpNets,
+		RecordLogins:               config.RecordLogins,
 		AutoScaleUpAllowDenyConfig: autoScaleUpAllowDenyConfig,
-		AutoScaleUp:      config.AutoScaleUp,
-		FakeOnline:          config.FakeOnline,
-		FakeOnlineMOTD:      config.FakeOnlineMOTD,
+		AutoScaleUp:                config.AutoScaleUp,
+		FakeOnline:                 config.FakeOnline,
+		FakeOnlineMOTD:             config.FakeOnlineMOTD,
 	}
 
 	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), connectorConfig)

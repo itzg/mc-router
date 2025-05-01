@@ -86,28 +86,28 @@ const (
 )
 
 type StatusResponse struct {
-    Version     StatusVersion   `json:"version"`
-    Players     StatusPlayers   `json:"players"`
-    Description StatusText      `json:"description"`
-    Favicon     string          `json:"favicon,omitempty"`
+	Version     StatusVersion `json:"version"`
+	Players     StatusPlayers `json:"players"`
+	Description StatusText    `json:"description"`
+	Favicon     string        `json:"favicon,omitempty"`
 }
 
 type StatusVersion struct {
-    Name     string `json:"name"`
-    Protocol int    `json:"protocol"`
+	Name     string `json:"name"`
+	Protocol int    `json:"protocol"`
 }
 
 type StatusPlayers struct {
-    Max    int           `json:"max"`
-    Online int           `json:"online"`
-    Sample []PlayerEntry `json:"sample,omitempty"`
+	Max    int           `json:"max"`
+	Online int           `json:"online"`
+	Sample []PlayerEntry `json:"sample,omitempty"`
 }
 
 type PlayerEntry struct {
-    Name string `json:"name"`
-    ID   string `json:"id"`
+	Name string `json:"name"`
+	ID   string `json:"id"`
 }
 
 type StatusText struct {
-    Text string `json:"text"`
+	Text string `json:"text"`
 }
