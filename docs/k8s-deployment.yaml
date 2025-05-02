@@ -1,4 +1,35 @@
 # used by ../skaffold.yaml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mc-router
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: services-watcher
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["watch","list"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets", "statefulsets/scale"]
+    verbs: ["watch","list","get","update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mc-router-services-watcher
+subjects:
+  - kind: ServiceAccount
+    name: mc-router
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: services-watcher
+  apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,7 +52,10 @@ spec:
       - image: itzg/mc-router:latest
         name: mc-router
         # Add "--auto-scale-up" here for https://github.com/itzg/mc-router/#auto-scale-up
-        args: ["--api-binding", ":8080", "--in-kube-cluster"]
+        args:
+          - --api-binding
+          - :8080
+          - --in-kube-cluster
         ports:
         - name: proxy
           containerPort: 25565
