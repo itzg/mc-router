@@ -27,8 +27,8 @@ const (
 )
 
 type IK8sWatcher interface {
-	StartWithConfig(kubeConfigFile string, autoScaleUp bool) error
-	StartInCluster(autoScaleUp bool) error
+	StartWithConfig(kubeConfigFile string, autoScaleUp bool, autoScaleDown bool) error
+	StartInCluster(autoScaleUp bool, autoScaleDown bool) error
 	Stop()
 }
 
@@ -36,6 +36,8 @@ var K8sWatcher IK8sWatcher = &k8sWatcherImpl{}
 
 type k8sWatcherImpl struct {
 	sync.RWMutex
+	autoScaleUp   bool
+	autoScaleDown bool
 	// The key in mappings is a Service, and the value the StatefulSet name
 	mappings map[string]string
 
@@ -43,26 +45,28 @@ type k8sWatcherImpl struct {
 	stop      chan struct{}
 }
 
-func (w *k8sWatcherImpl) StartInCluster(autoScaleUp bool) error {
+func (w *k8sWatcherImpl) StartInCluster(autoScaleUp bool, autoScaleDown bool) error {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		return errors.Wrap(err, "Unable to load in-cluster config")
 	}
 
-	return w.startWithLoadedConfig(config, autoScaleUp)
+	return w.startWithLoadedConfig(config, autoScaleUp, autoScaleDown)
 }
 
-func (w *k8sWatcherImpl) StartWithConfig(kubeConfigFile string, autoScaleUp bool) error {
+func (w *k8sWatcherImpl) StartWithConfig(kubeConfigFile string, autoScaleUp bool, autoScaleDown bool) error {
 	config, err := clientcmd.BuildConfigFromFlags("", kubeConfigFile)
 	if err != nil {
 		return errors.Wrap(err, "Could not load kube config file")
 	}
 
-	return w.startWithLoadedConfig(config, autoScaleUp)
+	return w.startWithLoadedConfig(config, autoScaleUp, autoScaleDown)
 }
 
-func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config, autoScaleUp bool) error {
+func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config, autoScaleUp bool, autoScaleDown bool) error {
 	w.stop = make(chan struct{}, 1)
+	w.autoScaleUp = autoScaleUp
+	w.autoScaleDown = autoScaleDown
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
@@ -88,7 +92,7 @@ func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config, autoScaleUp 
 	go serviceController.Run(w.stop)
 
 	w.mappings = make(map[string]string)
-	if autoScaleUp {
+	if autoScaleUp || autoScaleDown {
 		_, statefulSetController := cache.NewInformer(
 			cache.NewListWatchFromClient(
 				clientset.AppsV1().RESTClient(),
@@ -247,6 +251,12 @@ func (w *k8sWatcherImpl) buildDetails(service *core.Service, externalServiceName
 }
 
 func (w *k8sWatcherImpl) buildScaleFunction(service *core.Service, from int32, to int32) ScalerFunc {
+	if from <= to && !w.autoScaleUp {
+		return nil
+	}
+	if from >= to && !w.autoScaleDown {
+		return nil
+	}
 	return func(ctx context.Context) error {
 		serviceName := service.Name
 		if statefulSetName, exists := w.mappings[serviceName]; exists {

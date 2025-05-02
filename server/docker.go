@@ -15,7 +15,7 @@ import (
 )
 
 type IDockerWatcher interface {
-	Start(socket string, timeoutSeconds int, refreshIntervalSeconds int) error
+	Start(socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool) error
 	Stop()
 }
 
@@ -31,11 +31,16 @@ var DockerWatcher IDockerWatcher = &dockerWatcherImpl{}
 
 type dockerWatcherImpl struct {
 	sync.RWMutex
+	autoScaleUp   bool
+	autoScaleDown bool
 	client        *client.Client
 	contextCancel context.CancelFunc
 }
 
 func (w *dockerWatcherImpl) makeWakerFunc(_ *routableContainer) ScalerFunc {
+	if !w.autoScaleUp {
+		return nil
+	}
 	return func(ctx context.Context) error {
 		logrus.Fatal("Auto scale up is not yet supported for docker")
 		return nil
@@ -43,14 +48,20 @@ func (w *dockerWatcherImpl) makeWakerFunc(_ *routableContainer) ScalerFunc {
 }
 
 func (w *dockerWatcherImpl) makeSleeperFunc(_ *routableContainer) ScalerFunc {
+	if !w.autoScaleDown {
+		return nil
+	}
 	return func(ctx context.Context) error {
 		logrus.Fatal("Auto scale down is not yet supported for docker")
 		return nil
 	}
 }
 
-func (w *dockerWatcherImpl) Start(socket string, timeoutSeconds int, refreshIntervalSeconds int) error {
+func (w *dockerWatcherImpl) Start(socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool) error {
 	var err error
+
+	w.autoScaleUp = autoScaleUp
+	w.autoScaleDown = autoScaleDown
 
 	timeout := time.Duration(timeoutSeconds) * time.Second
 	refreshInterval := time.Duration(refreshIntervalSeconds) * time.Second

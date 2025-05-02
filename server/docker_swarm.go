@@ -23,11 +23,16 @@ var DockerSwarmWatcher IDockerWatcher = &dockerSwarmWatcherImpl{}
 
 type dockerSwarmWatcherImpl struct {
 	sync.RWMutex
+	autoScaleUp   bool
+	autoScaleDown bool
 	client        *client.Client
 	contextCancel context.CancelFunc
 }
 
 func (w *dockerSwarmWatcherImpl) makeWakerFunc(_ *routableService) ScalerFunc {
+	if !w.autoScaleUp {
+		return nil
+	}
 	return func(ctx context.Context) error {
 		logrus.Fatal("Auto scale up is not yet supported for docker swarm")
 		return nil
@@ -35,14 +40,20 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(_ *routableService) ScalerFunc {
 }
 
 func (w *dockerSwarmWatcherImpl) makeSleeperFunc(_ *routableService) ScalerFunc {
+	if !w.autoScaleDown {
+		return nil
+	}
 	return func(ctx context.Context) error {
 		logrus.Fatal("Auto scale down is not yet supported for docker swarm")
 		return nil
 	}
 }
 
-func (w *dockerSwarmWatcherImpl) Start(socket string, timeoutSeconds int, refreshIntervalSeconds int) error {
+func (w *dockerSwarmWatcherImpl) Start(socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool) error {
 	var err error
+
+	w.autoScaleUp = autoScaleUp
+	w.autoScaleDown = autoScaleDown
 
 	timeout := time.Duration(timeoutSeconds) * time.Second
 	refreshInterval := time.Duration(refreshIntervalSeconds) * time.Second

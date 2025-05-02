@@ -200,14 +200,14 @@ func main() {
 	}
 
 	if config.InKubeCluster {
-		err = server.K8sWatcher.StartInCluster(config.AutoScale.Up)
+		err = server.K8sWatcher.StartInCluster(config.AutoScale.Up, config.AutoScale.Down)
 		if err != nil {
 			logrus.WithError(err).Fatal("Unable to start k8s integration")
 		} else {
 			defer server.K8sWatcher.Stop()
 		}
 	} else if config.KubeConfig != "" {
-		err := server.K8sWatcher.StartWithConfig(config.KubeConfig, config.AutoScale.Up)
+		err := server.K8sWatcher.StartWithConfig(config.KubeConfig, config.AutoScale.Up, config.AutoScale.Down)
 		if err != nil {
 			logrus.WithError(err).Fatal("Unable to start k8s integration")
 		} else {
@@ -216,7 +216,7 @@ func main() {
 	}
 
 	if config.InDocker {
-		err = server.DockerWatcher.Start(config.DockerSocket, config.DockerTimeout, config.DockerRefreshInterval)
+		err = server.DockerWatcher.Start(config.DockerSocket, config.DockerTimeout, config.DockerRefreshInterval, config.AutoScale.Up, config.AutoScale.Down)
 		if err != nil {
 			logrus.WithError(err).Fatal("Unable to start docker integration")
 		} else {
@@ -225,7 +225,7 @@ func main() {
 	}
 
 	if config.InDockerSwarm {
-		err = server.DockerSwarmWatcher.Start(config.DockerSocket, config.DockerTimeout, config.DockerRefreshInterval)
+		err = server.DockerSwarmWatcher.Start(config.DockerSocket, config.DockerTimeout, config.DockerRefreshInterval, config.AutoScale.Up, config.AutoScale.Down)
 		if err != nil {
 			logrus.WithError(err).Fatal("Unable to start docker swarm integration")
 		} else {
