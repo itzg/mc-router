@@ -15,7 +15,7 @@ import (
 )
 
 type IDockerWatcher interface {
-	Start(socket string, timeoutSeconds int, refreshIntervalSeconds int) error
+	Start(socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool) error
 	Stop()
 }
 
@@ -31,18 +31,37 @@ var DockerWatcher IDockerWatcher = &dockerWatcherImpl{}
 
 type dockerWatcherImpl struct {
 	sync.RWMutex
+	autoScaleUp   bool
+	autoScaleDown bool
 	client        *client.Client
 	contextCancel context.CancelFunc
 }
 
-func (w *dockerWatcherImpl) makeWakerFunc(_ *routableContainer) func(ctx context.Context) error {
+func (w *dockerWatcherImpl) makeWakerFunc(_ *routableContainer) ScalerFunc {
+	if !w.autoScaleUp {
+		return nil
+	}
 	return func(ctx context.Context) error {
+		logrus.Fatal("Auto scale up is not yet supported for docker")
 		return nil
 	}
 }
 
-func (w *dockerWatcherImpl) Start(socket string, timeoutSeconds int, refreshIntervalSeconds int) error {
+func (w *dockerWatcherImpl) makeSleeperFunc(_ *routableContainer) ScalerFunc {
+	if !w.autoScaleDown {
+		return nil
+	}
+	return func(ctx context.Context) error {
+		logrus.Fatal("Auto scale down is not yet supported for docker")
+		return nil
+	}
+}
+
+func (w *dockerWatcherImpl) Start(socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool) error {
 	var err error
+
+	w.autoScaleUp = autoScaleUp
+	w.autoScaleDown = autoScaleDown
 
 	timeout := time.Duration(timeoutSeconds) * time.Second
 	refreshInterval := time.Duration(refreshIntervalSeconds) * time.Second
@@ -75,7 +94,7 @@ func (w *dockerWatcherImpl) Start(socket string, timeoutSeconds int, refreshInte
 	for _, c := range initialContainers {
 		containerMap[c.externalContainerName] = c
 		if c.externalContainerName != "" {
-			Routes.CreateMapping(c.externalContainerName, c.containerEndpoint, w.makeWakerFunc(c))
+			Routes.CreateMapping(c.externalContainerName, c.containerEndpoint, w.makeWakerFunc(c), w.makeSleeperFunc(c))
 		} else {
 			Routes.SetDefaultRoute(c.containerEndpoint)
 		}
@@ -97,7 +116,7 @@ func (w *dockerWatcherImpl) Start(socket string, timeoutSeconds int, refreshInte
 						containerMap[rs.externalContainerName] = rs
 						logrus.WithField("routableContainer", rs).Debug("ADD")
 						if rs.externalContainerName != "" {
-							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, w.makeWakerFunc(rs))
+							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, w.makeWakerFunc(rs), w.makeSleeperFunc(rs))
 						} else {
 							Routes.SetDefaultRoute(rs.containerEndpoint)
 						}
@@ -105,7 +124,7 @@ func (w *dockerWatcherImpl) Start(socket string, timeoutSeconds int, refreshInte
 						containerMap[rs.externalContainerName] = rs
 						if rs.externalContainerName != "" {
 							Routes.DeleteMapping(rs.externalContainerName)
-							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, w.makeWakerFunc(rs))
+							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, w.makeWakerFunc(rs), w.makeSleeperFunc(rs))
 						} else {
 							Routes.SetDefaultRoute(rs.containerEndpoint)
 						}
