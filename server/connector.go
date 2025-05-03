@@ -6,12 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"io"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 
 	"golang.ngrok.com/ngrok"
 	"golang.ngrok.com/ngrok/config"
@@ -20,11 +21,15 @@ import (
 	"github.com/itzg/mc-router/mcproto"
 	"github.com/juju/ratelimit"
 	"github.com/pires/go-proxyproto"
+	"github.com/sethvargo/go-retry"
 	"github.com/sirupsen/logrus"
 )
 
 const (
-	handshakeTimeout = 5 * time.Second
+	handshakeTimeout     = 5 * time.Second
+	backendTimeout       = 30 * time.Second
+	backendRetryInterval = 3 * time.Second
+	backendStatusTimeout = 1 * time.Second
 )
 
 var noDeadline time.Time
@@ -108,34 +113,42 @@ func (sm *ServerMetrics) ActiveConnectionsValue(serverAddress string) int {
 	return 0
 }
 
-func NewConnector(metrics *ConnectorMetrics, sendProxyProto bool, receiveProxyProto bool, trustedProxyNets []*net.IPNet, recordLogins bool, autoScaleUpAllowDenyConfig *AllowDenyConfig) *Connector {
+func NewConnector(metrics *ConnectorMetrics, cfg ConnectorConfig) *Connector {
 
 	return &Connector{
-		metrics:                    metrics,
-		sendProxyProto:             sendProxyProto,
-		connectionsCond:            sync.NewCond(&sync.Mutex{}),
-		receiveProxyProto:          receiveProxyProto,
-		trustedProxyNets:           trustedProxyNets,
-		recordLogins:               recordLogins,
-		autoScaleUpAllowDenyConfig: autoScaleUpAllowDenyConfig,
-		serverMetrics:              NewServerMetrics(),
+		metrics:         metrics,
+		connectionsCond: sync.NewCond(&sync.Mutex{}),
+		config:          cfg,
+		serverMetrics:   NewServerMetrics(),
+		StatusCache:     NewStatusCache(),
 	}
 }
 
-type Connector struct {
-	state             mcproto.State
-	metrics           *ConnectorMetrics
-	sendProxyProto    bool
-	receiveProxyProto bool
-	recordLogins      bool
-	trustedProxyNets  []*net.IPNet
+type ConnectorConfig struct {
+	SendProxyProto             bool
+	ReceiveProxyProto          bool
+	TrustedProxyNets           []*net.IPNet
+	RecordLogins               bool
+	AutoScaleUpAllowDenyConfig *AllowDenyConfig
+	AutoScaleUp                bool
+	FakeOnline                 bool
+	FakeOnlineMOTD             string
+	CacheStatus                bool
+}
 
-	activeConnections          int32
-	serverMetrics              *ServerMetrics
-	connectionsCond            *sync.Cond
-	ngrokToken                 string
-	clientFilter               *ClientFilter
-	autoScaleUpAllowDenyConfig *AllowDenyConfig
+type Connector struct {
+	state   mcproto.State
+	metrics *ConnectorMetrics
+
+	activeConnections int32
+	serverMetrics     *ServerMetrics
+	connectionsCond   *sync.Cond
+	ngrokToken        string
+	clientFilter      *ClientFilter
+
+	config ConnectorConfig
+
+	StatusCache *StatusCache
 
 	connectionNotifier ConnectionNotifier
 }
@@ -180,7 +193,7 @@ func (c *Connector) createListener(ctx context.Context, listenAddress string) (n
 	}
 	logrus.WithField("listenAddress", listenAddress).Info("Listening for Minecraft client connections")
 
-	if c.receiveProxyProto {
+	if c.config.ReceiveProxyProto {
 		proxyListener := &proxyproto.Listener{
 			Listener: listener,
 			Policy:   c.createProxyProtoPolicy(),
@@ -194,7 +207,7 @@ func (c *Connector) createListener(ctx context.Context, listenAddress string) (n
 
 func (c *Connector) createProxyProtoPolicy() func(upstream net.Addr) (proxyproto.Policy, error) {
 	return func(upstream net.Addr) (proxyproto.Policy, error) {
-		trustedIpNets := c.trustedProxyNets
+		trustedIpNets := c.config.TrustedProxyNets
 
 		if len(trustedIpNets) == 0 {
 			logrus.Debug("No trusted proxy networks configured, using the PROXY header by default")
@@ -409,7 +422,7 @@ func (c *Connector) cleanupBackendConnection(ctx context.Context, clientAddr net
 			With("server_address", serverAddress).
 			Set(float64(c.serverMetrics.ActiveConnectionsValue(serverAddress)))
 
-		if c.recordLogins && playerInfo != nil {
+		if c.config.RecordLogins && playerInfo != nil {
 			c.metrics.ServerActivePlayer.
 				With("player_name", playerInfo.Name).
 				With("player_uuid", playerInfo.Uuid.String()).
@@ -434,8 +447,8 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		c.cleanupBackendConnection(ctx, clientAddr, serverAddress, playerInfo, backendHostPort, cleanupMetrics, cleanupCheckScaleDown)
 	}()
 
-	if waker != nil && nextState > mcproto.StateStatus {
-		serverAllowsPlayer := c.autoScaleUpAllowDenyConfig.ServerAllowsPlayer(serverAddress, playerInfo)
+	if c.config.AutoScaleUp && waker != nil && nextState > mcproto.StateStatus {
+		serverAllowsPlayer := c.config.AutoScaleUpAllowDenyConfig.ServerAllowsPlayer(serverAddress, playerInfo)
 		logrus.
 			WithField("client", clientAddr).
 			WithField("server", serverAddress).
@@ -479,7 +492,10 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		WithField("player", playerInfo).
 		Info("Connecting to backend")
 
-	backendConn, err := net.Dial("tcp", backendHostPort)
+	// Try to connect to the backend with a different logic depending on the state and the auto-scaling
+	backendConn, err := c.retryBackendConnection(ctx, backendHostPort, nextState)
+
+	// Failed to connect to the backend
 	if err != nil {
 		logrus.
 			WithError(err).
@@ -497,14 +513,20 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 			}
 		}
 
-		return
-	}
+		if c.connectionNotifier != nil {
+			err := c.connectionNotifier.NotifyConnected(ctx, clientAddr, serverAddress, playerInfo, backendHostPort)
+			if err != nil {
+				logrus.WithError(err).Warn("failed to notify connected")
+			}
 
-	if c.connectionNotifier != nil {
-		err := c.connectionNotifier.NotifyConnected(ctx, clientAddr, serverAddress, playerInfo, backendHostPort)
-		if err != nil {
-			logrus.WithError(err).Warn("failed to notify connected")
 		}
+
+		// If the backend is offline and we are in status state, we can send a fake online status
+		if nextState == mcproto.StateStatus && c.config.FakeOnline {
+			c.sendFakeOnlineStatus(frontendConn, serverAddress)
+		}
+
+		return
 	}
 
 	c.metrics.ConnectionsBackend.With("host", resolvedHost).Add(1)
@@ -517,7 +539,7 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		With("server_address", serverAddress).
 		Set(float64(c.serverMetrics.ActiveConnectionsValue(serverAddress)))
 
-	if c.recordLogins && playerInfo != nil {
+	if c.config.RecordLogins && playerInfo != nil {
 		logrus.
 			WithField("client", clientAddr).
 			WithField("player", playerInfo).
@@ -540,7 +562,7 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 	cleanupMetrics = true
 
 	// PROXY protocol implementation
-	if c.sendProxyProto {
+	if c.config.SendProxyProto {
 
 		// Determine transport protocol for the PROXY header by "analyzing" the frontend connection's address
 		transportProtocol := proxyproto.TCPv4
@@ -623,6 +645,107 @@ func (c *Connector) pumpConnections(ctx context.Context, frontendConn, backendCo
 	case <-ctx.Done():
 		logrus.Debug("Observed context cancellation")
 	}
+}
+
+func (c *Connector) retryBackendConnection(ctx context.Context, backendHostPort string, nextState mcproto.State) (net.Conn, error) {
+	// We want to try to connect to the backend every backendRetryInterval
+	var backendTry retry.Backoff
+
+	// Set the retry timeouts based on the next state and autoscaler
+	switch nextState {
+	case mcproto.StateStatus:
+		// Status request: try to connect once with backendStatusTimeout
+		backendTry = retry.NewConstant(backendStatusTimeout)
+		backendTry = retry.WithMaxRetries(0, backendTry)
+	case mcproto.StateLogin:
+		backendTry = retry.NewConstant(backendRetryInterval)
+		// Connect request: if autoscaler is enabled, try to connect until backendTimeout is reached
+		if c.config.AutoScaleUp {
+			// Autoscaler enabled: retry until backendTimeout is reached
+			backendTry = retry.WithMaxDuration(backendTimeout, backendTry)
+		} else {
+			// Autoscaler disabled: try to connect once with backendRetryInterval
+			backendTry = retry.WithMaxRetries(0, backendTry)
+		}
+	default:
+		// Unknown state, return error
+		logrus.
+			WithField("backend", backendHostPort).
+			WithField("nextState", nextState).
+			Error("Unknown state, unable to connect to backend")
+		return nil, fmt.Errorf("unknown state: %d", nextState)
+	}
+
+	var backendConn net.Conn
+	if err := retry.Do(ctx, backendTry, func(ctx context.Context) error {
+		logrus.
+			WithField("backend", backendHostPort).
+			WithField("nextState", nextState).
+			Debug("Attempting to connect to backend")
+
+		var err error
+		backendConn, err = net.Dial("tcp", backendHostPort)
+		if err != nil {
+			return retry.RetryableError(err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return backendConn, nil
+}
+
+func (c *Connector) getFakeOnlineStatus(serverAddress string) *mcproto.StatusResponse {
+	// Try to get the status from the cache
+	status, hit := c.StatusCache.Get(serverAddress)
+	if !hit {
+		logrus.
+			WithField("serverAddress", serverAddress).
+			Debug("Failed to get status from cache, sending default status")
+
+		// If we can't get the status from the cache, send a default status
+		return &mcproto.StatusResponse{
+			Version: mcproto.StatusVersion{
+				Name:     "UNKNOWN",
+				Protocol: 0,
+			},
+			Players: mcproto.StatusPlayers{
+				Max:    0,
+				Online: 0,
+				Sample: []mcproto.PlayerEntry{},
+			},
+			Description: mcproto.StatusText{
+				Text: c.config.FakeOnlineMOTD,
+			},
+		}
+	}
+
+	logrus.
+		WithField("serverAddress", serverAddress).
+		Debug("Fetched status from cache")
+
+	// We got the status from the cache
+	return status
+}
+
+func (c *Connector) sendFakeOnlineStatus(frontendConn net.Conn, serverAddress string) {
+	// Get the fake online status
+	status := c.getFakeOnlineStatus(serverAddress)
+	// Send the status to the client
+	if err := mcproto.WriteStatusResponse(frontendConn, status); err != nil {
+		logrus.
+			WithError(err).
+			WithField("client", frontendConn.RemoteAddr()).
+			WithField("status", status).
+			Error("Failed to send fake online status")
+		return
+	}
+
+	logrus.
+		WithField("client", frontendConn.RemoteAddr()).
+		WithField("status", status).
+		Debug("Sent fake online status")
 }
 
 func (c *Connector) pumpFrames(incoming io.Reader, outgoing io.Writer, errors chan<- error, from, to string,

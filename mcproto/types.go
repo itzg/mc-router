@@ -2,6 +2,7 @@ package mcproto
 
 import (
 	"fmt"
+
 	"github.com/google/uuid"
 )
 
@@ -84,3 +85,30 @@ type ByteReader interface {
 const (
 	PacketLengthFieldBytes = 1
 )
+
+type StatusResponse struct {
+	Version     StatusVersion `json:"version"`
+	Players     StatusPlayers `json:"players"`
+	Description StatusText    `json:"description"`
+	Favicon     string        `json:"favicon,omitempty"`
+}
+
+type StatusVersion struct {
+	Name     string `json:"name"`
+	Protocol int    `json:"protocol"`
+}
+
+type StatusPlayers struct {
+	Max    int                 `json:"max"`
+	Online int                 `json:"online"`
+	Sample []StatusPlayerEntry `json:"sample,omitempty"`
+}
+
+type StatusPlayerEntry struct {
+	Name string `json:"name"`
+	ID   string `json:"id"`
+}
+
+type StatusText struct {
+	Text string `json:"text"`
+}

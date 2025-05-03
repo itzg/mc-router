@@ -56,7 +56,9 @@ func TestTrustedProxyNetworkPolicy(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			c := &Connector{
-				trustedProxyNets: parseTrustedProxyNets(test.trustedNets),
+				config: ConnectorConfig{
+					TrustedProxyNets: parseTrustedProxyNets(test.trustedNets),
+				},
 			}
 
 			policy := c.createProxyProtoPolicy()
