@@ -172,6 +172,8 @@ func main() {
 		trustedIpNets = append(trustedIpNets, ipNet)
 	}
 
+	fakeOnlineEnabled := config.FakeOnline && config.AutoScale.Up && (config.InKubeCluster || config.KubeConfig != "")
+
 	connectorConfig := server.ConnectorConfig{
 		SendProxyProto:             config.UseProxyProtocol,
 		ReceiveProxyProto:          config.ReceiveProxyProtocol,
@@ -179,7 +181,7 @@ func main() {
 		RecordLogins:               config.RecordLogins,
 		AutoScaleUpAllowDenyConfig: autoScaleAllowDenyConfig,
 		AutoScaleUp:                config.AutoScale.Up,
-		FakeOnline:                 config.FakeOnline,
+		FakeOnline:                 fakeOnlineEnabled,
 		FakeOnlineMOTD:             config.FakeOnlineMOTD,
 		CacheStatus:                config.CacheStatus,
 	}
