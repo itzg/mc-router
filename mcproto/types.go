@@ -2,6 +2,7 @@ package mcproto
 
 import (
 	"fmt"
+
 	"github.com/google/uuid"
 )
 
@@ -98,12 +99,12 @@ type StatusVersion struct {
 }
 
 type StatusPlayers struct {
-	Max    int           `json:"max"`
-	Online int           `json:"online"`
-	Sample []PlayerEntry `json:"sample,omitempty"`
+	Max    int                 `json:"max"`
+	Online int                 `json:"online"`
+	Sample []StatusPlayerEntry `json:"sample,omitempty"`
 }
 
-type PlayerEntry struct {
+type StatusPlayerEntry struct {
 	Name string `json:"name"`
 	ID   string `json:"id"`
 }
