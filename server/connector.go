@@ -448,7 +448,7 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		c.cleanupBackendConnection(ctx, clientAddr, serverAddress, playerInfo, backendHostPort, cleanupMetrics, cleanupCheckScaleDown)
 	}()
 
-	if waker != nil && nextState > mcproto.StateStatus {
+	if c.config.AutoScaleUp && waker != nil && nextState > mcproto.StateStatus {
 		serverAllowsPlayer := c.config.AutoScaleUpAllowDenyConfig.ServerAllowsPlayer(serverAddress, playerInfo)
 		logrus.
 			WithField("client", clientAddr).
@@ -524,7 +524,14 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 
 	var backendConn net.Conn
 	if retryErr := retry.Do(ctx, backendTry, func(ctx context.Context) error {
-		logrus.Debug("Attempting to connect")
+		logrus.
+			WithField("client", clientAddr).
+			WithField("serverAddress", serverAddress).
+			WithField("backend", backendHostPort).
+			WithField("player", playerInfo).
+			WithField("nextState", nextState).
+			WithField("retryInterval", backendTry).
+			Debug("Attempting to connect to backend")
 		var err error
 		backendConn, err = net.Dial("tcp", backendHostPort)
 		if err != nil {
@@ -549,14 +556,23 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		}
 
 		if nextState == mcproto.StateStatus && c.config.FakeOnline && c.config.AutoScaleUp {
-			logrus.Info("Server is offline, sending fakeOnlineMOTD or cache for status request")
+			logrus.
+				WithField("client", clientAddr).
+				WithField("serverAddress", serverAddress).
+				WithField("backend", backendHostPort).
+				Info("Server is offline, sending fakeOnlineMOTD or cache for status request")
 
 			var status *mcproto.StatusResponse
 
 			if c.config.CacheStatus {
 				cachedStatus, ok := c.StatusCache.Get(serverAddress)
 				if ok {
-					logrus.WithField("cachedStatus", cachedStatus).Debug("Using cached status")
+					logrus.
+						WithField("cachedStatus", cachedStatus).
+						WithField("client", clientAddr).
+						WithField("serverAddress", serverAddress).
+						WithField("backend", backendHostPort).
+						Debug("Using cached status")
 					status = &mcproto.StatusResponse{
 						Players:     cachedStatus.Players,
 						Description: cachedStatus.Description,
