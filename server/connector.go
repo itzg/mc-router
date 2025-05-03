@@ -30,7 +30,6 @@ const (
 	backendTimeout       = 30 * time.Second
 	backendRetryInterval = 3 * time.Second
 	backendStatusTimeout = 1 * time.Second
-	cacheTTL             = 5 * time.Minute
 )
 
 var noDeadline time.Time
@@ -121,7 +120,7 @@ func NewConnector(metrics *ConnectorMetrics, cfg ConnectorConfig) *Connector {
 		connectionsCond: sync.NewCond(&sync.Mutex{}),
 		config:          cfg,
 		serverMetrics:   NewServerMetrics(),
-		StatusCache:     NewStatusCache(backendTimeout),
+		StatusCache:     NewStatusCache(),
 	}
 }
 

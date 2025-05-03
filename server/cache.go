@@ -15,13 +15,11 @@ import (
 type StatusCache struct {
 	mu    sync.RWMutex
 	cache map[string]*mcproto.StatusResponse // key: serverAddress
-	ttl   time.Duration
 }
 
-func NewStatusCache(ttl time.Duration) *StatusCache {
+func NewStatusCache() *StatusCache {
 	return &StatusCache{
 		cache: make(map[string]*mcproto.StatusResponse),
-		ttl:   ttl,
 	}
 }
 
