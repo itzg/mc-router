@@ -34,10 +34,14 @@ type WebhookConfig struct {
 }
 
 type AutoScale struct {
-	Up        bool   `usage:"Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed"`
-	Down      bool   `default:"false" usage:"Decrease Kubernetes StatefulSet Replicas (only) from 1 to 0 on respective backend servers after there are no connections"`
-	DownAfter string `default:"10m" usage:"Server scale down delay after there are no connections"`
-	AllowDeny string `usage:"Path to config for server allowlists and denylists. If a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up when -auto-scale-up is enabled or cancel active down scalers when -auto-scale-down is enabled"`
+	Up                  bool   `usage:"Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed"`
+	Down                bool   `default:"false" usage:"Decrease Kubernetes StatefulSet Replicas (only) from 1 to 0 on respective backend servers after there are no connections"`
+	DownAfter           string `default:"10m" usage:"Server scale down delay after there are no connections"`
+	AllowDeny           string `usage:"Path to config for server allowlists and denylists. If a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up when -auto-scale-up is enabled or cancel active down scalers when -auto-scale-down is enabled"`
+	FakeOnline          bool   `default:"false" usage:"Enable fake online status when backend is offline and auto-scale-up is enabled"`
+	FakeOnlineMOTD      string `default:"Server is sleeping\nJoin to wake it up" usage:"Custom MOTD to show when backend is offline, status has been cached and auto-scale-up is enabled"`
+	CacheStatus         bool   `default:"false" usage:"Cache status response for backends"`
+	CacheStatusInterval string `default:"30s" usage:"Interval to update the status cache"`
 }
 
 type Config struct {
@@ -70,12 +74,6 @@ type Config struct {
 	ClientsToDeny  []string `usage:"Zero or more client IP addresses or CIDRs to deny. Ignored if any configured to allow"`
 
 	SimplifySRV bool `default:"false" usage:"Simplify fully qualified SRV records for mapping"`
-
-	FakeOnline     bool   `default:"false" usage:"Enable fake online MOTD when backend is offline and auto-scale-up is enabled"`
-	FakeOnlineMOTD string `default:"Server is sleeping\nJoin to wake it up" usage:"Custom MOTD to show when backend is offline and auto-scale-up is enabled"`
-
-	CacheStatus         bool   `default:"false" usage:"Cache status response for backends"`
-	CacheStatusInterval string `default:"30s" usage:"Interval to update the status cache"`
 
 	Webhook WebhookConfig `usage:"Webhook configuration"`
 }
@@ -172,7 +170,7 @@ func main() {
 		trustedIpNets = append(trustedIpNets, ipNet)
 	}
 
-	fakeOnlineEnabled := config.FakeOnline && config.AutoScale.Up && (config.InKubeCluster || config.KubeConfig != "")
+	fakeOnlineEnabled := config.AutoScale.FakeOnline && config.AutoScale.Up && (config.InKubeCluster || config.KubeConfig != "")
 
 	connectorConfig := server.ConnectorConfig{
 		SendProxyProto:             config.UseProxyProtocol,
@@ -182,8 +180,8 @@ func main() {
 		AutoScaleUpAllowDenyConfig: autoScaleAllowDenyConfig,
 		AutoScaleUp:                config.AutoScale.Up,
 		FakeOnline:                 fakeOnlineEnabled,
-		FakeOnlineMOTD:             config.FakeOnlineMOTD,
-		CacheStatus:                config.CacheStatus,
+		FakeOnlineMOTD:             config.AutoScale.FakeOnlineMOTD,
+		CacheStatus:                config.AutoScale.CacheStatus,
 	}
 
 	connector := server.NewConnector(metricsBuilder.BuildConnectorMetrics(), connectorConfig)
@@ -204,12 +202,12 @@ func main() {
 	}
 
 	var cacheInterval time.Duration
-	if config.CacheStatus {
-		cacheInterval, err = time.ParseDuration(config.CacheStatusInterval)
+	if config.AutoScale.CacheStatus {
+		cacheInterval, err = time.ParseDuration(config.AutoScale.CacheStatusInterval)
 		if err != nil {
 			logrus.WithError(err).Fatal("Unable to parse cache status interval")
 		}
-		logrus.WithField("interval", config.CacheStatusInterval).Info("Using cache status interval")
+		logrus.WithField("interval", config.AutoScale.CacheStatusInterval).Debug("Using cache status interval")
 	}
 
 	if config.NgrokToken != "" {
@@ -268,11 +266,11 @@ func main() {
 		logrus.WithError(err).Fatal("Unable to start metrics reporter")
 	}
 
-	if config.CacheStatus {
+	if config.AutoScale.CacheStatus {
 		logrus.Info("Starting status cache updater")
 		connector.StatusCache.StartUpdater(connector, cacheInterval, func() map[string]string {
 			mappings := server.Routes.GetMappings()
-			logrus.WithField("mappings", mappings).Debug("Status cache updater")
+			logrus.WithField("mappings", mappings).Debug("Updating status cache with mappings")
 			return mappings
 		})
 	}

@@ -493,54 +493,13 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		WithField("player", playerInfo).
 		Info("Connecting to backend")
 
-	// We want to try to connect to the backend every backendRetryInterval
-	var backendTry retry.Backoff
+	// Try to connect to the backend with a different logic depending on the state and the auto-scaling
+	backendConn, err := c.retryBackendConnection(ctx, backendHostPort, nextState)
 
-	switch nextState {
-	case mcproto.StateStatus:
-		// Status request: try to connect once with backendStatusTimeout
-		backendTry = retry.NewConstant(backendStatusTimeout)
-		backendTry = retry.WithMaxRetries(0, backendTry)
-	case mcproto.StateLogin:
-		backendTry = retry.NewConstant(backendRetryInterval)
-		// Connect request: if autoscaler is enabled, try to connect until backendTimeout is reached
-		if c.config.AutoScaleUp {
-			// Autoscaler enabled: retry until backendTimeout is reached
-			backendTry = retry.WithMaxDuration(backendTimeout, backendTry)
-		} else {
-			// Autoscaler disabled: try to connect once with backendRetryInterval
-			backendTry = retry.WithMaxRetries(0, backendTry)
-		}
-	default:
-		// Unknown state, do nothing
+	// Failed to connect to the backend
+	if err != nil {
 		logrus.
-			WithField("client", clientAddr).
-			WithField("serverAddress", serverAddress).
-			WithField("nextState", nextState).
-			WithField("player", playerInfo).
-			Error("Unknown state, unable to connect to backend")
-		return
-	}
-
-	var backendConn net.Conn
-	if retryErr := retry.Do(ctx, backendTry, func(ctx context.Context) error {
-		logrus.
-			WithField("client", clientAddr).
-			WithField("serverAddress", serverAddress).
-			WithField("backend", backendHostPort).
-			WithField("player", playerInfo).
-			WithField("nextState", nextState).
-			WithField("retryInterval", backendTry).
-			Debug("Attempting to connect to backend")
-		var err error
-		backendConn, err = net.Dial("tcp", backendHostPort)
-		if err != nil {
-			return retry.RetryableError(err)
-		}
-		return nil
-	}); retryErr != nil {
-		logrus.
-			WithError(retryErr).
+			WithError(err).
 			WithField("client", clientAddr).
 			WithField("serverAddress", serverAddress).
 			WithField("backend", backendHostPort).
@@ -549,73 +508,26 @@ func (c *Connector) findAndConnectBackend(ctx context.Context, frontendConn net.
 		c.metrics.Errors.With("type", "backend_failed").Add(1)
 
 		if c.connectionNotifier != nil {
-			notifyErr := c.connectionNotifier.NotifyFailedBackendConnection(ctx, clientAddr, serverAddress, playerInfo, backendHostPort, retryErr)
+			notifyErr := c.connectionNotifier.NotifyFailedBackendConnection(ctx, clientAddr, serverAddress, playerInfo, backendHostPort, err)
 			if notifyErr != nil {
 				logrus.WithError(notifyErr).Warn("failed to notify failed backend connection")
 			}
 		}
 
-		if nextState == mcproto.StateStatus && c.config.FakeOnline && c.config.AutoScaleUp {
-			logrus.
-				WithField("client", clientAddr).
-				WithField("serverAddress", serverAddress).
-				WithField("backend", backendHostPort).
-				Info("Server is offline, sending fakeOnlineMOTD or cache for status request")
-
-			var status *mcproto.StatusResponse
-
-			if c.config.CacheStatus {
-				cachedStatus, ok := c.StatusCache.Get(serverAddress)
-				if ok {
-					logrus.
-						WithField("cachedStatus", cachedStatus).
-						WithField("client", clientAddr).
-						WithField("serverAddress", serverAddress).
-						WithField("backend", backendHostPort).
-						Debug("Using cached status")
-					status = &mcproto.StatusResponse{
-						Players:     cachedStatus.Players,
-						Description: cachedStatus.Description,
-						Favicon:     cachedStatus.Favicon,
-					}
-				} else {
-					logrus.WithField("serverAddress", serverAddress).Debug("No cached status found")
-				}
+		if c.connectionNotifier != nil {
+			err := c.connectionNotifier.NotifyConnected(ctx, clientAddr, serverAddress, playerInfo, backendHostPort)
+			if err != nil {
+				logrus.WithError(err).Warn("failed to notify connected")
 			}
 
-			if status == nil {
-				status = &mcproto.StatusResponse{
-					Version:     mcproto.StatusVersion{Name: "1.20.2", Protocol: 770},
-					Players:     mcproto.StatusPlayers{Max: 0, Online: 0},
-					Description: mcproto.StatusText{Text: c.config.FakeOnlineMOTD},
-					Favicon:     "",
-				}
-			}
+		}
 
-			writeStatusErr := mcproto.WriteStatusResponse(
-				frontendConn,
-				status,
-			)
-
-			if writeStatusErr != nil {
-				logrus.
-					WithError(writeStatusErr).
-					WithField("client", clientAddr).
-					WithField("serverAddress", serverAddress).
-					WithField("backend", backendHostPort).
-					WithField("player", playerInfo).
-					Error("Failed to write status response")
-			}
+		// If the backend is offline and we are in status state, we can send a fake online status
+		if nextState == mcproto.StateStatus && c.config.FakeOnline {
+			c.sendFakeOnlineStatus(frontendConn, serverAddress)
 		}
 
 		return
-	}
-
-	if c.connectionNotifier != nil {
-		err := c.connectionNotifier.NotifyConnected(ctx, clientAddr, serverAddress, playerInfo, backendHostPort)
-		if err != nil {
-			logrus.WithError(err).Warn("failed to notify connected")
-		}
 	}
 
 	c.metrics.ConnectionsBackend.With("host", resolvedHost).Add(1)
@@ -734,6 +646,107 @@ func (c *Connector) pumpConnections(ctx context.Context, frontendConn, backendCo
 	case <-ctx.Done():
 		logrus.Debug("Observed context cancellation")
 	}
+}
+
+func (c *Connector) retryBackendConnection(ctx context.Context, backendHostPort string, nextState mcproto.State) (net.Conn, error) {
+	// We want to try to connect to the backend every backendRetryInterval
+	var backendTry retry.Backoff
+
+	// Set the retry timeouts based on the next state and autoscaler
+	switch nextState {
+	case mcproto.StateStatus:
+		// Status request: try to connect once with backendStatusTimeout
+		backendTry = retry.NewConstant(backendStatusTimeout)
+		backendTry = retry.WithMaxRetries(0, backendTry)
+	case mcproto.StateLogin:
+		backendTry = retry.NewConstant(backendRetryInterval)
+		// Connect request: if autoscaler is enabled, try to connect until backendTimeout is reached
+		if c.config.AutoScaleUp {
+			// Autoscaler enabled: retry until backendTimeout is reached
+			backendTry = retry.WithMaxDuration(backendTimeout, backendTry)
+		} else {
+			// Autoscaler disabled: try to connect once with backendRetryInterval
+			backendTry = retry.WithMaxRetries(0, backendTry)
+		}
+	default:
+		// Unknown state, return error
+		logrus.
+			WithField("backend", backendHostPort).
+			WithField("nextState", nextState).
+			Error("Unknown state, unable to connect to backend")
+		return nil, fmt.Errorf("unknown state: %d", nextState)
+	}
+
+	var backendConn net.Conn
+	if err := retry.Do(ctx, backendTry, func(ctx context.Context) error {
+		logrus.
+			WithField("backend", backendHostPort).
+			WithField("nextState", nextState).
+			Debug("Attempting to connect to backend")
+
+		var err error
+		backendConn, err = net.Dial("tcp", backendHostPort)
+		if err != nil {
+			return retry.RetryableError(err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return backendConn, nil
+}
+
+func (c *Connector) getFakeOnlineStatus(serverAddress string) *mcproto.StatusResponse {
+	// Try to get the status from the cache
+	status, hit := c.StatusCache.Get(serverAddress)
+	if !hit {
+		logrus.
+			WithField("serverAddress", serverAddress).
+			Debug("Failed to get status from cache, sending default status")
+
+		// If we can't get the status from the cache, send a default status
+		return &mcproto.StatusResponse{
+			Version: mcproto.StatusVersion{
+				Name:     "UNKNOWN",
+				Protocol: 0,
+			},
+			Players: mcproto.StatusPlayers{
+				Max:    0,
+				Online: 0,
+				Sample: []mcproto.PlayerEntry{},
+			},
+			Description: mcproto.StatusText{
+				Text: c.config.FakeOnlineMOTD,
+			},
+		}
+	}
+
+	logrus.
+		WithField("serverAddress", serverAddress).
+		Debug("Fetched status from cache")
+
+	// We got the status from the cache
+	return status
+}
+
+func (c *Connector) sendFakeOnlineStatus(frontendConn net.Conn, serverAddress string) {
+	// Get the fake online status
+	status := c.getFakeOnlineStatus(serverAddress)
+	// Send the status to the client
+	if err := mcproto.WriteStatusResponse(frontendConn, status); err != nil {
+		logrus.
+			WithError(err).
+			WithField("client", frontendConn.RemoteAddr()).
+			WithField("status", status).
+			Error("Failed to send fake online status")
+		return
+	}
+
+	logrus.
+		WithField("client", frontendConn.RemoteAddr()).
+		WithField("status", status).
+		Debug("Sent fake online status")
 }
 
 func (c *Connector) pumpFrames(incoming io.Reader, outgoing io.Writer, errors chan<- error, from, to string,

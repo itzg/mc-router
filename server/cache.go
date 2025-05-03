@@ -12,39 +12,30 @@ import (
 	mcpinger "github.com/Raqbit/mc-pinger"
 )
 
-// CachedStatus holds the cached status response for a backend.
-type CachedStatus struct {
-	Version     mcproto.StatusVersion
-	Description mcproto.StatusText
-	Favicon     string
-	Players     mcproto.StatusPlayers
-	LastUpdated time.Time
-}
-
 type StatusCache struct {
 	mu    sync.RWMutex
-	cache map[string]*CachedStatus // key: serverAddress
+	cache map[string]*mcproto.StatusResponse // key: serverAddress
 	ttl   time.Duration
 }
 
 func NewStatusCache(ttl time.Duration) *StatusCache {
 	return &StatusCache{
-		cache: make(map[string]*CachedStatus),
+		cache: make(map[string]*mcproto.StatusResponse),
 		ttl:   ttl,
 	}
 }
 
-func (sc *StatusCache) Get(serverAddress string) (*CachedStatus, bool) {
+func (sc *StatusCache) Get(serverAddress string) (*mcproto.StatusResponse, bool) {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	status, ok := sc.cache[serverAddress]
-	if !ok || time.Since(status.LastUpdated) > sc.ttl {
+	if !ok {
 		return nil, false
 	}
 	return status, true
 }
 
-func (sc *StatusCache) Set(serverAddress string, status *CachedStatus) {
+func (sc *StatusCache) Set(serverAddress string, status *mcproto.StatusResponse) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 	sc.cache[serverAddress] = status
@@ -58,6 +49,11 @@ func (sc *StatusCache) Delete(serverAddress string) {
 
 func (sc *StatusCache) updateAll(getBackends func() map[string]string) {
 	for serverAddress, backendAddress := range getBackends() {
+		logrus.
+			WithField("serverAddress", serverAddress).
+			WithField("backendAddress", backendAddress).
+			Debug("Updating status cache")
+
 		status, err := fetchBackendStatus(backendAddress)
 		if err == nil {
 			sc.Set(serverAddress, status)
@@ -81,12 +77,12 @@ func (sc *StatusCache) StartUpdater(connector *Connector, interval time.Duration
 }
 
 // fetchBackendStatus connects to the backend and retrieves its status.
-func fetchBackendStatus(serverAddress string) (*CachedStatus, error) {
-	address, port, splitErr := net.SplitHostPort(serverAddress)
+func fetchBackendStatus(backendHost string) (*mcproto.StatusResponse, error) {
+	address, port, splitErr := net.SplitHostPort(backendHost)
 	if splitErr != nil {
 		logrus.
 			WithError(splitErr).
-			WithField("serverAddress", serverAddress).
+			WithField("backend", backendHost).
 			Error("Failed to split server address")
 		return nil, splitErr
 	}
@@ -95,7 +91,7 @@ func fetchBackendStatus(serverAddress string) (*CachedStatus, error) {
 	if atoiErr != nil {
 		logrus.
 			WithError(atoiErr).
-			WithField("serverAddress", serverAddress).
+			WithField("serverAddress", backendHost).
 			Error("Failed to convert port to int")
 		return nil, atoiErr
 	}
@@ -107,16 +103,15 @@ func fetchBackendStatus(serverAddress string) (*CachedStatus, error) {
 	if err != nil {
 		logrus.
 			WithError(err).
-			WithField("serverAddress", serverAddress).
+			WithField("backend", backendHost).
 			Error("Failed to ping backend server")
 		return nil, err
 	}
 
-	return &CachedStatus{
+	return &mcproto.StatusResponse{
 		Version:     mcproto.StatusVersion{Name: info.Version.Name, Protocol: int(info.Version.Protocol)},
 		Description: mcproto.StatusText{Text: info.Description.Text},
 		Favicon:     info.Favicon,
 		Players:     mcproto.StatusPlayers{Max: int(info.Players.Max), Online: 0, Sample: []mcproto.PlayerEntry{}},
-		LastUpdated: time.Now(),
 	}, nil
 }
