@@ -1,0 +1,7 @@
+{
+  "default-server": "vanilla:25565",
+  "mappings": {
+    "vanilla.example.com": "vanilla:25565",
+    "forge.example.com": "forge:25565"
+  }
+}

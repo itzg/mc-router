@@ -1,9 +1,13 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"github.com/fsnotify/fsnotify"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"time"
+
 	"io/fs"
 	"os"
 	"sync"
@@ -14,7 +18,10 @@ type IRoutesConfig interface {
 	AddMapping(serverAddress string, backend string)
 	DeleteMapping(serverAddress string)
 	SetDefaultRoute(backend string)
+	WatchForChanges(ctx context.Context) error
 }
+
+const debounceConfigRereadDuration = time.Second * 5
 
 var RoutesConfig = &routesConfigImpl{}
 
@@ -46,6 +53,84 @@ func (r *routesConfigImpl) ReadRoutesConfig(routesConfig string) error {
 
 	Routes.RegisterAll(config.Mappings)
 	Routes.SetDefaultRoute(config.DefaultServer)
+	return nil
+}
+
+func (r *routesConfigImpl) reloadRoutesConfig() error {
+	config, readErr := r.readRoutesConfigFile()
+
+	if readErr != nil {
+		return readErr
+	}
+
+	logrus.WithField("routesConfig", r.fileName).Info("Re-loading routes config file")
+	Routes.Reset()
+	Routes.RegisterAll(config.Mappings)
+	Routes.SetDefaultRoute(config.DefaultServer)
+
+	return nil
+}
+
+func (r *routesConfigImpl) WatchForChanges(ctx context.Context) error {
+	if r.fileName == "" {
+		return errors.New("routes config file needs to be specified first")
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return errors.Wrap(err, "Could not create a watcher")
+	}
+
+	err = watcher.Add(r.fileName)
+	if err != nil {
+		return errors.Wrap(err, "Could not watch the routes config file")
+	}
+
+	go func() {
+		logrus.WithField("file", r.fileName).Info("Watching routes config file")
+
+		debounceTimerChan := make(<-chan time.Time)
+		var debounceTimer *time.Timer
+
+		//goland:noinspection GoUnhandledErrorResult
+		defer watcher.Close()
+		for {
+			select {
+
+			case event, ok := <-watcher.Events:
+				if !ok {
+					logrus.Debug("Watcher events channel closed")
+					return
+				}
+				logrus.
+					WithField("file", event.Name).
+					WithField("op", event.Op).
+					Trace("fs event received")
+				if event.Op.Has(fsnotify.Write) || event.Op.Has(fsnotify.Create) {
+					if debounceTimer == nil {
+						debounceTimer = time.NewTimer(debounceConfigRereadDuration)
+					} else {
+						debounceTimer.Reset(debounceConfigRereadDuration)
+					}
+					debounceTimerChan = debounceTimer.C
+					logrus.WithField("delay", debounceConfigRereadDuration).Debug("Will re-read config file after delay")
+				}
+
+			case <-debounceTimerChan:
+				readErr := r.ReadRoutesConfig(r.fileName)
+				if readErr != nil {
+					logrus.
+						WithError(readErr).
+						WithField("routesConfig", r.fileName).
+						Error("Could not re-read the routes config file")
+				}
+
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	return nil
 }
 

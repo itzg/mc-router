@@ -70,8 +70,10 @@ Routes Minecraft client connections to backend servers based upon the requested 
     	The port bound to listen for Minecraft client connections (env PORT) (default 25565)
   -receive-proxy-protocol
     	Receive PROXY protocol from backend servers, by default trusts every proxy header that it receives, combine with -trusted-proxies to specify a list of trusted proxies (env RECEIVE_PROXY_PROTOCOL)
-  -routes-config string
+  -routes-config path
     	Name or full path to routes config file (env ROUTES_CONFIG)
+  -routes-config-watch
+    	Watch for config file changes (env ROUTES_CONFIG_WATCH)
   -simplify-srv
     	Simplify fully qualified SRV records for mapping (env SIMPLIFY_SRV)
   -trusted-proxies value
@@ -302,11 +304,11 @@ apiVersion: v1
 kind: Service
 metadata:
   name: mc-forge
-spec:
-  type: ClusterIP
   annotations:
     "mc-router.itzg.me/defaultServer": "true"
     "mc-router.itzg.me/externalServerName": "external.host.name"
+spec:
+  type: ClusterIP
 ---
 apiVersion: apps/v1
 kind: StatefulSet
