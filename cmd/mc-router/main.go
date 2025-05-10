@@ -40,6 +40,11 @@ type AutoScale struct {
 	AllowDeny string `usage:"Path to config for server allowlists and denylists. If a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up when -auto-scale-up is enabled or cancel active down scalers when -auto-scale-down is enabled"`
 }
 
+type RoutesConfig struct {
+	Config      string `usage:"Name or full [path] to routes config file"`
+	ConfigWatch bool   `usage:"Watch for config file changes"`
+}
+
 type Config struct {
 	Port                  int               `default:"25565" usage:"The [port] bound to listen for Minecraft client connections"`
 	Default               string            `usage:"host:port of a default Minecraft server to use when mapping not found"`
@@ -62,7 +67,7 @@ type Config struct {
 	TrustedProxies        []string          `usage:"Comma delimited list of CIDR notation IP blocks to trust when receiving PROXY protocol"`
 	RecordLogins          bool              `default:"false" usage:"Log and generate metrics on player logins. Metrics only supported with influxdb or prometheus backend"`
 	MetricsBackendConfig  MetricsBackendConfig
-	RoutesConfig          string `usage:"Name or full path to routes config file"`
+	Routes                RoutesConfig
 	NgrokToken            string `usage:"If set, an ngrok tunnel will be established. It is HIGHLY recommended to pass as an environment variable."`
 	AutoScale             AutoScale
 
@@ -138,14 +143,20 @@ func main() {
 	// Only one instance should be created
 	server.DownScaler = server.NewDownScaler(ctx, downScalerEnabled, downScalerDelay)
 
-
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 
-	if config.RoutesConfig != "" {
-		err := server.RoutesConfig.ReadRoutesConfig(config.RoutesConfig)
+	if config.Routes.Config != "" {
+		err := server.RoutesConfig.ReadRoutesConfig(config.Routes.Config)
 		if err != nil {
-			logrus.WithError(err).Error("Unable to load routes from config file")
+			logrus.WithError(err).Fatal("Unable to load routes from config file")
+		}
+
+		if config.Routes.ConfigWatch {
+			err := server.RoutesConfig.WatchForChanges(ctx)
+			if err != nil {
+				logrus.WithError(err).Fatal("Unable to watch for changes")
+			}
 		}
 	}
 
