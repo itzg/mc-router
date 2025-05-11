@@ -144,7 +144,7 @@ func main() {
 	server.DownScaler = server.NewDownScaler(ctx, downScalerEnabled, downScalerDelay)
 
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
 	if config.Routes.Config != "" {
 		err := server.RoutesConfig.ReadRoutesConfig(config.Routes.Config)
@@ -251,10 +251,28 @@ func main() {
 		logrus.WithError(err).Fatal("Unable to start metrics reporter")
 	}
 
-	// wait for process-stop signal
-	<-c
-	logrus.Info("Stopping. Waiting for connections to complete...")
-	signal.Stop(c)
-	connector.WaitForConnections()
-	logrus.Info("Stopped")
+	// handle signals
+	for {
+		sig := <-c
+		switch sig {
+		case syscall.SIGHUP:
+			if config.Routes.Config != "" {
+				logrus.Info("Received SIGHUP, reloading routes config...")
+				if err := server.RoutesConfig.ReloadRoutesConfig(); err != nil {
+					logrus.
+						WithError(err).
+						WithField("routesConfig", config.Routes.Config).
+						Error("Could not re-read the routes config file")
+				}
+			}
+		case syscall.SIGINT, syscall.SIGTERM:
+			logrus.WithField("signal", sig).Info("Stopping. Waiting for connections to complete...")
+			signal.Stop(c)
+			connector.WaitForConnections()
+			logrus.Info("Stopped")
+			return
+		default:
+			logrus.WithField("signal", sig).Warn("Received unexpected signal")
+		}
+	}
 }

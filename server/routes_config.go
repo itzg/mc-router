@@ -3,10 +3,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"time"
+
 	"github.com/fsnotify/fsnotify"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"time"
 
 	"io/fs"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 type IRoutesConfig interface {
 	ReadRoutesConfig(routesConfig string)
+	ReloadRoutesConfig()
 	AddMapping(serverAddress string, backend string)
 	DeleteMapping(serverAddress string)
 	SetDefaultRoute(backend string)
@@ -56,7 +58,7 @@ func (r *routesConfigImpl) ReadRoutesConfig(routesConfig string) error {
 	return nil
 }
 
-func (r *routesConfigImpl) reloadRoutesConfig() error {
+func (r *routesConfigImpl) ReloadRoutesConfig() error {
 	config, readErr := r.readRoutesConfigFile()
 
 	if readErr != nil {
