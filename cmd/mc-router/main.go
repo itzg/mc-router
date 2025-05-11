@@ -256,12 +256,14 @@ func main() {
 		sig := <-c
 		switch sig {
 		case syscall.SIGHUP:
-			logrus.Info("Received SIGHUP, reloading routes config...")
-			if err := server.RoutesConfig.ReloadRoutesConfig(); err != nil {
-				logrus.
-					WithError(err).
-					WithField("routesConfig", config.Routes.Config).
-					Error("Could not re-read the routes config file")
+			if config.Routes.Config != "" {
+				logrus.Info("Received SIGHUP, reloading routes config...")
+				if err := server.RoutesConfig.ReloadRoutesConfig(); err != nil {
+					logrus.
+						WithError(err).
+						WithField("routesConfig", config.Routes.Config).
+						Error("Could not re-read the routes config file")
+				}
 			}
 		case syscall.SIGINT, syscall.SIGTERM:
 			logrus.WithField("signal", sig).Info("Stopping. Waiting for connections to complete...")
