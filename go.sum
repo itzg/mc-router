@@ -87,8 +87,8 @@ github.com/inconshreveable/log15/v3 v3.0.0-testing.5 h1:h4e0f3kjgg+RJBlKOabrohjH
 github.com/inconshreveable/log15/v3 v3.0.0-testing.5/go.mod h1:3GQg1SVrLoWGfRv/kAZMsdyU5cp8eFc1P3cw+Wwku94=
 github.com/influxdata/influxdb1-client v0.0.0-20220302092344-a9ab5670611c h1:qSHzRbhzK8RdXOsAdfDgO49TtqC1oZ+acxPrkfTxcCs=
 github.com/influxdata/influxdb1-client v0.0.0-20220302092344-a9ab5670611c/go.mod h1:qj24IKcXYK6Iy9ceXlo3Tc+vtHo9lIhSX5JddghvEPo=
-github.com/itzg/go-flagsfiller v1.15.0 h1:xspqfbiifTo1qnCpExtfkMN5fSfueB0nMsOsazcTETw=
-github.com/itzg/go-flagsfiller v1.15.0/go.mod h1:nR3jrF1gVJ7ZUfSews6/oPbXjBTG3ziIHfLaXstmxjE=
+github.com/itzg/go-flagsfiller v1.15.2 h1:DvhhOKuqzawoa6C/3Q/y8pFbdO5PBdgnIvz84ZGkY0g=
+github.com/itzg/go-flagsfiller v1.15.2/go.mod h1:XmllPPi99O7vXTG9wa/Hzmhnkv6BXBF1W57ifbQTVs4=
 github.com/josharian/intern v1.0.0 h1:vlS4z54oSdjm0bgjRigI+G1HpF+tI+9rE5LLzOg8HmY=
 github.com/josharian/intern v1.0.0/go.mod h1:5DoeVV0s6jJacbCEi61lwdGj/aVlrQvzHFFd8Hwg//Y=
 github.com/jpillora/backoff v1.0.0 h1:uvFg412JmmHBHw7iwprIxkPMI+sGQ4kzOWsMeHnm2EA=
