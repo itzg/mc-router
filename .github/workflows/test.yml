@@ -12,4 +12,4 @@ jobs:
   build:
     uses: itzg/github-workflows/.github/workflows/go-test.yml@main
     with:
-      go-version: "1.24.2"
+      go-version: "1.24.4"
