@@ -235,11 +235,24 @@ func (w *k8sWatcherImpl) extractRoutableServices(obj interface{}) []*routableSer
 
 func (w *k8sWatcherImpl) buildDetails(service *core.Service, externalServiceName string) *routableService {
 	clusterIp := service.Spec.ClusterIP
-	port := "25565"
+	if service.Spec.Type == core.ServiceTypeExternalName {
+		clusterIp = service.Spec.ExternalName
+	}
+	mcRouterPort := ""
+	mcPort := ""
 	for _, p := range service.Spec.Ports {
-		if p.Name == "mc-router" || p.Name == "minecraft" {
-			port = strconv.Itoa(int(p.Port))
+		if p.Name == "mc-router" {
+			mcRouterPort = strconv.Itoa(int(p.Port))
 		}
+		if p.Name == "minecraft" {
+			mcPort = strconv.Itoa(int(p.Port))
+		}
+	}
+	port := "25565"
+	if len(mcRouterPort) > 0 {
+		port = mcRouterPort
+	} else if len(mcPort) > 0 {
+		port = mcPort
 	}
 	rs := &routableService{
 		externalServiceName: externalServiceName,

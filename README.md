@@ -220,8 +220,8 @@ For more information on the allow/deny list configuration, see the [json schema]
 ### Using Kubernetes Service auto-discovery
 
 When running `mc-router` as a Kubernetes Pod and you pass the `--in-kube-cluster` command-line argument, then it will automatically watch for any services annotated with
-- `mc-router.itzg.me/externalServerName` : The value of the annotation will be registered as the external hostname Minecraft clients would used to connect to the routed service. The service's clusterIP and target port are used as the routed backend. You can use more hostnames by splitting them with comma.
-- `mc-router.itzg.me/defaultServer` : The service's clusterIP and target port are used as the default if no other `externalServiceName` annotations applies.
+- `mc-router.itzg.me/externalServerName` : The value of the annotation will be registered as the external hostname Minecraft clients would used to connect to the routed service. The service is used as the routed backend. You can use more hostnames by splitting them with comma.
+- `mc-router.itzg.me/defaultServer` : The service is used as the default if no other `externalServiceName` annotations applies.
 
 For example, start `mc-router`'s container spec with
 
@@ -253,7 +253,11 @@ metadata:
     "mc-router.itzg.me/externalServerName": "external.host.name,other.host.name"
 ```
 
-mc-router will pick the service port named either `minecraft` or `mc-router`. If neither port names exist, it will use port value 25565.
+### Service parsing
+
+To detrmine the endpoint mc-router will pick the host from `spec.clusterIP` by default, if the service is of type `ExtenalName` it will use `spec.externalName` instead.
+
+For the port it will look in `spec.ports` for a port named `mc-router`, if not present `minecraft` or, if neither port names exist, it will use default minecraft port value 25565.
 
 ### Example Kubernetes deployment
 
