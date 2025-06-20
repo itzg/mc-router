@@ -235,6 +235,9 @@ func (w *k8sWatcherImpl) extractRoutableServices(obj interface{}) []*routableSer
 
 func (w *k8sWatcherImpl) buildDetails(service *core.Service, externalServiceName string) *routableService {
 	clusterIp := service.Spec.ClusterIP
+	if service.Spec.Type == core.ServiceTypeExternalName {
+		clusterIp = service.Spec.ExternalName
+	}
 	port := "25565"
 	for _, p := range service.Spec.Ports {
 		if p.Name == "mc-router" || p.Name == "minecraft" {
