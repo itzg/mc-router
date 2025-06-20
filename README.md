@@ -253,7 +253,7 @@ metadata:
     "mc-router.itzg.me/externalServerName": "external.host.name,other.host.name"
 ```
 
-### Sevice parsing
+### Service parsing
 
 To detrmine the endpoint mc-router will pick the host from `spec.clusterIP` by default, if the service is of type `ExtenalName` it will use `spec.externalName` instead.
 
