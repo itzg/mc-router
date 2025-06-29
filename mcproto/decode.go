@@ -65,7 +65,9 @@ func DecodeLoginStart(protocolVersion ProtocolVersion, data interface{}) (*Login
 	}
 
 	// These versions can send player keypair data. Ignore it.
-	// Reference: https://github.com/MCCTeam/Minecraft-Console-Client/blob/f785f509f228bf787c237ac139e6f666a960819a/MinecraftClient/Protocol/Handlers/Protocol18.cs#L2808-L2828
+	// References:
+	// * https://github.com/MCCTeam/Minecraft-Console-Client/blob/f785f509f228bf787c237ac139e6f666a960819a/MinecraftClient/Protocol/Handlers/Protocol18.cs#L2808-L2828
+	// * https://minecraft.wiki/w/Minecraft_Wiki:Projects/wiki.vg_merge/Protocol?oldid=2772902#Login_Start
 	if protocolVersion >= ProtocolVersion1_19 && protocolVersion <= ProtocolVersion1_19_2 {
 		hasSignatureData, err := ReadBoolean(buffer)
 		if err != nil {
@@ -101,7 +103,9 @@ func DecodeLoginStart(protocolVersion ProtocolVersion, data interface{}) (*Login
 		}
 	}
 
-	// Reference: https://github.com/MCCTeam/Minecraft-Console-Client/blob/f785f509f228bf787c237ac139e6f666a960819a/MinecraftClient/Protocol/Handlers/Protocol18.cs#L2831-L2853
+	// References:
+	// * https://github.com/MCCTeam/Minecraft-Console-Client/blob/f785f509f228bf787c237ac139e6f666a960819a/MinecraftClient/Protocol/Handlers/Protocol18.cs#L2831-L2853
+	// * https://minecraft.wiki/w/Minecraft_Wiki:Projects/wiki.vg_merge/Protocol?oldid=2772944#Login_Start
 	switch {
 	case protocolVersion >= ProtocolVersion1_19_2 && protocolVersion < ProtocolVersion1_20_2:
 		// Check to see if a UUID was provided at all
