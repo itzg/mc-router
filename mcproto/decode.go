@@ -2,6 +2,8 @@ package mcproto
 
 import (
 	"bytes"
+	"strings"
+
 	"github.com/pkg/errors"
 )
 
@@ -28,6 +30,9 @@ func DecodeHandshake(data interface{}) (*Handshake, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Forge Mod Loader adds some data after the server address. Truncate it.
+	handshake.ServerAddress, _, _ = strings.Cut(handshake.ServerAddress, string(rune(0)))
 
 	handshake.ServerPort, err = ReadUnsignedShort(buffer)
 	if err != nil {
