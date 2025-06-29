@@ -2,6 +2,7 @@ package mcproto
 
 import (
 	"fmt"
+
 	"github.com/google/uuid"
 )
 
@@ -53,6 +54,27 @@ func (p *Packet) String() string {
 	}
 }
 
+type ProtocolVersion int
+
+// Source: https://minecraft.wiki/w/Minecraft_Wiki:Projects/wiki.vg_merge/Protocol_History
+const (
+	// ProtocolVersion1_18_2 is the protocol version for Minecraft 1.18.2
+	// Docs: https://minecraft.wiki/w/Java_Edition_protocol/Packets?oldid=2772791
+	ProtocolVersion1_18_2 ProtocolVersion = 758
+	// ProtocolVersion1_19 is the protocol version for Minecraft 1.19
+	// Docs: https://minecraft.wiki/w/Java_Edition_protocol/Packets?oldid=2772904
+	ProtocolVersion1_19 ProtocolVersion = 759
+	// ProtocolVersion1_19_2 is the protocol version for Minecraft 1.19.2
+	// Docs: https://minecraft.wiki/w/Java_Edition_protocol/Packets?oldid=2772944
+	ProtocolVersion1_19_2 ProtocolVersion = 760
+	// ProtocolVersion1_19_2 is the protocol version for Minecraft 1.19.3
+	ProtocolVersion1_19_3 ProtocolVersion = 761
+	// ProtocolVersion1_20_2 is the protocol version for Minecraft 1.20.2
+	ProtocolVersion1_20_2 ProtocolVersion = 764
+	// ProtocolVersion1_21_5 is the protocol version for Minecraft 1.21.5
+	ProtocolVersion1_21_5 ProtocolVersion = 770
+)
+
 const (
 	PacketIdHandshake            = 0x00
 	PacketIdLogin                = 0x00 // during StateLogin
@@ -60,7 +82,7 @@ const (
 )
 
 type Handshake struct {
-	ProtocolVersion int
+	ProtocolVersion ProtocolVersion
 	ServerAddress   string
 	ServerPort      uint16
 	NextState       State
@@ -69,6 +91,13 @@ type Handshake struct {
 type LoginStart struct {
 	Name       string
 	PlayerUuid uuid.UUID
+}
+
+func NewLoginStart() *LoginStart {
+	return &LoginStart{
+		// Note: This is indistinguishable between no UUID provided, and a provided UUID of all 0s
+		PlayerUuid: uuid.Nil,
+	}
 }
 
 type LegacyServerListPing struct {

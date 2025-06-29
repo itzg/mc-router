@@ -5,11 +5,12 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
-	"github.com/google/uuid"
 	"os"
 	"strings"
 	"testing"
 	"unicode"
+
+	"github.com/google/uuid"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,35 +58,76 @@ func TestHandshakeThenStatus(t *testing.T) {
 
 	assert.Equal(t, "localhost", handshake.ServerAddress)
 	assert.Equal(t, uint16(25565), handshake.ServerPort)
-	assert.Equal(t, 770 /*for 1.21.5*/, handshake.ProtocolVersion)
+	assert.Equal(t, ProtocolVersion1_21_5, handshake.ProtocolVersion)
 	assert.Equal(t, StateStatus, handshake.NextState)
 }
 
-func TestHandshakeThenLoginStart(t *testing.T) {
-	content, err := ReadHexDumpFile("handshake-login-start.hex")
-	require.NoError(t, err)
+func TestHandshakeThenLoginStartVersion(t *testing.T) {
+	playerUuid := uuid.MustParse("5cddfd26-fc86-4981-b52e-c42bb10bfdef")
 
-	reader := bufio.NewReader(bytes.NewReader(content))
+	tests := []struct {
+		Name                    string
+		Filename                string
+		ExpectedProtocolVersion ProtocolVersion
+		ExpectedPlayerUuid      uuid.UUID
+	}{
+		{
+			Name:                    "1.20.2",
+			Filename:                "handshake-login-start-1.21.5.hex",
+			ExpectedProtocolVersion: ProtocolVersion1_21_5,
+			ExpectedPlayerUuid:      playerUuid,
+		},
+		// This version only conditionally provides a UUID, and may provide other information
+		// as well
+		{
+			Name:                    "1.19.2-all-info",
+			Filename:                "handshake-login-start-1.19.2-all-info.hex",
+			ExpectedProtocolVersion: ProtocolVersion1_19_2,
+			ExpectedPlayerUuid:      playerUuid,
+		},
+		{
+			Name:                    "1.19.2-min-info",
+			Filename:                "handshake-login-start-1.19.2-min-info.hex",
+			ExpectedProtocolVersion: ProtocolVersion1_19_2,
+			ExpectedPlayerUuid:      uuid.Nil, // No UUID provided in this case
+		},
+		// This is the last version that does not provide a UUID
+		{
+			Name:                    "1.18.2",
+			Filename:                "handshake-login-start-1.18.2.hex",
+			ExpectedProtocolVersion: ProtocolVersion1_18_2,
+			ExpectedPlayerUuid:      uuid.Nil, // No UUID provided by this version
+		},
+	}
 
-	handshakePacket, err := ReadPacket(reader, nil, StateHandshaking)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.Name, func(t *testing.T) {
+			content, err := ReadHexDumpFile(tt.Filename)
+			require.NoError(t, err)
 
-	handshake, err := DecodeHandshake(handshakePacket.Data)
-	require.NoError(t, err)
+			reader := bufio.NewReader(bytes.NewReader(content))
 
-	assert.Equal(t, "localhost", handshake.ServerAddress)
-	assert.Equal(t, uint16(25565), handshake.ServerPort)
-	assert.Equal(t, 770 /*for 1.21.5*/, handshake.ProtocolVersion)
-	assert.Equal(t, StateLogin, handshake.NextState)
+			handshakePacket, err := ReadPacket(reader, nil, StateHandshaking)
+			require.NoError(t, err)
 
-	loginStartPacket, err := ReadPacket(reader, nil, StateLogin)
-	require.NoError(t, err)
+			handshake, err := DecodeHandshake(handshakePacket.Data)
+			require.NoError(t, err)
 
-	loginStart, err := DecodeLoginStart(loginStartPacket.Data)
-	require.NoError(t, err)
+			assert.Equal(t, "localhost", handshake.ServerAddress)
+			assert.Equal(t, uint16(25565), handshake.ServerPort)
+			assert.Equal(t, tt.ExpectedProtocolVersion, handshake.ProtocolVersion)
+			assert.Equal(t, StateLogin, handshake.NextState)
 
-	assert.Equal(t, "itzg", loginStart.Name)
-	assert.Equal(t, uuid.MustParse("5cddfd26-fc86-4981-b52e-c42bb10bfdef"), loginStart.PlayerUuid)
+			loginStartPacket, err := ReadPacket(reader, nil, StateLogin)
+			require.NoError(t, err)
+
+			loginStart, err := DecodeLoginStart(handshake.ProtocolVersion, loginStartPacket.Data)
+			require.NoError(t, err)
+
+			assert.Equal(t, "itzg", loginStart.Name)
+			assert.Equal(t, tt.ExpectedPlayerUuid, loginStart.PlayerUuid)
+		})
+	}
 }
 
 func ReadHexDumpFile(filename string) ([]byte, error) {

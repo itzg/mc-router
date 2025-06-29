@@ -6,12 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"io"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 
 	"golang.ngrok.com/ngrok"
 	"golang.ngrok.com/ngrok/config"
@@ -65,6 +66,7 @@ func (p *PlayerInfo) String() string {
 	if p == nil {
 		return ""
 	}
+
 	return fmt.Sprintf("%s/%s", p.Name, p.Uuid)
 }
 
@@ -318,7 +320,7 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 
 		var playerInfo *PlayerInfo = nil
 		if handshake.NextState == mcproto.StateLogin {
-			playerInfo, err = c.readPlayerInfo(bufferedReader, clientAddr, handshake.NextState)
+			playerInfo, err = c.readPlayerInfo(handshake.ProtocolVersion, bufferedReader, clientAddr, handshake.NextState)
 			if err != nil {
 				if errors.Is(err, io.EOF) {
 					logrus.
@@ -372,14 +374,14 @@ func (c *Connector) HandleConnection(ctx context.Context, frontendConn net.Conn)
 	}
 }
 
-func (c *Connector) readPlayerInfo(bufferedReader *bufio.Reader, clientAddr net.Addr, state mcproto.State) (*PlayerInfo, error) {
+func (c *Connector) readPlayerInfo(protocolVersion mcproto.ProtocolVersion, bufferedReader *bufio.Reader, clientAddr net.Addr, state mcproto.State) (*PlayerInfo, error) {
 	loginPacket, err := mcproto.ReadPacket(bufferedReader, clientAddr, state)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read login packet: %w", err)
 	}
 
 	if loginPacket.PacketID == mcproto.PacketIdLogin {
-		loginStart, err := mcproto.DecodeLoginStart(loginPacket.Data)
+		loginStart, err := mcproto.DecodeLoginStart(protocolVersion, loginPacket.Data)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode login start: %w", err)
 		}
