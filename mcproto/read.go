@@ -6,11 +6,12 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"github.com/google/uuid"
 	"io"
 	"net"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -104,11 +105,17 @@ func ReadLegacyServerListPing(reader *bufio.Reader, addr net.Addr) (*Packet, err
 	}
 
 	messageName, err := ReadUTF16BEString(reader, messageNameShortLen)
+	if err != nil {
+		return nil, err
+	}
 	if messageName != "MC|PingHost" {
 		return nil, errors.Errorf("expected messageName=MC|PingHost, got %s", messageName)
 	}
 
 	remainingLen, err := ReadUnsignedShort(reader)
+	if err != nil {
+		return nil, err
+	}
 	remainingReader := io.LimitReader(reader, int64(remainingLen))
 
 	protocolVersion, err := ReadByte(remainingReader)
@@ -238,6 +245,21 @@ func ReadVarInt(reader io.Reader) (int, error) {
 	return 0, errors.New("VarInt is too big")
 }
 
+func ReadBoolean(reader io.Reader) (bool, error) {
+	byteVal, err := ReadByte(reader)
+	if err != nil {
+		return false, err
+	}
+	switch byteVal {
+	case 0x00:
+		return false, nil
+	case 0x01:
+		return true, nil
+	default:
+		return false, errors.Errorf("expected 0x00 or 0x01 for boolean, got 0x%02X", byteVal)
+	}
+}
+
 func ReadString(reader io.Reader) (string, error) {
 	length, err := ReadVarInt(reader)
 	if err != nil {
@@ -270,6 +292,19 @@ func ReadByte(reader io.Reader) (byte, error) {
 	}
 }
 
+func ReadByteArray(reader io.Reader, length int) ([]byte, error) {
+	if length < 0 {
+		return nil, errors.New("length cannot be negative")
+	}
+
+	data := make([]byte, length)
+	_, err := io.ReadFull(reader, data)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
 func ReadUnsignedShort(reader io.Reader) (uint16, error) {
 	var value uint16
 	err := binary.Read(reader, binary.BigEndian, &value)
@@ -281,6 +316,15 @@ func ReadUnsignedShort(reader io.Reader) (uint16, error) {
 
 func ReadUnsignedInt(reader io.Reader) (uint32, error) {
 	var value uint32
+	err := binary.Read(reader, binary.BigEndian, &value)
+	if err != nil {
+		return 0, err
+	}
+	return value, nil
+}
+
+func ReadLong(reader io.Reader) (int64, error) {
+	var value int64
 	err := binary.Read(reader, binary.BigEndian, &value)
 	if err != nil {
 		return 0, err
