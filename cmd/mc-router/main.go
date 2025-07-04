@@ -16,18 +16,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type MetricsBackendConfig struct {
-	Influxdb struct {
-		Interval        time.Duration     `default:"1m"`
-		Tags            map[string]string `usage:"any extra tags to be included with all reported metrics"`
-		Addr            string
-		Username        string
-		Password        string
-		Database        string
-		RetentionPolicy string
-	}
-}
-
 type WebhookConfig struct {
 	Url         string `usage:"If set, a POST request that contains connection status notifications will be sent to this HTTP address"`
 	RequireUser bool   `default:"false" usage:"Indicates if the webhook will only be called if a user is connecting rather than just server list/ping"`
@@ -62,11 +50,11 @@ type Config struct {
 	DockerTimeout         int               `default:"0" usage:"Timeout configuration in seconds for the Docker integrations"`
 	DockerRefreshInterval int               `default:"15" usage:"Refresh interval in seconds for the Docker integrations"`
 	MetricsBackend        string            `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb,prometheus"`
-	UseProxyProtocol      bool              `default:"false" usage:"Send PROXY protocol to backend servers"`
-	ReceiveProxyProtocol  bool              `default:"false" usage:"Receive PROXY protocol from backend servers, by default trusts every proxy header that it receives, combine with -trusted-proxies to specify a list of trusted proxies"`
-	TrustedProxies        []string          `usage:"Comma delimited list of CIDR notation IP blocks to trust when receiving PROXY protocol"`
-	RecordLogins          bool              `default:"false" usage:"Log and generate metrics on player logins. Metrics only supported with influxdb or prometheus backend"`
-	MetricsBackendConfig  MetricsBackendConfig
+	MetricsBackendConfig  server.MetricsBackendConfig
+	UseProxyProtocol      bool     `default:"false" usage:"Send PROXY protocol to backend servers"`
+	ReceiveProxyProtocol  bool     `default:"false" usage:"Receive PROXY protocol from backend servers, by default trusts every proxy header that it receives, combine with -trusted-proxies to specify a list of trusted proxies"`
+	TrustedProxies        []string `usage:"Comma delimited list of CIDR notation IP blocks to trust when receiving PROXY protocol"`
+	RecordLogins          bool     `default:"false" usage:"Log and generate metrics on player logins. Metrics only supported with influxdb or prometheus backend"`
 	Routes                RoutesConfig
 	NgrokToken            string `usage:"If set, an ngrok tunnel will be established. It is HIGHLY recommended to pass as an environment variable."`
 	AutoScale             AutoScale
@@ -133,7 +121,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	metricsBuilder := NewMetricsBuilder(config.MetricsBackend, &config.MetricsBackendConfig)
+	metricsBuilder := server.NewMetricsBuilder(config.MetricsBackend, &config.MetricsBackendConfig)
 
 	downScalerEnabled := config.AutoScale.Down && (config.InKubeCluster || config.KubeConfig != "")
 	downScalerDelay, err := time.ParseDuration(config.AutoScale.DownAfter)
@@ -147,13 +135,13 @@ func main() {
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
 	if config.Routes.Config != "" {
-		err := server.RoutesConfig.ReadRoutesConfig(config.Routes.Config)
+		err := server.RoutesConfigLoader.Load(config.Routes.Config)
 		if err != nil {
 			logrus.WithError(err).Fatal("Unable to load routes from config file")
 		}
 
 		if config.Routes.ConfigWatch {
-			err := server.RoutesConfig.WatchForChanges(ctx)
+			err := server.RoutesConfigLoader.WatchForChanges(ctx)
 			if err != nil {
 				logrus.WithError(err).Fatal("Unable to watch for changes")
 			}
@@ -258,7 +246,7 @@ func main() {
 		case syscall.SIGHUP:
 			if config.Routes.Config != "" {
 				logrus.Info("Received SIGHUP, reloading routes config...")
-				if err := server.RoutesConfig.ReloadRoutesConfig(); err != nil {
+				if err := server.RoutesConfigLoader.Reload(); err != nil {
 					logrus.
 						WithError(err).
 						WithField("routesConfig", config.Routes.Config).
