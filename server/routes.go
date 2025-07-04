@@ -2,13 +2,10 @@ package server
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
 	"regexp"
 	"strings"
 	"sync"
 
-	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 )
 
@@ -17,88 +14,6 @@ type ScalerFunc func(ctx context.Context) error
 var EmptyScalerFunc = func(ctx context.Context) error { return nil }
 
 var tcpShieldPattern = regexp.MustCompile("///.*")
-
-func init() {
-	apiRoutes.Path("/routes").Methods("GET").
-		Headers("Accept", "application/json").
-		HandlerFunc(routesListHandler)
-	apiRoutes.Path("/routes").Methods("POST").
-		Headers("Content-Type", "application/json").
-		HandlerFunc(routesCreateHandler)
-	apiRoutes.Path("/defaultRoute").Methods("POST").
-		Headers("Content-Type", "application/json").
-		HandlerFunc(routesSetDefault)
-	apiRoutes.Path("/routes/{serverAddress}").Methods("DELETE").HandlerFunc(routesDeleteHandler)
-}
-
-func routesListHandler(writer http.ResponseWriter, _ *http.Request) {
-	mappings := Routes.GetMappings()
-	bytes, err := json.Marshal(mappings)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to marshal mappings")
-		writer.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	_, err = writer.Write(bytes)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to write response")
-	}
-}
-
-func routesDeleteHandler(writer http.ResponseWriter, request *http.Request) {
-	serverAddress := mux.Vars(request)["serverAddress"]
-	RoutesConfig.DeleteMapping(serverAddress)
-	if serverAddress != "" {
-		if Routes.DeleteMapping(serverAddress) {
-			writer.WriteHeader(http.StatusOK)
-		} else {
-			writer.WriteHeader(http.StatusNotFound)
-		}
-	}
-}
-
-func routesCreateHandler(writer http.ResponseWriter, request *http.Request) {
-	var definition = struct {
-		ServerAddress string
-		Backend       string
-	}{}
-
-	//goland:noinspection GoUnhandledErrorResult
-	defer request.Body.Close()
-
-	decoder := json.NewDecoder(request.Body)
-	err := decoder.Decode(&definition)
-	if err != nil {
-		logrus.WithError(err).Error("Unable to get request body")
-		writer.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	Routes.CreateMapping(definition.ServerAddress, definition.Backend, EmptyScalerFunc, EmptyScalerFunc)
-	RoutesConfig.AddMapping(definition.ServerAddress, definition.Backend)
-	writer.WriteHeader(http.StatusCreated)
-}
-
-func routesSetDefault(writer http.ResponseWriter, request *http.Request) {
-	var body = struct {
-		Backend string
-	}{}
-
-	//goland:noinspection GoUnhandledErrorResult
-	defer request.Body.Close()
-
-	decoder := json.NewDecoder(request.Body)
-	err := decoder.Decode(&body)
-	if err != nil {
-		logrus.WithError(err).Error("Unable to parse request")
-		writer.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	Routes.SetDefaultRoute(body.Backend)
-	RoutesConfig.SetDefaultRoute(body.Backend)
-	writer.WriteHeader(http.StatusOK)
-}
 
 type IRoutes interface {
 	Reset()
@@ -112,6 +27,7 @@ type IRoutes interface {
 	DeleteMapping(serverAddress string) bool
 	CreateMapping(serverAddress string, backend string, waker ScalerFunc, sleeper ScalerFunc)
 	SetDefaultRoute(backend string)
+	GetDefaultRoute() string
 	SimplifySRV(srvEnabled bool)
 }
 
@@ -155,6 +71,10 @@ func (r *routesImpl) SetDefaultRoute(backend string) {
 	logrus.WithFields(logrus.Fields{
 		"backend": backend,
 	}).Info("Using default route")
+}
+
+func (r *routesImpl) GetDefaultRoute() string {
+	return r.defaultRoute
 }
 
 func (r *routesImpl) SimplifySRV(srvEnabled bool) {
