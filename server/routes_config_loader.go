@@ -49,6 +49,10 @@ func (r *routesConfigLoader) Load(routesConfigFileName string) error {
 }
 
 func (r *routesConfigLoader) Reload() error {
+	if !r.isEnabled() {
+		return nil
+	}
+
 	config, readErr := r.readFile()
 
 	if readErr != nil {
