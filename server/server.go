@@ -79,33 +79,41 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		config.ConnectionRateLimit = 1
 	}
 
-	trustedIpNets := make([]*net.IPNet, 0)
-	for _, ip := range config.TrustedProxies {
-		_, ipNet, err := net.ParseCIDR(ip)
-		if err != nil {
-			return nil, fmt.Errorf("could not parse trusted proxy CIDR block: %w", err)
-		}
-		trustedIpNets = append(trustedIpNets, ipNet)
-	}
-
-	connector := NewConnector(metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.ReceiveProxyProtocol, trustedIpNets, config.RecordLogins, autoScaleAllowDenyConfig)
+	connector := NewConnector(ctx,
+		metricsBuilder.BuildConnectorMetrics(),
+		config.UseProxyProtocol,
+		config.RecordLogins,
+		autoScaleAllowDenyConfig)
 
 	clientFilter, err := NewClientFilter(config.ClientsToAllow, config.ClientsToDeny)
 	if err != nil {
 		return nil, fmt.Errorf("could not create client filter: %w", err)
 	}
-	connector.SetClientFilter(clientFilter)
+	connector.UseClientFilter(clientFilter)
 
 	if config.Webhook.Url != "" {
 		logrus.WithField("url", config.Webhook.Url).
 			WithField("require-user", config.Webhook.RequireUser).
 			Info("Using webhook for connection status notifications")
-		connector.SetConnectionNotifier(
+		connector.UseConnectionNotifier(
 			NewWebhookNotifier(config.Webhook.Url, config.Webhook.RequireUser))
 	}
 
 	if config.NgrokToken != "" {
 		connector.UseNgrok(config.NgrokToken)
+	}
+
+	if config.ReceiveProxyProtocol {
+		trustedIpNets := make([]*net.IPNet, 0)
+		for _, ip := range config.TrustedProxies {
+			_, ipNet, err := net.ParseCIDR(ip)
+			if err != nil {
+				return nil, fmt.Errorf("could not parse trusted proxy CIDR block: %w", err)
+			}
+			trustedIpNets = append(trustedIpNets, ipNet)
+		}
+
+		connector.UseReceiveProxyProto(trustedIpNets)
 	}
 
 	if config.ApiBinding != "" {
@@ -177,10 +185,16 @@ func (s *Server) ReloadConfig() {
 	s.reloadConfigChan <- struct{}{}
 }
 
+// AcceptConnection provides a way to externally supply a connection to consume
+// Note that this will skip rate limiting.
+func (s *Server) AcceptConnection(conn net.Conn) {
+	s.connector.AcceptConnection(conn)
+}
+
 // Run will run the server until the context is done or a fatal error occurs, so this should be
 // in a go routine.
 func (s *Server) Run() {
-	err := s.connector.StartAcceptingConnections(s.ctx,
+	err := s.connector.StartAcceptingConnections(
 		net.JoinHostPort("", strconv.Itoa(s.config.Port)),
 		s.config.ConnectionRateLimit,
 	)
