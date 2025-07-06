@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/go-kit/kit/metrics"
 	"strings"
 	"time"
 
@@ -66,6 +67,17 @@ type expvarMetricsBuilder struct {
 func (b expvarMetricsBuilder) Start(ctx context.Context) error {
 	// nothing needed
 	return nil
+}
+
+type ConnectorMetrics struct {
+	Errors                  metrics.Counter
+	BytesTransmitted        metrics.Counter
+	ConnectionsFrontend     metrics.Counter
+	ConnectionsBackend      metrics.Counter
+	ActiveConnections       metrics.Gauge
+	ServerActivePlayer      metrics.Gauge
+	ServerLogins            metrics.Counter
+	ServerActiveConnections metrics.Gauge
 }
 
 func (b expvarMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
