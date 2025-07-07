@@ -1,9 +1,10 @@
-package main
+package server
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/go-kit/kit/metrics"
 	"strings"
 	"time"
 
@@ -13,14 +14,13 @@ import (
 	kitinflux "github.com/go-kit/kit/metrics/influx"
 	prometheusMetrics "github.com/go-kit/kit/metrics/prometheus"
 	influx "github.com/influxdata/influxdb1-client/v2"
-	"github.com/itzg/mc-router/server"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 )
 
 type MetricsBuilder interface {
-	BuildConnectorMetrics() *server.ConnectorMetrics
+	BuildConnectorMetrics() *ConnectorMetrics
 	Start(ctx context.Context) error
 }
 
@@ -30,6 +30,18 @@ const (
 	MetricsBackendInfluxDB   = "influxdb"
 	MetricsBackendDiscard    = "discard"
 )
+
+type MetricsBackendConfig struct {
+	Influxdb struct {
+		Interval        time.Duration     `default:"1m"`
+		Tags            map[string]string `usage:"any extra tags to be included with all reported metrics"`
+		Addr            string
+		Username        string
+		Password        string
+		Database        string
+		RetentionPolicy string
+	}
+}
 
 // NewMetricsBuilder creates a new MetricsBuilder based on the specified backend.
 // If the backend is not recognized, a discard builder is returned.
@@ -57,9 +69,20 @@ func (b expvarMetricsBuilder) Start(ctx context.Context) error {
 	return nil
 }
 
-func (b expvarMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics {
+type ConnectorMetrics struct {
+	Errors                  metrics.Counter
+	BytesTransmitted        metrics.Counter
+	ConnectionsFrontend     metrics.Counter
+	ConnectionsBackend      metrics.Counter
+	ActiveConnections       metrics.Gauge
+	ServerActivePlayer      metrics.Gauge
+	ServerLogins            metrics.Counter
+	ServerActiveConnections metrics.Gauge
+}
+
+func (b expvarMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
 	c := expvarMetrics.NewCounter("connections")
-	return &server.ConnectorMetrics{
+	return &ConnectorMetrics{
 		Errors:                  expvarMetrics.NewCounter("errors").With("subsystem", "connector"),
 		BytesTransmitted:        expvarMetrics.NewCounter("bytes"),
 		ConnectionsFrontend:     c,
@@ -79,8 +102,8 @@ func (b discardMetricsBuilder) Start(ctx context.Context) error {
 	return nil
 }
 
-func (b discardMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics {
-	return &server.ConnectorMetrics{
+func (b discardMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
+	return &ConnectorMetrics{
 		Errors:                  discardMetrics.NewCounter(),
 		BytesTransmitted:        discardMetrics.NewCounter(),
 		ConnectionsFrontend:     discardMetrics.NewCounter(),
@@ -121,7 +144,7 @@ func (b *influxMetricsBuilder) Start(ctx context.Context) error {
 	return nil
 }
 
-func (b *influxMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics {
+func (b *influxMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
 	influxConfig := &b.config.Influxdb
 
 	metrics := kitinflux.New(influxConfig.Tags, influx.BatchPointsConfig{
@@ -132,7 +155,7 @@ func (b *influxMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics 
 	b.metrics = metrics
 
 	c := metrics.NewCounter("mc_router_connections")
-	return &server.ConnectorMetrics{
+	return &ConnectorMetrics{
 		Errors:                  metrics.NewCounter("mc_router_errors"),
 		BytesTransmitted:        metrics.NewCounter("mc_router_transmitted_bytes"),
 		ConnectionsFrontend:     c.With("side", "frontend"),
@@ -155,13 +178,13 @@ func (b prometheusMetricsBuilder) Start(ctx context.Context) error {
 	return nil
 }
 
-func (b prometheusMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics {
+func (b prometheusMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
 	pcv = prometheusMetrics.NewCounter(promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "mc_router",
 		Name:      "errors",
 		Help:      "The total number of errors",
 	}, []string{"type"}))
-	return &server.ConnectorMetrics{
+	return &ConnectorMetrics{
 		Errors: pcv,
 		BytesTransmitted: prometheusMetrics.NewCounter(promauto.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "mc_router",

@@ -3,11 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"net"
-	"strconv"
-	"strings"
-	"sync"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	apps "k8s.io/api/apps/v1"
@@ -19,6 +14,10 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
+	"net"
+	"strconv"
+	"strings"
+	"sync"
 )
 
 const (
@@ -27,9 +26,8 @@ const (
 )
 
 type IK8sWatcher interface {
-	StartWithConfig(kubeConfigFile string, autoScaleUp bool, autoScaleDown bool) error
-	StartInCluster(autoScaleUp bool, autoScaleDown bool) error
-	Stop()
+	StartWithConfig(ctx context.Context, kubeConfigFile string, autoScaleUp bool, autoScaleDown bool) error
+	StartInCluster(ctx context.Context, autoScaleUp bool, autoScaleDown bool) error
 }
 
 var K8sWatcher IK8sWatcher = &k8sWatcherImpl{}
@@ -42,29 +40,27 @@ type k8sWatcherImpl struct {
 	mappings map[string]string
 
 	clientset *kubernetes.Clientset
-	stop      chan struct{}
 }
 
-func (w *k8sWatcherImpl) StartInCluster(autoScaleUp bool, autoScaleDown bool) error {
+func (w *k8sWatcherImpl) StartInCluster(ctx context.Context, autoScaleUp bool, autoScaleDown bool) error {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		return errors.Wrap(err, "Unable to load in-cluster config")
 	}
 
-	return w.startWithLoadedConfig(config, autoScaleUp, autoScaleDown)
+	return w.startWithLoadedConfig(ctx, config, autoScaleUp, autoScaleDown)
 }
 
-func (w *k8sWatcherImpl) StartWithConfig(kubeConfigFile string, autoScaleUp bool, autoScaleDown bool) error {
+func (w *k8sWatcherImpl) StartWithConfig(ctx context.Context, kubeConfigFile string, autoScaleUp bool, autoScaleDown bool) error {
 	config, err := clientcmd.BuildConfigFromFlags("", kubeConfigFile)
 	if err != nil {
 		return errors.Wrap(err, "Could not load kube config file")
 	}
 
-	return w.startWithLoadedConfig(config, autoScaleUp, autoScaleDown)
+	return w.startWithLoadedConfig(ctx, config, autoScaleUp, autoScaleDown)
 }
 
-func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config, autoScaleUp bool, autoScaleDown bool) error {
-	w.stop = make(chan struct{}, 1)
+func (w *k8sWatcherImpl) startWithLoadedConfig(ctx context.Context, config *rest.Config, autoScaleUp bool, autoScaleDown bool) error {
 	w.autoScaleUp = autoScaleUp
 	w.autoScaleDown = autoScaleDown
 
@@ -74,22 +70,21 @@ func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config, autoScaleUp 
 	}
 	w.clientset = clientset
 
-	_, serviceController := cache.NewInformer(
-		cache.NewListWatchFromClient(
+	_, serviceController := cache.NewInformerWithOptions(cache.InformerOptions{
+		ListerWatcher: cache.NewListWatchFromClient(
 			clientset.CoreV1().RESTClient(),
 			string(core.ResourceServices),
 			core.NamespaceAll,
 			fields.Everything(),
 		),
-		&core.Service{},
-		0,
-		cache.ResourceEventHandlerFuncs{
+		ObjectType: &core.Service{},
+		Handler: cache.ResourceEventHandlerFuncs{
 			AddFunc:    w.handleAdd,
 			DeleteFunc: w.handleDelete,
 			UpdateFunc: w.handleUpdate,
 		},
-	)
-	go serviceController.Run(w.stop)
+	})
+	go serviceController.RunWithContext(ctx)
 
 	w.mappings = make(map[string]string)
 	if autoScaleUp || autoScaleDown {
@@ -137,7 +132,7 @@ func (w *k8sWatcherImpl) startWithLoadedConfig(config *rest.Config, autoScaleUp 
 				},
 			},
 		)
-		go statefulSetController.Run(w.stop)
+		go statefulSetController.RunWithContext(ctx)
 	}
 
 	logrus.Info("Monitoring Kubernetes for Minecraft services")
@@ -196,12 +191,6 @@ func (w *k8sWatcherImpl) handleAdd(obj interface{}) {
 				Routes.SetDefaultRoute(routableService.containerEndpoint)
 			}
 		}
-	}
-}
-
-func (w *k8sWatcherImpl) Stop() {
-	if w.stop != nil {
-		close(w.stop)
 	}
 }
 

@@ -178,7 +178,7 @@ The following shows a JSON file for routes config, where `default-server` can al
 }
 ```
 
-Sending a SIGHUP signal will cause mc-router to reload the routes config from disk.
+Sending a SIGHUP signal will cause mc-router to reload the routes config from disk. The file can also be watched for changes by setting `-routes-config-watch` or the env variable `ROUTES_CONFIG_WATCH` to "true".
 
 ## Auto Scale Allow/Deny List
 
