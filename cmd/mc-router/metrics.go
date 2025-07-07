@@ -1,4 +1,4 @@
-package server
+package main
 
 import (
 	"context"
@@ -13,13 +13,14 @@ import (
 	kitinflux "github.com/go-kit/kit/metrics/influx"
 	prometheusMetrics "github.com/go-kit/kit/metrics/prometheus"
 	influx "github.com/influxdata/influxdb1-client/v2"
+	"github.com/itzg/mc-router/server"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 )
 
 type MetricsBuilder interface {
-	BuildConnectorMetrics() *ConnectorMetrics
+	BuildConnectorMetrics() *server.ConnectorMetrics
 	Start(ctx context.Context) error
 }
 
@@ -29,18 +30,6 @@ const (
 	MetricsBackendInfluxDB   = "influxdb"
 	MetricsBackendDiscard    = "discard"
 )
-
-type MetricsBackendConfig struct {
-	Influxdb struct {
-		Interval        time.Duration     `default:"1m"`
-		Tags            map[string]string `usage:"any extra tags to be included with all reported metrics"`
-		Addr            string
-		Username        string
-		Password        string
-		Database        string
-		RetentionPolicy string
-	}
-}
 
 // NewMetricsBuilder creates a new MetricsBuilder based on the specified backend.
 // If the backend is not recognized, a discard builder is returned.
@@ -68,9 +57,9 @@ func (b expvarMetricsBuilder) Start(ctx context.Context) error {
 	return nil
 }
 
-func (b expvarMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
+func (b expvarMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics {
 	c := expvarMetrics.NewCounter("connections")
-	return &ConnectorMetrics{
+	return &server.ConnectorMetrics{
 		Errors:                  expvarMetrics.NewCounter("errors").With("subsystem", "connector"),
 		BytesTransmitted:        expvarMetrics.NewCounter("bytes"),
 		ConnectionsFrontend:     c,
@@ -90,8 +79,8 @@ func (b discardMetricsBuilder) Start(ctx context.Context) error {
 	return nil
 }
 
-func (b discardMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
-	return &ConnectorMetrics{
+func (b discardMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics {
+	return &server.ConnectorMetrics{
 		Errors:                  discardMetrics.NewCounter(),
 		BytesTransmitted:        discardMetrics.NewCounter(),
 		ConnectionsFrontend:     discardMetrics.NewCounter(),
@@ -132,7 +121,7 @@ func (b *influxMetricsBuilder) Start(ctx context.Context) error {
 	return nil
 }
 
-func (b *influxMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
+func (b *influxMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics {
 	influxConfig := &b.config.Influxdb
 
 	metrics := kitinflux.New(influxConfig.Tags, influx.BatchPointsConfig{
@@ -143,7 +132,7 @@ func (b *influxMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
 	b.metrics = metrics
 
 	c := metrics.NewCounter("mc_router_connections")
-	return &ConnectorMetrics{
+	return &server.ConnectorMetrics{
 		Errors:                  metrics.NewCounter("mc_router_errors"),
 		BytesTransmitted:        metrics.NewCounter("mc_router_transmitted_bytes"),
 		ConnectionsFrontend:     c.With("side", "frontend"),
@@ -166,13 +155,13 @@ func (b prometheusMetricsBuilder) Start(ctx context.Context) error {
 	return nil
 }
 
-func (b prometheusMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
+func (b prometheusMetricsBuilder) BuildConnectorMetrics() *server.ConnectorMetrics {
 	pcv = prometheusMetrics.NewCounter(promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "mc_router",
 		Name:      "errors",
 		Help:      "The total number of errors",
 	}, []string{"type"}))
-	return &ConnectorMetrics{
+	return &server.ConnectorMetrics{
 		Errors: pcv,
 		BytesTransmitted: prometheusMetrics.NewCounter(promauto.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "mc_router",
