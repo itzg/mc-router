@@ -2,39 +2,8 @@ package server
 
 import (
 	"context"
-	"fmt"
-	"github.com/google/uuid"
 	"net"
 )
-
-type PlayerInfo struct {
-	Name string    `json:"name"`
-	Uuid uuid.UUID `json:"uuid"`
-}
-
-func (p *PlayerInfo) String() string {
-	if p == nil {
-		return ""
-	}
-
-	return fmt.Sprintf("%s/%s", p.Name, p.Uuid)
-}
-
-type ClientInfo struct {
-	Host string `json:"host"`
-	Port int    `json:"port"`
-}
-
-func ClientInfoFromAddr(addr net.Addr) *ClientInfo {
-	if addr == nil {
-		return nil
-	}
-
-	return &ClientInfo{
-		Host: addr.(*net.TCPAddr).IP.String(),
-		Port: addr.(*net.TCPAddr).Port,
-	}
-}
 
 type ConnectionNotifier interface {
 	// NotifyMissingBackend is called when an inbound connection is received for a server that does not have a backend.

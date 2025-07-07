@@ -61,9 +61,7 @@ func TestTrustedProxyNetworkPolicy(t *testing.T) {
 
 			policy := c.createProxyProtoPolicy()
 			upstreamAddr := &net.TCPAddr{IP: net.ParseIP(test.upstreamIP)}
-			policyResult, _ := policy(proxyproto.ConnPolicyOptions{
-				Upstream: upstreamAddr,
-			})
+			policyResult, _ := policy(upstreamAddr)
 			assert.Equal(t, test.expectedPolicy, policyResult, "Unexpected policy result for %s", test.name)
 		})
 	}
