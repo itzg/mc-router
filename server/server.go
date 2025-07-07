@@ -121,18 +121,14 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	}
 
 	if config.InKubeCluster {
-		err = K8sWatcher.StartInCluster(config.AutoScale.Up, config.AutoScale.Down)
+		err = K8sWatcher.StartInCluster(ctx, config.AutoScale.Up, config.AutoScale.Down)
 		if err != nil {
 			return nil, fmt.Errorf("could not start in-cluster k8s integration: %w", err)
-		} else {
-			defer K8sWatcher.Stop()
 		}
 	} else if config.KubeConfig != "" {
-		err := K8sWatcher.StartWithConfig(config.KubeConfig, config.AutoScale.Up, config.AutoScale.Down)
+		err := K8sWatcher.StartWithConfig(ctx, config.KubeConfig, config.AutoScale.Up, config.AutoScale.Down)
 		if err != nil {
 			return nil, fmt.Errorf("could not start k8s integration with kube config: %w", err)
-		} else {
-			defer K8sWatcher.Stop()
 		}
 	}
 
