@@ -89,7 +89,7 @@ func NewClientFilter(allows []string, denies []string) (*ClientFilter, error) {
 	}, nil
 }
 
-// Allow determines if this filter allows the given address
+// Allow determines if the given address is allowed by this filter
 // where addrStr is a netip.ParseAddr allowed address
 func (f *ClientFilter) Allow(addrPort netip.AddrPort) bool {
 	if !f.allow.Empty() {
