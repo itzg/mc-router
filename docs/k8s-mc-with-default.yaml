@@ -2,39 +2,38 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: mc-stable
+  name: mc-latest
   annotations:
     "mc-router.itzg.me/defaultServer": "true"
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
-  - port: 25566
-    name: mc-router
-    targetPort: 25565
+  - port: 25565
+    name: minecraft
   selector:
-    run: mc-stable
+    app: mc-latest
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    run: mc-stable
-  name: mc-stable
+    app: mc-latest
+  name: mc-latest
 spec:
   selector:
     matchLabels:
-      run: mc-stable
+      app: mc-latest
   template:
     metadata:
       labels:
-        run: mc-stable
+        app: mc-latest
     spec:
       securityContext:
         runAsUser: 1000
         fsGroup: 1000
       containers:
       - image: itzg/minecraft-server
-        name: mc-stable
+        name: mc-latest
         env:
         - name: EULA
           value: "TRUE"
@@ -48,25 +47,27 @@ metadata:
   annotations:
     "mc-router.itzg.me/externalServerName": "snapshot.your.domain"
 spec:
+  type: NodePort
   ports:
   - port: 25565
+    name: minecraft
   selector:
-    run: mc-snapshot
+    app: mc-snapshot
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    run: mc-snapshot
+    app: mc-snapshot
   name: mc-snapshot
 spec:
   selector:
     matchLabels:
-      run: mc-snapshot
+      app: mc-snapshot
   template:
     metadata:
       labels:
-        run: mc-snapshot
+        app: mc-snapshot
     spec:
       securityContext:
         runAsUser: 1000
