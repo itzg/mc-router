@@ -34,22 +34,22 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    run: mc-router
-  name: mc-router
+    app: mc-router
+  name: mc-router-deployment
 spec:
   selector:
     matchLabels:
-      run: mc-router
+      app: mc-router
   strategy:
     type: Recreate
   template:
     metadata:
       labels:
-        run: mc-router
+        app: mc-router
     spec:
       serviceAccountName: mc-router
       containers:
-      - image: itzg/mc-router:latest
+      - image: itzg/mc-router
         name: mc-router
         # Add "--auto-scale-up" here for https://github.com/itzg/mc-router/#auto-scale-up
         args:
@@ -68,3 +68,16 @@ spec:
           limits:
             memory: 100Mi
             cpu: "250m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-router
+spec:
+  selector:
+    app: mc-router
+  ports:
+    - protocol: TCP
+      port: 25565
+      targetPort: proxy
+  type: NodePort

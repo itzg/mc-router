@@ -1,13 +1,15 @@
-apiVersion: skaffold/v4beta13
+# nonk8s
+apiVersion: skaffold/v4beta11
 kind: Config
 metadata:
-  name: mc-router
+  name: mc-router-dev
 build:
   artifacts:
-  - image: itzg/mc-router
+  - image: itzg/mc-router-dev
     # https://skaffold.dev/docs/pipeline-stages/builders/ko/
     ko:
       main: ./cmd/mc-router/
+
 manifests:
   rawYaml:
   - docs/k8s-deployment.yaml
