@@ -80,7 +80,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/VividCortex/gohistogram v1.0.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/docker/docker v28.3.1+incompatible
+	github.com/docker/docker v28.3.2+incompatible
 	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/go-kit/log v0.2.1 // indirect
