@@ -83,7 +83,7 @@ func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 			DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
 			Routes.Reset()
 
-			watcher := &k8sWatcherImpl{}
+			watcher := &K8sWatcher{}
 			initialSvc := v1.Service{}
 			err := json.Unmarshal([]byte(test.initial.svc), &initialSvc)
 			require.NoError(t, err)
@@ -156,7 +156,7 @@ func TestK8sWatcherImpl_handleAddThenDelete(t *testing.T) {
 			DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
 			Routes.Reset()
 
-			watcher := &k8sWatcherImpl{}
+			watcher := &K8sWatcher{}
 			initialSvc := v1.Service{}
 			err := json.Unmarshal([]byte(test.initial.svc), &initialSvc)
 			require.NoError(t, err)
@@ -248,7 +248,7 @@ func TestK8s_externalName(t *testing.T) {
 			DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
 			Routes.Reset()
 
-			watcher := &k8sWatcherImpl{}
+			watcher := &K8sWatcher{}
 			initialSvc := v1.Service{}
 			err := json.Unmarshal([]byte(test.initial.svc), &initialSvc)
 			require.NoError(t, err)

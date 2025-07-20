@@ -15,7 +15,21 @@ var EmptyScalerFunc = func(ctx context.Context) error { return nil }
 
 var tcpShieldPattern = regexp.MustCompile("///.*")
 
+// RouteFinder implementations find new routes in the system that can be tracked by a RoutesHandler
+type RouteFinder interface {
+	Start(ctx context.Context, handler RoutesHandler) error
+	String() string
+}
+
+type RoutesHandler interface {
+	CreateMapping(serverAddress string, backend string, waker ScalerFunc, sleeper ScalerFunc)
+	SetDefaultRoute(backend string)
+	DeleteMapping(serverAddress string) bool
+}
+
 type IRoutes interface {
+	RoutesHandler
+
 	Reset()
 	RegisterAll(mappings map[string]string)
 	// FindBackendForServerAddress returns the host:port for the external server address, if registered.
@@ -24,9 +38,6 @@ type IRoutes interface {
 	// The 4th value returned is an (optional) "sleeper" function which a caller must invoke to shut down serverAddress.
 	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, ScalerFunc, ScalerFunc)
 	GetMappings() map[string]string
-	DeleteMapping(serverAddress string) bool
-	CreateMapping(serverAddress string, backend string, waker ScalerFunc, sleeper ScalerFunc)
-	SetDefaultRoute(backend string)
 	GetDefaultRoute() string
 	SimplifySRV(srvEnabled bool)
 }

@@ -46,6 +46,8 @@ Routes Minecraft client connections to backend servers based upon the requested 
     	Use in-cluster Kubernetes config (env IN_KUBE_CLUSTER)
   -kube-config string
     	The path to a Kubernetes configuration file (env KUBE_CONFIG)
+  -kube-namespace string
+    	The namespace to watch or blank for all, which is the default (env KUBE_NAMESPACE)
   -mapping value
     	Comma or newline delimited or repeated mappings of externalHostname=host:port (env MAPPING)
   -metrics-backend string
@@ -223,6 +225,15 @@ When running `mc-router` as a Kubernetes Pod and you pass the `--in-kube-cluster
 - `mc-router.itzg.me/externalServerName` : The value of the annotation will be registered as the external hostname Minecraft clients would used to connect to the routed service. The service is used as the routed backend. You can use more hostnames by splitting them with comma.
 - `mc-router.itzg.me/defaultServer` : The service is used as the default if no other `externalServiceName` annotations applies.
 
+By default, the router will watch all namespaces for those services; however, a specific namespace can be specified using the `KUBE_NAMESPACE` environment variable. The pod's own namespace could be set using:
+
+```yaml
+     - name: KUBE_NAMESPACE
+       valueFrom:
+         fieldRef:
+           fieldPath: metadata.namespace
+```
+
 For example, start `mc-router`'s container spec with
 
 ```yaml
@@ -251,6 +262,26 @@ metadata:
   name: mc-forge
   annotations:
     "mc-router.itzg.me/externalServerName": "external.host.name,other.host.name"
+```
+
+The `Role` or `ClusterRole` bound to the service account should have the rules:
+
+```yaml
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["watch","list"]
+```
+
+and if using StatefulSet auto-scaling additionally
+
+```yaml
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["watch","list","get","update"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets/scale"]
+    verbs: ["get","update"]
 ```
 
 ### Service parsing

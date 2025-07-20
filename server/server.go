@@ -120,18 +120,27 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		StartApiServer(config.ApiBinding)
 	}
 
+	routeWatchers := make([]RouteFinder, 0)
+
 	if config.InKubeCluster {
-		err = K8sWatcher.StartInCluster(ctx, config.AutoScale.Up, config.AutoScale.Down)
+		k8sWatcher, err := NewK8sWatcherInCluster()
 		if err != nil {
-			return nil, fmt.Errorf("could not start in-cluster k8s integration: %w", err)
+			return nil, fmt.Errorf("could not create in-cluster k8s watcher: %w", err)
 		}
+		k8sWatcher.WithAutoScale(config.AutoScale.Up, config.AutoScale.Down)
+		k8sWatcher.WithNamespace(config.KubeNamespace)
+		routeWatchers = append(routeWatchers, k8sWatcher)
 	} else if config.KubeConfig != "" {
-		err := K8sWatcher.StartWithConfig(ctx, config.KubeConfig, config.AutoScale.Up, config.AutoScale.Down)
+		k8sWatcher, err := NewK8sWatcherWithConfig(config.KubeConfig)
 		if err != nil {
-			return nil, fmt.Errorf("could not start k8s integration with kube config: %w", err)
+			return nil, fmt.Errorf("could not create k8s watcher with kube config: %w", err)
 		}
+		k8sWatcher.WithAutoScale(config.AutoScale.Up, config.AutoScale.Down)
+		k8sWatcher.WithNamespace(config.KubeNamespace)
+		routeWatchers = append(routeWatchers, k8sWatcher)
 	}
 
+	// TODO convert to RouteFinder
 	if config.InDocker {
 		err = DockerWatcher.Start(config.DockerSocket, config.DockerTimeout, config.DockerRefreshInterval, config.AutoScale.Up, config.AutoScale.Down)
 		if err != nil {
@@ -141,12 +150,20 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		}
 	}
 
+	// TODO convert to RouteFinder
 	if config.InDockerSwarm {
 		err = DockerSwarmWatcher.Start(config.DockerSocket, config.DockerTimeout, config.DockerRefreshInterval, config.AutoScale.Up, config.AutoScale.Down)
 		if err != nil {
 			return nil, fmt.Errorf("could not start docker swarm integration: %w", err)
 		} else {
 			defer DockerSwarmWatcher.Stop()
+		}
+	}
+
+	for _, watcher := range routeWatchers {
+		err := watcher.Start(ctx, Routes)
+		if err != nil {
+			return nil, fmt.Errorf("could not start route watcher %s: %w", watcher, err)
 		}
 	}
 
