@@ -24,6 +24,8 @@ type RouteFinder interface {
 type RoutesHandler interface {
 	CreateMapping(serverAddress string, backend string, waker ScalerFunc, sleeper ScalerFunc)
 	SetDefaultRoute(backend string)
+	// DeleteMapping requests that the serverAddress be removed from routes.
+	// Returns true if the route existed.
 	DeleteMapping(serverAddress string) bool
 }
 

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"github.com/stretchr/testify/mock"
 	"testing"
 	"time"
 
@@ -11,10 +12,50 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
+type MockedRoutesHandler struct {
+	mock.Mock
+	routes         map[string]string
+	defaultBackend string
+}
+
+func (m *MockedRoutesHandler) GetBackendForServer(server string) string {
+	backend, exists := m.routes[server]
+	if exists {
+		return backend
+	} else {
+		return m.defaultBackend
+	}
+}
+
+func (m *MockedRoutesHandler) CreateMapping(serverAddress string, backend string, waker ScalerFunc, sleeper ScalerFunc) {
+	m.MethodCalled("CreateMapping", serverAddress, backend, waker, sleeper)
+	if m.routes == nil {
+		m.routes = make(map[string]string)
+	}
+	m.routes[serverAddress] = backend
+}
+
+func (m *MockedRoutesHandler) SetDefaultRoute(backend string) {
+	m.MethodCalled("SetDefaultRoute", backend)
+	if m.routes == nil {
+		m.routes = make(map[string]string)
+	}
+	m.defaultBackend = backend
+}
+
+func (m *MockedRoutesHandler) DeleteMapping(serverAddress string) bool {
+	args := m.MethodCalled("DeleteMapping", serverAddress)
+	if m.routes == nil {
+		m.routes = make(map[string]string)
+	}
+	delete(m.routes, serverAddress)
+	return args.Bool(0)
+}
+
 func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 	type scenario struct {
-		given  string
-		expect string
+		server  string
+		backend string
 	}
 	type svcAndScenarios struct {
 		svc       string
@@ -30,15 +71,15 @@ func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 			initial: svcAndScenarios{
 				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "a.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
 				scenarios: []scenario{
-					{given: "a.com", expect: "1.1.1.1:25565"},
-					{given: "b.com", expect: ""},
+					{server: "a.com", backend: "1.1.1.1:25565"},
+					{server: "b.com", backend: ""},
 				},
 			},
 			update: svcAndScenarios{
 				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "b.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
 				scenarios: []scenario{
-					{given: "a.com", expect: ""},
-					{given: "b.com", expect: "1.1.1.1:25565"},
+					{server: "a.com", backend: ""},
+					{server: "b.com", backend: "1.1.1.1:25565"},
 				},
 			},
 		},
@@ -47,15 +88,15 @@ func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 			initial: svcAndScenarios{
 				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "a.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
 				scenarios: []scenario{
-					{given: "a.com", expect: "1.1.1.1:25565"},
-					{given: "b.com", expect: ""},
+					{server: "a.com", backend: "1.1.1.1:25565"},
+					{server: "b.com", backend: ""},
 				},
 			},
 			update: svcAndScenarios{
 				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "a.com,b.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
 				scenarios: []scenario{
-					{given: "a.com", expect: "1.1.1.1:25565"},
-					{given: "b.com", expect: "1.1.1.1:25565"},
+					{server: "a.com", backend: "1.1.1.1:25565"},
+					{server: "b.com", backend: "1.1.1.1:25565"},
 				},
 			},
 		},
@@ -64,15 +105,15 @@ func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 			initial: svcAndScenarios{
 				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "a.com,b.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
 				scenarios: []scenario{
-					{given: "a.com", expect: "1.1.1.1:25565"},
-					{given: "b.com", expect: "1.1.1.1:25565"},
+					{server: "a.com", backend: "1.1.1.1:25565"},
+					{server: "b.com", backend: "1.1.1.1:25565"},
 				},
 			},
 			update: svcAndScenarios{
 				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "b.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
 				scenarios: []scenario{
-					{given: "a.com", expect: ""},
-					{given: "b.com", expect: "1.1.1.1:25565"},
+					{server: "a.com", backend: ""},
+					{server: "b.com", backend: "1.1.1.1:25565"},
 				},
 			},
 		},
@@ -81,17 +122,22 @@ func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// DownScaler needs to be instantiated
 			DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
-			Routes.Reset()
 
-			watcher := &K8sWatcher{}
+			routesHandler := new(MockedRoutesHandler)
+			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+			routesHandler.On("DeleteMapping", mock.Anything).Return(true)
+
+			watcher := &K8sWatcher{
+				routesHandler: routesHandler,
+			}
 			initialSvc := v1.Service{}
 			err := json.Unmarshal([]byte(test.initial.svc), &initialSvc)
 			require.NoError(t, err)
 
 			watcher.handleAdd(&initialSvc)
 			for _, s := range test.initial.scenarios {
-				backend, _, _, _ := Routes.FindBackendForServerAddress(context.Background(), s.given)
-				assert.Equal(t, s.expect, backend, "initial: given=%s", s.given)
+				backend := routesHandler.GetBackendForServer(s.server)
+				assert.Equal(t, s.backend, backend, "initial: given=%s", s.server)
 			}
 
 			updatedSvc := v1.Service{}
@@ -100,8 +146,8 @@ func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 
 			watcher.handleUpdate(&initialSvc, &updatedSvc)
 			for _, s := range test.update.scenarios {
-				backend, _, _, _ := Routes.FindBackendForServerAddress(context.Background(), s.given)
-				assert.Equal(t, s.expect, backend, "update: given=%s", s.given)
+				backend := routesHandler.GetBackendForServer(s.server)
+				assert.Equal(t, s.backend, backend, "update: given=%s", s.server)
 			}
 		})
 	}
@@ -109,8 +155,8 @@ func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 
 func TestK8sWatcherImpl_handleAddThenDelete(t *testing.T) {
 	type scenario struct {
-		given  string
-		expect string
+		server  string
+		backend string
 	}
 	type svcAndScenarios struct {
 		svc       string
@@ -119,20 +165,21 @@ func TestK8sWatcherImpl_handleAddThenDelete(t *testing.T) {
 	tests := []struct {
 		name    string
 		initial svcAndScenarios
-		delete  []scenario
+		// non-empty `backend` in this case means the server is expected to be deleted
+		delete []scenario
 	}{
 		{
 			name: "single",
 			initial: svcAndScenarios{
 				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "a.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
 				scenarios: []scenario{
-					{given: "a.com", expect: "1.1.1.1:25565"},
-					{given: "b.com", expect: ""},
+					{server: "a.com", backend: "1.1.1.1:25565"},
+					{server: "b.com", backend: ""},
 				},
 			},
 			delete: []scenario{
-				{given: "a.com", expect: ""},
-				{given: "b.com", expect: ""},
+				{server: "a.com", backend: ""},
+				{server: "b.com", backend: ""},
 			},
 		},
 		{
@@ -140,13 +187,13 @@ func TestK8sWatcherImpl_handleAddThenDelete(t *testing.T) {
 			initial: svcAndScenarios{
 				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "a.com,b.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
 				scenarios: []scenario{
-					{given: "a.com", expect: "1.1.1.1:25565"},
-					{given: "b.com", expect: "1.1.1.1:25565"},
+					{server: "a.com", backend: "1.1.1.1:25565"},
+					{server: "b.com", backend: "1.1.1.1:25565"},
 				},
 			},
 			delete: []scenario{
-				{given: "a.com", expect: ""},
-				{given: "b.com", expect: ""},
+				{server: "a.com", backend: ""},
+				{server: "b.com", backend: ""},
 			},
 		},
 	}
@@ -154,23 +201,28 @@ func TestK8sWatcherImpl_handleAddThenDelete(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// DownScaler needs to be instantiated
 			DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
-			Routes.Reset()
 
-			watcher := &K8sWatcher{}
+			routesHandler := new(MockedRoutesHandler)
+			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+			routesHandler.On("DeleteMapping", mock.Anything).Return(true)
+
+			watcher := &K8sWatcher{
+				routesHandler: routesHandler,
+			}
 			initialSvc := v1.Service{}
 			err := json.Unmarshal([]byte(test.initial.svc), &initialSvc)
 			require.NoError(t, err)
 
 			watcher.handleAdd(&initialSvc)
 			for _, s := range test.initial.scenarios {
-				backend, _, _, _ := Routes.FindBackendForServerAddress(context.Background(), s.given)
-				assert.Equal(t, s.expect, backend, "initial: given=%s", s.given)
+				backend := routesHandler.GetBackendForServer(s.server)
+				assert.Equal(t, s.backend, backend, "initial: given=%s", s.server)
 			}
 
 			watcher.handleDelete(&initialSvc)
 			for _, s := range test.delete {
-				backend, _, _, _ := Routes.FindBackendForServerAddress(context.Background(), s.given)
-				assert.Equal(t, s.expect, backend, "update: given=%s", s.given)
+				backend := routesHandler.GetBackendForServer(s.server)
+				assert.Equal(t, s.backend, backend, "update: given=%s", s.server)
 			}
 		})
 	}
@@ -178,8 +230,8 @@ func TestK8sWatcherImpl_handleAddThenDelete(t *testing.T) {
 
 func TestK8s_externalName(t *testing.T) {
 	type scenario struct {
-		given  string
-		expect string
+		server  string
+		backend string
 	}
 	type svcAndScenarios struct {
 		svc       string
@@ -195,15 +247,15 @@ func TestK8s_externalName(t *testing.T) {
 			initial: svcAndScenarios{
 				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "a.com"}}, "spec":{"type":"ExternalName", "externalName": "mc-server.com"}}`,
 				scenarios: []scenario{
-					{given: "a.com", expect: "mc-server.com:25565"},
-					{given: "b.com", expect: ""},
+					{server: "a.com", backend: "mc-server.com:25565"},
+					{server: "b.com", backend: ""},
 				},
 			},
 			update: svcAndScenarios{
 				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "a.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
 				scenarios: []scenario{
-					{given: "a.com", expect: "1.1.1.1:25565"},
-					{given: "b.com", expect: ""},
+					{server: "a.com", backend: "1.1.1.1:25565"},
+					{server: "b.com", backend: ""},
 				},
 			},
 		},
@@ -212,15 +264,15 @@ func TestK8s_externalName(t *testing.T) {
 			initial: svcAndScenarios{
 				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "a.com"}}, "spec":{"type":"ExternalName", "externalName": "mc-server.com"}}`,
 				scenarios: []scenario{
-					{given: "a.com", expect: "mc-server.com:25565"},
-					{given: "b.com", expect: ""},
+					{server: "a.com", backend: "mc-server.com:25565"},
+					{server: "b.com", backend: ""},
 				},
 			},
 			update: svcAndScenarios{
 				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "b.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
 				scenarios: []scenario{
-					{given: "a.com", expect: ""},
-					{given: "b.com", expect: "1.1.1.1:25565"},
+					{server: "a.com", backend: ""},
+					{server: "b.com", backend: "1.1.1.1:25565"},
 				},
 			},
 		},
@@ -229,15 +281,15 @@ func TestK8s_externalName(t *testing.T) {
 			initial: svcAndScenarios{
 				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "a.com,b.com"}}, "spec":{"type":"ExternalName", "externalName": "mc-server.com"}}`,
 				scenarios: []scenario{
-					{given: "a.com", expect: "mc-server.com:25565"},
-					{given: "b.com", expect: "mc-server.com:25565"},
+					{server: "a.com", backend: "mc-server.com:25565"},
+					{server: "b.com", backend: "mc-server.com:25565"},
 				},
 			},
 			update: svcAndScenarios{
 				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "a.com,b.com"}}, "spec":{"type":"ExternalName", "externalName": "1.1.1.1"}}`,
 				scenarios: []scenario{
-					{given: "a.com", expect: "1.1.1.1:25565"},
-					{given: "b.com", expect: "1.1.1.1:25565"},
+					{server: "a.com", backend: "1.1.1.1:25565"},
+					{server: "b.com", backend: "1.1.1.1:25565"},
 				},
 			},
 		},
@@ -246,17 +298,22 @@ func TestK8s_externalName(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// DownScaler needs to be instantiated
 			DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
-			Routes.Reset()
 
-			watcher := &K8sWatcher{}
+			routesHandler := new(MockedRoutesHandler)
+			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+			routesHandler.On("DeleteMapping", mock.Anything).Return(true)
+
+			watcher := &K8sWatcher{
+				routesHandler: routesHandler,
+			}
 			initialSvc := v1.Service{}
 			err := json.Unmarshal([]byte(test.initial.svc), &initialSvc)
 			require.NoError(t, err)
 
 			watcher.handleAdd(&initialSvc)
 			for _, s := range test.initial.scenarios {
-				backend, _, _, _ := Routes.FindBackendForServerAddress(context.Background(), s.given)
-				assert.Equal(t, s.expect, backend, "initial: given=%s", s.given)
+				backend := routesHandler.GetBackendForServer(s.server)
+				assert.Equal(t, s.backend, backend, "initial: given=%s", s.server)
 			}
 
 			updatedSvc := v1.Service{}
@@ -265,8 +322,8 @@ func TestK8s_externalName(t *testing.T) {
 
 			watcher.handleUpdate(&initialSvc, &updatedSvc)
 			for _, s := range test.update.scenarios {
-				backend, _, _, _ := Routes.FindBackendForServerAddress(context.Background(), s.given)
-				assert.Equal(t, s.expect, backend, "update: given=%s", s.given)
+				backend := routesHandler.GetBackendForServer(s.server)
+				assert.Equal(t, s.backend, backend, "update: given=%s", s.server)
 			}
 		})
 	}
