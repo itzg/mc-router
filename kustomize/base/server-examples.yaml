@@ -1,0 +1,84 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-latest
+  annotations:
+    "mc-router.itzg.me/defaultServer": "true"
+spec:
+  type: NodePort
+  ports:
+  - port: 25565
+    name: minecraft
+  selector:
+    app: mc-latest
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: mc-latest
+  name: mc-latest
+spec:
+  selector:
+    matchLabels:
+      app: mc-latest
+  template:
+    metadata:
+      labels:
+        app: mc-latest
+    spec:
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - image: itzg/minecraft-server
+        name: mc-latest
+        env:
+        - name: EULA
+          value: "TRUE"
+        ports:
+        - containerPort: 25565
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-snapshot
+  annotations:
+    "mc-router.itzg.me/externalServerName": "snapshot.your.domain"
+spec:
+  type: NodePort
+  ports:
+  - port: 25565
+    name: minecraft
+  selector:
+    app: mc-snapshot
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: mc-snapshot
+  name: mc-snapshot
+spec:
+  selector:
+    matchLabels:
+      app: mc-snapshot
+  template:
+    metadata:
+      labels:
+        app: mc-snapshot
+    spec:
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - image: itzg/minecraft-server
+        name: mc-snapshot
+        env:
+        - name: EULA
+          value: "TRUE"
+        - name: VERSION
+          value: "SNAPSHOT"
+        ports:
+        - containerPort: 25565

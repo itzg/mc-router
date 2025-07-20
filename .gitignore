@@ -6,3 +6,4 @@
 /mc-router
 /dist/
 /*.private.env.json
+/kustomization.yml

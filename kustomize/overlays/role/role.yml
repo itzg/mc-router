@@ -1,0 +1,28 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: services-watcher
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["watch","list"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["watch","list","get","update"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets/scale"]
+    verbs: ["get","update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mc-router-services-watcher
+subjects:
+  - kind: ServiceAccount
+    name: mc-router
+    namespace: default
+roleRef:
+  kind: Role
+  name: services-watcher
+  apiGroup: rbac.authorization.k8s.io
