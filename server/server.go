@@ -99,8 +99,8 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 			NewWebhookNotifier(config.Webhook.Url, config.Webhook.RequireUser))
 	}
 
-	if config.NgrokToken != "" {
-		connector.UseNgrok(config.NgrokToken)
+	if config.Ngrok.Token != "" {
+		connector.UseNgrok(config.Ngrok)
 	}
 
 	if config.ReceiveProxyProtocol {
