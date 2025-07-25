@@ -17,6 +17,11 @@ type RoutesConfig struct {
 	ConfigWatch bool   `usage:"Watch for config file changes"`
 }
 
+type NgrokConfig struct {
+	Token      string `usage:"If set, an ngrok tunnel will be established. It is HIGHLY recommended to pass as an environment variable."`
+	RemoteAddr string `usage:"If set, the TCP address to request for this edge"`
+}
+
 type Config struct {
 	Port                  int               `default:"25565" usage:"The [port] bound to listen for Minecraft client connections"`
 	Default               string            `usage:"host:port of a default Minecraft server to use when mapping not found"`
@@ -39,7 +44,7 @@ type Config struct {
 	TrustedProxies        []string `usage:"Comma delimited list of CIDR notation IP blocks to trust when receiving PROXY protocol"`
 	RecordLogins          bool     `default:"false" usage:"Log and generate metrics on player logins. Metrics only supported with influxdb or prometheus backend"`
 	Routes                RoutesConfig
-	NgrokToken            string `usage:"If set, an ngrok tunnel will be established. It is HIGHLY recommended to pass as an environment variable."`
+	Ngrok                 NgrokConfig
 	AutoScale             AutoScale
 
 	ClientsToAllow []string `usage:"Zero or more client IP addresses or CIDRs to allow. Takes precedence over deny."`

@@ -66,6 +66,8 @@ Routes Minecraft client connections to backend servers based upon the requested 
     	any extra tags to be included with all reported metrics (env METRICS_BACKEND_CONFIG_INFLUXDB_TAGS)
   -metrics-backend-config-influxdb-username string
     	 (env METRICS_BACKEND_CONFIG_INFLUXDB_USERNAME)
+  -ngrok-remote-addr string
+    	If set, the TCP address to request for this edge (env NGROK_REMOTE_ADDR)
   -ngrok-token string
     	If set, an ngrok tunnel will be established. It is HIGHLY recommended to pass as an environment variable. (env NGROK_TOKEN)
   -port port
@@ -353,6 +355,16 @@ metadata:
   name: mc-forge
 spec:
   serviceName: mc-forge
+  selector:
+    matchLabels:
+      app: mc-forge
+  template:
+    metadata:
+      labels:
+        app: mc-forge
+    spec:
+      containers:
+        - name: mc
 ```
 
 ## REST API

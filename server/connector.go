@@ -80,6 +80,11 @@ func NewConnector(ctx context.Context, metrics *ConnectorMetrics, sendProxyProto
 	}
 }
 
+type NgrokConnector struct {
+	token      string
+	remoteAddr string
+}
+
 type Connector struct {
 	ctx                        context.Context
 	state                      mcproto.State
@@ -91,7 +96,7 @@ type Connector struct {
 	totalActiveConnections     int32
 	activeConnections          *ActiveConnections
 	connectionsCond            *sync.Cond
-	ngrokToken                 string
+	ngrok                      NgrokConnector
 	clientFilter               *ClientFilter
 	autoScaleUpAllowDenyConfig *AllowDenyConfig
 	connectionNotifier         ConnectionNotifier
@@ -117,10 +122,12 @@ func (c *Connector) StartAcceptingConnections(listenAddress string, connRateLimi
 }
 
 func (c *Connector) createListener(listenAddress string) (net.Listener, error) {
-	if c.ngrokToken != "" {
+	if c.ngrok.token != "" {
 		ngrokTun, err := ngrok.Listen(c.ctx,
-			config.TCPEndpoint(),
-			ngrok.WithAuthtoken(c.ngrokToken),
+			config.TCPEndpoint(
+				config.WithRemoteAddr(c.ngrok.remoteAddr),
+			),
+			ngrok.WithAuthtoken(c.ngrok.token),
 		)
 		if err != nil {
 			logrus.WithError(err).Fatal("Unable to start ngrok tunnel")
@@ -608,8 +615,9 @@ func (c *Connector) pumpFrames(incoming io.Reader, outgoing io.Writer, errors ch
 	}
 }
 
-func (c *Connector) UseNgrok(token string) {
-	c.ngrokToken = token
+func (c *Connector) UseNgrok(config NgrokConfig) {
+	c.ngrok.token = config.Token
+	c.ngrok.remoteAddr = config.RemoteAddr
 }
 
 func (c *Connector) UseReceiveProxyProto(trustedProxyNets []*net.IPNet) {
