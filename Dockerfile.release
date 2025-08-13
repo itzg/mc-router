@@ -1,4 +1,4 @@
-FROM scratch
+FROM gcr.io/distroless/static-debian12
 
 LABEL org.opencontainers.image.authors="Geoff Bourne <itzgeoff@gmail.com>"
 LABEL org.opencontainers.image.title="mc-router"
