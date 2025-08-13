@@ -8,6 +8,11 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -buildvcs=false ./cmd/mc-router
 
-FROM gcr.io/distroless/static-debian12
+FROM alpine AS certs
+RUN apk add -U \
+    ca-certificates
+
+FROM scratch
 ENTRYPOINT ["/mc-router"]
+COPY --from=certs /etc/ssl/certs/ /etc/ssl/certs
 COPY --from=builder /build/mc-router /mc-router
