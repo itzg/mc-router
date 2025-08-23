@@ -15,8 +15,7 @@ import (
 )
 
 type IDockerWatcher interface {
-	Start(socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool) error
-	Stop()
+	Start(ctx context.Context, socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool) error
 }
 
 const (
@@ -34,7 +33,6 @@ type dockerWatcherImpl struct {
 	autoScaleUp   bool
 	autoScaleDown bool
 	client        *client.Client
-	contextCancel context.CancelFunc
 }
 
 func (w *dockerWatcherImpl) makeWakerFunc(_ *routableContainer) ScalerFunc {
@@ -57,7 +55,7 @@ func (w *dockerWatcherImpl) makeSleeperFunc(_ *routableContainer) ScalerFunc {
 	}
 }
 
-func (w *dockerWatcherImpl) Start(socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool) error {
+func (w *dockerWatcherImpl) Start(ctx context.Context, socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool) error {
 	var err error
 
 	w.autoScaleUp = autoScaleUp
@@ -83,9 +81,7 @@ func (w *dockerWatcherImpl) Start(socket string, timeoutSeconds int, refreshInte
 	ticker := time.NewTicker(refreshInterval)
 	containerMap := map[string]*routableContainer{}
 
-	var ctx context.Context
-	ctx, w.contextCancel = context.WithCancel(context.Background())
-
+	logrus.Trace("Performing initial listing of Docker containers")
 	initialContainers, err := w.listContainers(ctx)
 	if err != nil {
 		return err
@@ -104,6 +100,7 @@ func (w *dockerWatcherImpl) Start(socket string, timeoutSeconds int, refreshInte
 		for {
 			select {
 			case <-ticker.C:
+				logrus.Trace("Listing Docker containers")
 				containers, err := w.listContainers(ctx)
 				if err != nil {
 					logrus.WithError(err).Error("Docker failed to list containers")
@@ -145,6 +142,7 @@ func (w *dockerWatcherImpl) Start(socket string, timeoutSeconds int, refreshInte
 				}
 
 			case <-ctx.Done():
+				logrus.Debug("Stopping Docker monitoring")
 				ticker.Stop()
 				return
 			}
@@ -301,12 +299,6 @@ func (w *dockerWatcherImpl) parseContainerData(container *dockertypes.Container)
 	ok = true
 
 	return
-}
-
-func (w *dockerWatcherImpl) Stop() {
-	if w.contextCancel != nil {
-		w.contextCancel()
-	}
 }
 
 type routableContainer struct {

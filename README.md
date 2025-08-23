@@ -103,8 +103,6 @@ The [multi-architecture image published at Docker Hub](https://hub.docker.com/re
 The diagram below shows how this `docker-compose.yml` configures two Minecraft server services named `vanilla` and `forge`, which also become the internal network aliases. _Notice those services don't need their ports exposed since the internal networking allows for the inter-container access._
 
 ```yaml
-version: "3.8"
-
 services:
   vanilla:
     image: itzg/minecraft-server
@@ -141,20 +139,21 @@ To test out this example, add these two entries to my "hosts" file:
 
 ### Using Docker auto-discovery
 
-When running `mc-router` in a Docker environment you can pass the `--in-docker` or `--in-docker-swarm` 
-command-line argument and it will poll the Docker API periodically to find all the running
-containers/services for Minecraft instances. To enable discovery you have to set the `mc-router.host`
-label on the container. These are the labels scanned:
+When running `mc-router` in a Docker environment you can pass the `--in-docker` or `--in-docker-swarm` command-line argument or set the environment variables `IN_DOCKER` or `IN_DOCKER_SWARM` to "true". With that, it will poll the Docker API periodically to find all the running containers/services for Minecraft instances. To enable discovery, you have to set the `mc-router.host` label on the container. 
 
-- `mc-router.host`: Used to configure the hostname the Minecraft clients would use to 
-  connect to the server. The container/service endpoint will be used as the routed backend. You can 
-  use more than one hostname by splitting it with a comma.
-- `mc-router.port`: This value must be set to the port the Minecraft server is listening on.
-  The default value is 25565.
-- `mc-router.default`: Set this to a truthy value to make this server the default backend.
-  Please note that `mc-router.host` is still required to be set.
-- `mc-router.network`: Specify the network you are using for the router if multiple are 
-  present in the container/service. You can either use the network ID, it's full name or an alias.
+When using in Docker, make sure to volume mount the Docker socket into the container, such as
+
+```yaml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+```
+
+These are the labels scanned:
+
+- `mc-router.host`: Used to configure the hostname the Minecraft clients would use to connect to the server. The container/service endpoint will be used as the routed backend. You can use more than one hostname by splitting it with a comma.
+- `mc-router.port`: This value must be set to the port the Minecraft server is listening on. The default value is 25565.
+- `mc-router.default`: Set this to a truthy value to make this server the default backend. Please note that `mc-router.host` is still required to be set.
+- `mc-router.network`: Specify the network you are using for the router if multiple are present in the container/service. You can either use the network ID, it's full name or an alias.
 
 #### Example Docker deployment
 

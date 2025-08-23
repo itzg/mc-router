@@ -1,0 +1,35 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/go
+{
+  "name": "Go",
+  // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+  "image": "golang:1.24-bookworm",
+  // Features to add to the dev container. More info: https://containers.dev/features.
+  "features": {
+    // For in-docker discovery testing
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  },
+  // Use 'forwardPorts' to make a list of ports inside the container available locally.
+  "forwardPorts": [
+    25565
+  ],
+
+  containerEnv: {
+    "GOROOT": "/usr/local/go"
+  },
+
+  // Configure tool-specific properties.
+  "customizations": {
+    "jetbrains": {
+      "backend": "IntelliJ",
+      "plugins": [
+        "org.jetbrains.plugins.go"
+      ]
+    },
+    "vscode": {
+      "extensions": [
+        "golang.go"
+      ]
+    }
+  }
+}
