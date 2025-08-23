@@ -26,7 +26,6 @@ type dockerSwarmWatcherImpl struct {
 	autoScaleUp   bool
 	autoScaleDown bool
 	client        *client.Client
-	contextCancel context.CancelFunc
 }
 
 func (w *dockerSwarmWatcherImpl) makeWakerFunc(_ *routableService) ScalerFunc {
@@ -49,7 +48,7 @@ func (w *dockerSwarmWatcherImpl) makeSleeperFunc(_ *routableService) ScalerFunc 
 	}
 }
 
-func (w *dockerSwarmWatcherImpl) Start(socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool) error {
+func (w *dockerSwarmWatcherImpl) Start(ctx context.Context, socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool) error {
 	var err error
 
 	w.autoScaleUp = autoScaleUp
@@ -75,9 +74,7 @@ func (w *dockerSwarmWatcherImpl) Start(socket string, timeoutSeconds int, refres
 	ticker := time.NewTicker(refreshInterval)
 	serviceMap := map[string]*routableService{}
 
-	var ctx context.Context
-	ctx, w.contextCancel = context.WithCancel(context.Background())
-
+	logrus.Trace("Performing initial listing of Docker containers")
 	initialServices, err := w.listServices(ctx)
 	if err != nil {
 		return err
@@ -99,7 +96,7 @@ func (w *dockerSwarmWatcherImpl) Start(socket string, timeoutSeconds int, refres
 				services, err := w.listServices(ctx)
 				if err != nil {
 					logrus.WithError(err).Error("Docker failed to list services")
-					return
+					continue
 				}
 
 				visited := map[string]struct{}{}
@@ -331,10 +328,4 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(service *swarm.Service, networ
 	data.ip = ip.String()
 	ok = true
 	return
-}
-
-func (w *dockerSwarmWatcherImpl) Stop() {
-	if w.contextCancel != nil {
-		w.contextCancel()
-	}
 }
