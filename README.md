@@ -366,6 +366,22 @@ spec:
         - name: mc
 ```
 
+You can also opt-out of auto-scaling per server by setting the following annotations on the `Service` object:
+- `mc-router.itzg.me/autoScaleUp=false`
+- `mc-router.itzg.me/autoScaleDown=false`
+
+Example server with auto-scaling disabled explicitly:
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-forge
+  annotations:
+    "mc-router.itzg.me/externalServerName": "external.host.name"
+    "mc-router.itzg.me/autoScaleUp": "false"
+    "mc-router.itzg.me/autoScaleDown": "false"
+```
+
 ## REST API
 
 * `GET /routes` (with `Accept: application/json`)
