@@ -23,6 +23,8 @@ import (
 const (
 	AnnotationExternalServerName = "mc-router.itzg.me/externalServerName"
 	AnnotationDefaultServer      = "mc-router.itzg.me/defaultServer"
+	AnnotationAutoScaleUp        = "mc-router.itzg.me/autoScaleUp"
+	AnnotationAutoScaleDown      = "mc-router.itzg.me/autoScaleDown"
 )
 
 // K8sWatcher is a RouteFinder that can find routes from kubernetes services.
@@ -279,11 +281,32 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 }
 
 func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to int32) ScalerFunc {
-	if from <= to && !w.autoScaleUp {
-		return nil
+	// Currently, annotations can only be used to opt-out of auto-scaling.
+	// However, this logic is prepared also for opt-in, as it returns a `ScalerFunc` when flags are false but annotations are set to `enabled`.
+	if from <= to {
+		enabled, exists := service.Annotations[AnnotationAutoScaleUp]
+		if exists {
+			if enabled == "false" {
+				return nil
+			}
+		} else {
+			if !w.autoScaleUp {
+				return nil
+			}
+		}
 	}
-	if from >= to && !w.autoScaleDown {
-		return nil
+	if from >= to {
+		enabled, exists := service.Annotations[AnnotationAutoScaleDown]
+		if exists {
+			if enabled == "false" {
+				return nil
+			}
+		} else {
+			if !w.autoScaleDown {
+				return nil
+			}
+		}
+
 	}
 	return func(ctx context.Context) error {
 		serviceName := service.Name
