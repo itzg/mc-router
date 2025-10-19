@@ -1,3 +1,7 @@
+<div style="text-align:right">
+Use the outline drop down to jump to a section☝️
+</div>
+
 [![GitHub issues](https://img.shields.io/github/issues/itzg/mc-router.svg)](https://github.com/itzg/mc-router/issues)
 [![Docker Pulls](https://img.shields.io/docker/pulls/itzg/mc-router.svg)](https://cloud.docker.com/u/itzg/repository/docker/itzg/mc-router)
 [![test](https://github.com/itzg/mc-router/actions/workflows/test.yml/badge.svg)](https://github.com/itzg/mc-router/actions/workflows/test.yml)
@@ -365,6 +369,19 @@ spec:
       containers:
         - name: mc
 ```
+
+### Troubleshooting
+
+First and foremost, enable debug logs on mc-router by setting the `DEBUG` environment variable to "true". With that, the logs will be fairly verbose with information about incoming connections, handshake processing, backend service discovery, and backend connection establishment and teardown.
+
+If backend service discovery doesn't seem to be happening, then double-check the service annotations, [described above](#using-kubernetes-service-auto-discovery), are applied to the backend `Service` objects and that those are selecting a Minecraft service deployment each.
+
+If the client reports "Connection refused" check:
+
+- `Service` type is configured as `NodePort` (or `LoadBalancer` if applicable)
+- Use `kubectl describe service mc-router` for the next few steps
+  - If running on a home network, ensure the public internet router is port forwarding TCP 25565 to one of the kubernetes nodes and the reported `NodePort` value, usually in the 30000-32767 range.
+  - Ensure the `Endpoints` field contains at least one entry referencing the cluster IP address of the mc-router `Pod`. If not, check that the `Selector` matches the labels on the mc-router `Pod`.
 
 ## REST API
 
