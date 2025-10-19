@@ -1,4 +1,4 @@
-<div style="text-align:right">
+<div align="right">
 Use the outline drop down to jump to a section☝️
 </div>
 
