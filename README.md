@@ -5,7 +5,7 @@
 [![Discord](https://img.shields.io/discord/660567679458869252?label=discord)](https://discord.gg/JK2v3rJ9ec)
 [![Buy me a coffee](https://img.shields.io/badge/Donate-Buy%20me%20a%20coffee-orange.svg)](https://www.buymeacoffee.com/itzg)
 
-Routes Minecraft Java Edition client connections to backend servers based upon the requested server address. This is quite helpful for home network deployments where any number of Minecraft servers can be multiplexed onto a single, public IP address and standard Minecraft port. It's best suited to work with [itzg/minecraft-server](https://github.com/itzg/docker-minecraft-server), but can be used with any Minecraft server. Stand-alone binaries are also published for Linux, Mac, and Windows if not wanting to use containers at all.
+Routes Minecraft Java Edition client connections to backend servers based upon the requested server address. This is quite helpful for home network deployments where any number of Minecraft servers can be multiplexed onto a single, public IP address and standard Minecraft port. It works great with [itzg/minecraft-server](https://github.com/itzg/docker-minecraft-server), but can be used with any Minecraft server. Stand-alone binaries are also published for Linux, Mac, and Windows if not wanting to use containers at all.
 
 Some other features included:
 
