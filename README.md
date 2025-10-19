@@ -1,7 +1,3 @@
-<div align="right">
-Use the outline drop down to jump to a section☝️
-</div>
-
 [![GitHub issues](https://img.shields.io/github/issues/itzg/mc-router.svg)](https://github.com/itzg/mc-router/issues)
 [![Docker Pulls](https://img.shields.io/docker/pulls/itzg/mc-router.svg)](https://cloud.docker.com/u/itzg/repository/docker/itzg/mc-router)
 [![test](https://github.com/itzg/mc-router/actions/workflows/test.yml/badge.svg)](https://github.com/itzg/mc-router/actions/workflows/test.yml)
@@ -9,7 +5,18 @@ Use the outline drop down to jump to a section☝️
 [![Discord](https://img.shields.io/discord/660567679458869252?label=discord)](https://discord.gg/JK2v3rJ9ec)
 [![Buy me a coffee](https://img.shields.io/badge/Donate-Buy%20me%20a%20coffee-orange.svg)](https://www.buymeacoffee.com/itzg)
 
-Routes Minecraft client connections to backend servers based upon the requested server address.
+Routes Minecraft Java Edition client connections to backend servers based upon the requested server address. This is quite helpful for home network deployments where any number of Minecraft servers can be multiplexed onto a single, public IP address and standard Minecraft port. It's best suited to work with [itzg/minecraft-server](https://github.com/itzg/docker-minecraft-server), but can be used with any Minecraft server. Stand-alone binaries are also published for Linux, Mac, and Windows if not wanting to use containers at all.
+
+Some other features included:
+
+- Dynamic auto-discovery of backend servers in Kubernetes and Docker which allows for "zero-config" mapping of your Minecraft server hostnames to backend servers protected behind mc-router.
+- Minimizes unwanted intrusions by disallowing Minecraft port scanners that are not specifying a mapped server hostname.
+- Rate limits incoming connections to reduce DDoS attacks.
+- Can be configured to allow/deny IP addresses or ranges
+- Includes a webhook integration for notifying other systems when a player connects and disconnects from a server.
+- Can auto-scale (between zero and one) backend servers deployed as Kubernetes StatefulSets.
+- Built-in ngrok integration where mc-router acts as an agent
+- Exports/exposes metrics for various Prometheus and InfluxDB. If enabled, includes player login metrics.
 
 ## Usage
 
