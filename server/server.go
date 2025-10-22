@@ -3,12 +3,13 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"net"
 	"os"
 	"runtime/pprof"
 	"strconv"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 type Server struct {
@@ -179,15 +180,6 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	}, nil
 }
 
-// Done provides a channel notified when the server has closed all connections, etc
-func (s *Server) Done() <-chan struct{} {
-	return s.doneChan
-}
-
-func (s *Server) notifyDone() {
-	s.doneChan <- struct{}{}
-}
-
 // ReloadConfig indicates that an external request, such as a SIGHUP,
 // is requesting the routes config file to be reloaded, if enabled
 func (s *Server) ReloadConfig() {
@@ -209,7 +201,6 @@ func (s *Server) Run() {
 	)
 	if err != nil {
 		logrus.WithError(err).Error("Could not start accepting connections")
-		s.notifyDone()
 		return
 	}
 
@@ -222,10 +213,9 @@ func (s *Server) Run() {
 			}
 
 		case <-s.ctx.Done():
-			logrus.Info("Stopping. Waiting for connections to complete...")
+			logrus.Info("Server Stopping. Waiting for connections to complete...")
 			s.connector.WaitForConnections()
 			logrus.Info("Stopped")
-			s.notifyDone()
 			return
 		}
 	}
