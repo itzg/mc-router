@@ -235,7 +235,7 @@ For more information on the allow/deny list configuration, see the [json schema]
 
 When running `mc-router` as a Kubernetes Pod and you pass the `--in-kube-cluster` command-line argument, then it will automatically watch for any services annotated with
 - `mc-router.itzg.me/externalServerName` : The value of the annotation will be registered as the external hostname Minecraft clients would used to connect to the routed service. The service is used as the routed backend. You can use more hostnames by splitting them with comma.
-- `mc-router.itzg.me/defaultServer` : The service is used as the default if no other `externalServiceName` annotations applies.
+- `mc-router.itzg.me/defaultServer` : When set to "true", the service is used as the default if no other `externalServiceName` annotations applies.
 
 By default, the router will watch all namespaces for those services; however, a specific namespace can be specified using the `KUBE_NAMESPACE` environment variable. The pod's own namespace could be set using:
 
