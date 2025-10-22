@@ -4,9 +4,15 @@ on:
   push:
     branches:
       - main
+    paths-ignore: &pathsIgnore
+      - 'docs/**'
+      - 'examples/**'
+      - 'kustomize/**'
+      - 'README.md'
   pull_request:
     branches:
       - main
+    paths-ignore: *pathsIgnore
 
 jobs:
   build:
