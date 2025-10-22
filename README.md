@@ -312,7 +312,7 @@ For the port it will look in `spec.ports` for a port named `mc-router`, if not p
   `"mc-router.itzg.me/externalServerName"` annotation that declares their external server name(s)
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/itzg/mc-router/master/docs/k8s-example-auto.yaml
+kubectl apply -f https://raw.githubusercontent.com/itzg/mc-router/main/docs/k8s-example-auto.yaml
 ```
 
 ![](docs/example-deployment-auto.drawio.png)
