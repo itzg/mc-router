@@ -117,6 +117,59 @@ func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "comma with spaces",
+			initial: svcAndScenarios{
+				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "a.com, b.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
+				scenarios: []scenario{
+					{server: "a.com", backend: "1.1.1.1:25565"},
+					{server: "b.com", backend: "1.1.1.1:25565"},
+				},
+			},
+			update: svcAndScenarios{
+				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "b.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
+				scenarios: []scenario{
+					{server: "a.com", backend: ""},
+					{server: "b.com", backend: "1.1.1.1:25565"},
+				},
+			},
+		},
+		{
+			name: "newline separated",
+			initial: svcAndScenarios{
+				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "a.com\nb.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
+				scenarios: []scenario{
+					{server: "a.com", backend: "1.1.1.1:25565"},
+					{server: "b.com", backend: "1.1.1.1:25565"},
+				},
+			},
+			update: svcAndScenarios{
+				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "b.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
+				scenarios: []scenario{
+					{server: "a.com", backend: ""},
+					{server: "b.com", backend: "1.1.1.1:25565"},
+				},
+			},
+		},
+		{
+			name: "mixed comma and newline with spaces",
+			initial: svcAndScenarios{
+				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "a.com, \nb.com,  c.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
+				scenarios: []scenario{
+					{server: "a.com", backend: "1.1.1.1:25565"},
+					{server: "b.com", backend: "1.1.1.1:25565"},
+					{server: "c.com", backend: "1.1.1.1:25565"},
+				},
+			},
+			update: svcAndScenarios{
+				svc: ` {"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "b.com"}}, "spec":{"clusterIP": "1.1.1.1"}}`,
+				scenarios: []scenario{
+					{server: "a.com", backend: ""},
+					{server: "b.com", backend: "1.1.1.1:25565"},
+					{server: "c.com", backend: ""},
+				},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 
 	"github.com/itzg/go-flagsfiller"
 	"github.com/itzg/mc-router/server"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -62,8 +62,11 @@ func main() {
 		logrus.WithError(err).Fatal("Could not setup server")
 	}
 
-	var wg sync.WaitGroup
-	wg.Go(s.Run)
+	wg, ctx := errgroup.WithContext(ctx)
+	wg.Go(func() error {
+		s.Run()
+		return nil
+	})
 
 signalsLoop:
 	for {

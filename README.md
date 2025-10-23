@@ -9,14 +9,14 @@ Routes Minecraft Java Edition client connections to backend servers based upon t
 
 Some other features included:
 
-- Dynamic auto-discovery of backend servers in Kubernetes and Docker which allows for "zero-config" mapping of your Minecraft server hostnames to backend servers protected behind mc-router.
-- Minimizes unwanted intrusions by disallowing Minecraft port scanners that are not specifying a mapped server hostname.
-- Rate limits incoming connections to reduce DDoS attacks.
-- Can be configured to allow/deny IP addresses or ranges
-- Includes a webhook integration for notifying other systems when a player connects and disconnects from a server.
-- Can auto-scale (between zero and one) backend servers deployed as Kubernetes StatefulSets.
-- Built-in ngrok integration where mc-router acts as an agent
-- Exports/exposes metrics for various Prometheus and InfluxDB. If enabled, includes player login metrics.
+-   Dynamic auto-discovery of backend servers in Kubernetes and Docker which allows for "zero-config" mapping of your Minecraft server hostnames to backend servers protected behind mc-router.
+-   Minimizes unwanted intrusions by disallowing Minecraft port scanners that are not specifying a mapped server hostname.
+-   Rate limits incoming connections to reduce DDoS attacks.
+-   Can be configured to allow/deny IP addresses or ranges
+-   Includes a webhook integration for notifying other systems when a player connects and disconnects from a server.
+-   Can auto-scale (between zero and one) backend servers deployed as Kubernetes StatefulSets.
+-   Built-in ngrok integration where mc-router acts as an agent
+-   Exports/exposes metrics for various Prometheus and InfluxDB. If enabled, includes player login metrics.
 
 ## Usage
 
@@ -115,26 +115,26 @@ The diagram below shows how this `docker-compose.yml` configures two Minecraft s
 
 ```yaml
 services:
-  vanilla:
-    image: itzg/minecraft-server
-    environment:
-      EULA: "TRUE"
-  forge:
-    image: itzg/minecraft-server
-    environment:
-      EULA: "TRUE"
-      TYPE: FORGE
-  router:
-    image: ${MC_ROUTER_IMAGE:-itzg/mc-router}
-    depends_on:
-      - forge
-      - vanilla
-    environment:
-      MAPPING: |
-        vanilla.example.com=vanilla:25565
-        forge.example.com=forge:25565
-    ports:
-      - "25565:25565"
+    vanilla:
+        image: itzg/minecraft-server
+        environment:
+            EULA: "TRUE"
+    forge:
+        image: itzg/minecraft-server
+        environment:
+            EULA: "TRUE"
+            TYPE: FORGE
+    router:
+        image: ${MC_ROUTER_IMAGE:-itzg/mc-router}
+        depends_on:
+            - forge
+            - vanilla
+        environment:
+            MAPPING: |
+                vanilla.example.com=vanilla:25565
+                forge.example.com=forge:25565
+        ports:
+            - "25565:25565"
 ```
 
 The `router` service is only one of the services that needs to exposed on the external network. The `MAPPING` declares how the hostname users will enter into their Minecraft client will map to the internal services.
@@ -150,21 +150,21 @@ To test out this example, add these two entries to my "hosts" file:
 
 ### Using Docker auto-discovery
 
-When running `mc-router` in a Docker environment you can pass the `--in-docker` or `--in-docker-swarm` command-line argument or set the environment variables `IN_DOCKER` or `IN_DOCKER_SWARM` to "true". With that, it will poll the Docker API periodically to find all the running containers/services for Minecraft instances. To enable discovery, you have to set the `mc-router.host` label on the container. 
+When running `mc-router` in a Docker environment you can pass the `--in-docker` or `--in-docker-swarm` command-line argument or set the environment variables `IN_DOCKER` or `IN_DOCKER_SWARM` to "true". With that, it will poll the Docker API periodically to find all the running containers/services for Minecraft instances. To enable discovery, you have to set the `mc-router.host` label on the container.
 
 When using in Docker, make sure to volume mount the Docker socket into the container, such as
 
 ```yaml
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+volumes:
+    - /var/run/docker.sock:/var/run/docker.sock:ro
 ```
 
 These are the labels scanned:
 
-- `mc-router.host`: Used to configure the hostname the Minecraft clients would use to connect to the server. The container/service endpoint will be used as the routed backend. You can use more than one hostname by splitting it with a comma.
-- `mc-router.port`: This value must be set to the port the Minecraft server is listening on. The default value is 25565.
-- `mc-router.default`: Set this to a truthy value to make this server the default backend. Please note that `mc-router.host` is still required to be set.
-- `mc-router.network`: Specify the network you are using for the router if multiple are present in the container/service. You can either use the network ID, it's full name or an alias.
+-   `mc-router.host`: Used to configure the hostname the Minecraft clients would use to connect to the server. The container/service endpoint will be used as the routed backend. You can use more than one hostname by splitting it with a comma or newline. Whitespace around commas is automatically trimmed. For example: `"host1.com,host2.com"`, `"host1.com, host2.com"`, or `"host1.com\nhost2.com"`.
+-   `mc-router.port`: This value must be set to the port the Minecraft server is listening on. The default value is 25565.
+-   `mc-router.default`: Set this to a truthy value to make this server the default backend. Please note that `mc-router.host` is still required to be set.
+-   `mc-router.network`: Specify the network you are using for the router if multiple are present in the container/service. You can either use the network ID, it's full name or an alias.
 
 #### Example Docker deployment
 
@@ -178,17 +178,17 @@ configure two different Minecraft servers and a `mc-router` instance for use wit
 
 ## Routing Configuration
 
-The routing configuration allows routing via a config file rather than a command. 
+The routing configuration allows routing via a config file rather than a command.
 You need to set `-routes-config` or `ROUTES_CONFIG` env variable.
 The following shows a JSON file for routes config, where `default-server` can also be `null` or omitted:
 
 ```json
 {
-  "default-server": "vanilla:25565",
-  "mappings": {
-    "vanilla.example.com": "vanilla:25565",
-    "forge.example.com": "forge:25565"
-  }
+    "default-server": "vanilla:25565",
+    "mappings": {
+        "vanilla.example.com": "vanilla:25565",
+        "forge.example.com": "forge:25565"
+    }
 }
 ```
 
@@ -197,31 +197,28 @@ Sending a SIGHUP signal will cause mc-router to reload the routes config from di
 ## Auto Scale Allow/Deny List
 
 The allow/deny list configuration allows limiting which players can scale up servers when using the `-auto-scale-up` option (`AUTO_SCALE_UP` env variable) and which players can cancel an active down scaler when using the `-auto-scale-down` option (`AUTO_SCALE_DOWN` env variable). Global allow/deny lists can be configured that apply to all backend servers, but server-specific lists can be added as well. There are a few important things to note about the configuration:
-- The `mc-router` process will not automatically pick up changes to the config. If updates to the config are made, the router must be restarted.
-- Allowlists always take priority over denylists. This means if a player is included in a sever-specific allowlist and the global denylist, the player will still be considered allowed on that server. If a player is listed in both a global allowlist and denylist, the denylist entry will be ignored.
-- Player entries only require a `uuid` or `name`. Both will be checked if specified, but otherwise a `uuid` will take priority over a `name`.
+
+-   The `mc-router` process will not automatically pick up changes to the config. If updates to the config are made, the router must be restarted.
+-   Allowlists always take priority over denylists. This means if a player is included in a sever-specific allowlist and the global denylist, the player will still be considered allowed on that server. If a player is listed in both a global allowlist and denylist, the denylist entry will be ignored.
+-   Player entries only require a `uuid` or `name`. Both will be checked if specified, but otherwise a `uuid` will take priority over a `name`.
 
 An example configuration might look something like:
 
 ```json
 {
-  "global": {
-    "denylist": [
-      {"uuid": "<some player's uuid>", "name": "<some player's name>"}
-    ]
-  },
-  "servers": {
-    "my.server.domain": {
-      "allowlist": [
-        {"uuid": "<some player's uuid>"}
-      ]
+    "global": {
+        "denylist": [
+            { "uuid": "<some player's uuid>", "name": "<some player's name>" }
+        ]
     },
-    "my.other-server.domain": {
-      "denylist": [
-        {"uuid": "<some player's uuid>"}
-      ]
+    "servers": {
+        "my.server.domain": {
+            "allowlist": [{ "uuid": "<some player's uuid>" }]
+        },
+        "my.other-server.domain": {
+            "denylist": [{ "uuid": "<some player's uuid>" }]
+        }
     }
-  }
 }
 ```
 
@@ -234,16 +231,17 @@ For more information on the allow/deny list configuration, see the [json schema]
 ### Using Kubernetes Service auto-discovery
 
 When running `mc-router` as a Kubernetes Pod and you pass the `--in-kube-cluster` command-line argument, then it will automatically watch for any services annotated with
-- `mc-router.itzg.me/externalServerName` : The value of the annotation will be registered as the external hostname Minecraft clients would used to connect to the routed service. The service is used as the routed backend. You can use more hostnames by splitting them with comma.
-- `mc-router.itzg.me/defaultServer` : When set to "true", the service is used as the default if no other `externalServiceName` annotations applies.
+
+-   `mc-router.itzg.me/externalServerName` : The value of the annotation will be registered as the external hostname Minecraft clients would used to connect to the routed service. The service is used as the routed backend. You can use more hostnames by splitting them with comma or newline. Whitespace around commas is automatically trimmed. For example: `"host1.com,host2.com"`, `"host1.com, host2.com"`, or multi-line values.
+-   `mc-router.itzg.me/defaultServer` : When set to "true", the service is used as the default if no other `externalServiceName` annotations applies.
 
 By default, the router will watch all namespaces for those services; however, a specific namespace can be specified using the `KUBE_NAMESPACE` environment variable. The pod's own namespace could be set using:
 
 ```yaml
-     - name: KUBE_NAMESPACE
-       valueFrom:
-         fieldRef:
-           fieldPath: metadata.namespace
+- name: KUBE_NAMESPACE
+  valueFrom:
+      fieldRef:
+          fieldPath: metadata.namespace
 ```
 
 For example, start `mc-router`'s container spec with
@@ -260,9 +258,9 @@ and configure the backend minecraft server's service with the annotation:
 apiVersion: v1
 kind: Service
 metadata:
-  name: mc-forge
-  annotations:
-    "mc-router.itzg.me/externalServerName": "external.host.name"
+    name: mc-forge
+    annotations:
+        "mc-router.itzg.me/externalServerName": "external.host.name"
 ```
 
 you can use multiple host names:
@@ -271,29 +269,43 @@ you can use multiple host names:
 apiVersion: v1
 kind: Service
 metadata:
-  name: mc-forge
-  annotations:
-    "mc-router.itzg.me/externalServerName": "external.host.name,other.host.name"
+    name: mc-forge
+    annotations:
+        "mc-router.itzg.me/externalServerName": "external.host.name,other.host.name"
+```
+
+or with newlines and optional whitespace:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+    name: mc-forge
+    annotations:
+        "mc-router.itzg.me/externalServerName": |
+            external.host.name
+            other.host.name
+            third.host.name
 ```
 
 The `Role` or `ClusterRole` bound to the service account should have the rules:
 
 ```yaml
 rules:
-  - apiGroups: [""]
-    resources: ["services"]
-    verbs: ["watch","list"]
+    - apiGroups: [""]
+      resources: ["services"]
+      verbs: ["watch", "list"]
 ```
 
 and if using StatefulSet auto-scaling additionally
 
 ```yaml
-  - apiGroups: ["apps"]
-    resources: ["statefulsets"]
-    verbs: ["watch","list","get","update"]
-  - apiGroups: ["apps"]
-    resources: ["statefulsets/scale"]
-    verbs: ["get","update"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets"]
+  verbs: ["watch", "list", "get", "update"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets/scale"]
+  verbs: ["get", "update"]
 ```
 
 ### Service parsing
@@ -305,11 +317,12 @@ For the port it will look in `spec.ports` for a port named `mc-router`, if not p
 ### Example Kubernetes deployment
 
 [This example deployment](docs/k8s-example-auto.yaml)
-* Declares an `mc-router` service that exposes a node port 25565
-* Declares a service account with access to watch and list services
-* Declares `--in-kube-cluster` in the `mc-router` container arguments
-* Two "backend" Minecraft servers are declared each with an
-  `"mc-router.itzg.me/externalServerName"` annotation that declares their external server name(s)
+
+-   Declares an `mc-router` service that exposes a node port 25565
+-   Declares a service account with access to watch and list services
+-   Declares `--in-kube-cluster` in the `mc-router` container arguments
+-   Two "backend" Minecraft servers are declared each with an
+    `"mc-router.itzg.me/externalServerName"` annotation that declares their external server name(s)
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/itzg/mc-router/main/docs/k8s-example-auto.yaml
@@ -318,9 +331,10 @@ kubectl apply -f https://raw.githubusercontent.com/itzg/mc-router/main/docs/k8s-
 ![](docs/example-deployment-auto.drawio.png)
 
 ##### Notes
-* This deployment assumes two persistent volume claims: `mc-stable` and `mc-snapshot`
-* I extended the allowed node port range by adding `--service-node-port-range=25000-32767`
-  to `/etc/kubernetes/manifests/kube-apiserver.yaml`
+
+-   This deployment assumes two persistent volume claims: `mc-stable` and `mc-snapshot`
+-   I extended the allowed node port range by adding `--service-node-port-range=25000-32767`
+    to `/etc/kubernetes/manifests/kube-apiserver.yaml`
 
 ##### Auto Scale Up/Down
 
@@ -335,14 +349,14 @@ e.g. like this (or some equivalent more fine-grained one to only watch/list serv
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: services-watcher
+    name: services-watcher
 rules:
-- apiGroups: [""]
-  resources: ["services"]
-  verbs: ["watch","list"]
-- apiGroups: ["apps"]
-  resources: ["statefulsets", "statefulsets/scale"]
-  verbs: ["watch","list","get","update"]
+    - apiGroups: [""]
+      resources: ["services"]
+      verbs: ["watch", "list"]
+    - apiGroups: ["apps"]
+      resources: ["statefulsets", "statefulsets/scale"]
+      verbs: ["watch", "list", "get", "update"]
 ```
 
 Make sure to set `StatefulSet.metadata.name` and `StatefulSet.spec.serviceName` to the same value;
@@ -352,45 +366,47 @@ otherwise, autoscaling will not trigger:
 apiVersion: v1
 kind: Service
 metadata:
-  name: mc-forge
-  annotations:
-    "mc-router.itzg.me/defaultServer": "true"
-    "mc-router.itzg.me/externalServerName": "external.host.name"
+    name: mc-forge
+    annotations:
+        "mc-router.itzg.me/defaultServer": "true"
+        "mc-router.itzg.me/externalServerName": "external.host.name"
 spec:
-  type: ClusterIP
+    type: ClusterIP
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: mc-forge
+    name: mc-forge
 spec:
-  serviceName: mc-forge
-  selector:
-    matchLabels:
-      app: mc-forge
-  template:
-    metadata:
-      labels:
-        app: mc-forge
-    spec:
-      containers:
-        - name: mc
+    serviceName: mc-forge
+    selector:
+        matchLabels:
+            app: mc-forge
+    template:
+        metadata:
+            labels:
+                app: mc-forge
+        spec:
+            containers:
+                - name: mc
 ```
 
 You can also opt-out of auto-scaling per server by setting the following annotations on the `Service` object:
-- `mc-router.itzg.me/autoScaleUp=false`
-- `mc-router.itzg.me/autoScaleDown=false`
+
+-   `mc-router.itzg.me/autoScaleUp=false`
+-   `mc-router.itzg.me/autoScaleDown=false`
 
 Example server with auto-scaling disabled explicitly:
+
 ```yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: mc-forge
-  annotations:
-    "mc-router.itzg.me/externalServerName": "external.host.name"
-    "mc-router.itzg.me/autoScaleUp": "false"
-    "mc-router.itzg.me/autoScaleDown": "false"
+    name: mc-forge
+    annotations:
+        "mc-router.itzg.me/externalServerName": "external.host.name"
+        "mc-router.itzg.me/autoScaleUp": "false"
+        "mc-router.itzg.me/autoScaleDown": "false"
 ```
 
 ### Troubleshooting
@@ -401,39 +417,41 @@ If backend service discovery doesn't seem to be happening, then double-check the
 
 If the client reports "Connection refused" check:
 
-- `Service` type is configured as `NodePort` (or `LoadBalancer` if applicable)
-- Use `kubectl describe service mc-router` for the next few steps
-  - If running on a home network, ensure the public internet router is port forwarding TCP 25565 to one of the kubernetes nodes and the reported `NodePort` value, usually in the 30000-32767 range.
-  - Ensure the `Endpoints` field contains at least one entry referencing the cluster IP address of the mc-router `Pod`. If not, check that the `Selector` matches the labels on the mc-router `Pod`.
+-   `Service` type is configured as `NodePort` (or `LoadBalancer` if applicable)
+-   Use `kubectl describe service mc-router` for the next few steps
+    -   If running on a home network, ensure the public internet router is port forwarding TCP 25565 to one of the kubernetes nodes and the reported `NodePort` value, usually in the 30000-32767 range.
+    -   Ensure the `Endpoints` field contains at least one entry referencing the cluster IP address of the mc-router `Pod`. If not, check that the `Selector` matches the labels on the mc-router `Pod`.
 
 ## REST API
 
-* `GET /routes` (with `Accept: application/json`)
+-   `GET /routes` (with `Accept: application/json`)
 
-  Retrieves the currently configured routes
+    Retrieves the currently configured routes
 
-* `POST /routes` (with `Content-Type: application/json`)
+-   `POST /routes` (with `Content-Type: application/json`)
 
-  Registers a route given a JSON body structured like:
-  ```json
-  {
-    "serverAddress": "CLIENT REQUESTED SERVER ADDRESS",
-    "backend": "HOST:PORT"
-  }
-  ```
+    Registers a route given a JSON body structured like:
 
-* `POST /defaultRoute` (with `Content-Type: application/json`)
+    ```json
+    {
+        "serverAddress": "CLIENT REQUESTED SERVER ADDRESS",
+        "backend": "HOST:PORT"
+    }
+    ```
 
-  Registers a default route to the given backend. JSON body is structured as:
-  ```json
-  {
-    "backend": "HOST:PORT"
-  }
-  ```
+-   `POST /defaultRoute` (with `Content-Type: application/json`)
 
-* `DELETE /routes/{serverAddress}`
+    Registers a default route to the given backend. JSON body is structured as:
 
-  Deletes an existing route for the given `serverAddress`
+    ```json
+    {
+        "backend": "HOST:PORT"
+    }
+    ```
+
+-   `DELETE /routes/{serverAddress}`
+
+    Deletes an existing route for the given `serverAddress`
 
 ## ngrok
 
@@ -455,22 +473,22 @@ In the same directory, create the following compose file:
 version: "3.8"
 
 services:
-  mc:
-    image: itzg/minecraft-server
-    environment:
-      EULA: true
-    volumes:
-      - mc-data:/data
-    # No port mapping since mc-router connects over compose network
-  router:
-    image: itzg/mc-router
-    environment:
-      DEFAULT: mc:25565
-      NGROK_TOKEN: ${NGROK_TOKEN}
-    # No port mapping needed since it routes through ngrok tunnel
+    mc:
+        image: itzg/minecraft-server
+        environment:
+            EULA: true
+        volumes:
+            - mc-data:/data
+        # No port mapping since mc-router connects over compose network
+    router:
+        image: itzg/mc-router
+        environment:
+            DEFAULT: mc:25565
+            NGROK_TOKEN: ${NGROK_TOKEN}
+        # No port mapping needed since it routes through ngrok tunnel
 
 volumes:
-  mc-data: {}
+    mc-data: {}
 ```
 
 Start the compose project:
@@ -501,19 +519,19 @@ The following are sample payloads for the `connect` webhook events.
 
 ```json
 {
-  "event": "connect",
-  "timestamp": "2025-04-20T22:26:30.2568775-05:00",
-  "status": "success",
-  "client": {
-    "host": "127.0.0.1",
-    "port": 56860
-  },
-  "server": "localhost",
-  "player": {
-    "name": "itzg",
-    "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
-  },
-  "backend": "localhost:25566"
+    "event": "connect",
+    "timestamp": "2025-04-20T22:26:30.2568775-05:00",
+    "status": "success",
+    "client": {
+        "host": "127.0.0.1",
+        "port": 56860
+    },
+    "server": "localhost",
+    "player": {
+        "name": "itzg",
+        "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
+    },
+    "backend": "localhost:25566"
 }
 ```
 
@@ -525,15 +543,15 @@ The following are sample payloads for the `connect` webhook events.
 
 ```json
 {
-  "event": "connect",
-  "timestamp": "2025-04-20T22:26:30.2568775-05:00",
-  "status": "success",
-  "client": {
-    "host": "127.0.0.1",
-    "port": 56396
-  },
-  "server": "localhost",
-  "backend": "localhost:25566"
+    "event": "connect",
+    "timestamp": "2025-04-20T22:26:30.2568775-05:00",
+    "status": "success",
+    "client": {
+        "host": "127.0.0.1",
+        "port": 56396
+    },
+    "server": "localhost",
+    "backend": "localhost:25566"
 }
 ```
 
@@ -543,19 +561,19 @@ In this the status is `"missing-backend"` since the requested server `invalid.ex
 
 ```json
 {
-  "event": "connect",
-  "timestamp": "2025-04-20T22:26:30.2568775-05:00",
-  "status": "missing-backend",
-  "client": {
-    "host": "127.0.0.1",
-    "port": 56891
-  },
-  "server": "invalid.example.com",
-  "player": {
-    "name": "itzg",
-    "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
-  },
-  "error": "No backend found"
+    "event": "connect",
+    "timestamp": "2025-04-20T22:26:30.2568775-05:00",
+    "status": "missing-backend",
+    "client": {
+        "host": "127.0.0.1",
+        "port": 56891
+    },
+    "server": "invalid.example.com",
+    "player": {
+        "name": "itzg",
+        "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
+    },
+    "error": "No backend found"
 }
 ```
 
@@ -565,20 +583,20 @@ In this case the `status` is `"failed-backend-connection"` indicating that a bac
 
 ```json
 {
-  "event": "connect",
-  "timestamp": "2025-04-20T22:26:30.2568775-05:00",
-  "status": "failed-backend-connection",
-  "client": {
-    "host": "127.0.0.1",
-    "port": 56905
-  },
-  "server": "localhost",
-  "player": {
-    "name": "itzg",
-    "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
-  },
-  "backend": "localhost:25566",
-  "error": "dial tcp [::1]:25566: connectex: No connection could be made because the target machine actively refused it."
+    "event": "connect",
+    "timestamp": "2025-04-20T22:26:30.2568775-05:00",
+    "status": "failed-backend-connection",
+    "client": {
+        "host": "127.0.0.1",
+        "port": 56905
+    },
+    "server": "localhost",
+    "player": {
+        "name": "itzg",
+        "uuid": "5cddfd26-fc86-4981-b52e-c42bb10bfdef"
+    },
+    "backend": "localhost:25566",
+    "error": "dial tcp [::1]:25566: connectex: No connection could be made because the target machine actively refused it."
 }
 ```
 
@@ -625,4 +643,4 @@ docker run -it --rm \
 
 ## Related Projects
 
-* https://github.com/haveachin/infrared
+-   https://github.com/haveachin/infrared

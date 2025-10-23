@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	mc_router "github.com/itzg/mc-router"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	apps "k8s.io/api/apps/v1"
@@ -16,7 +17,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"net"
 	"strconv"
-	"strings"
 	"sync"
 )
 
@@ -238,7 +238,7 @@ func (w *K8sWatcher) extractRoutableServices(obj interface{}) []*routableService
 
 	routableServices := make([]*routableService, 0)
 	if externalServiceName, exists := service.Annotations[AnnotationExternalServerName]; exists {
-		serviceNames := strings.Split(externalServiceName, ",")
+		serviceNames := mc_router.SplitExternalHosts(externalServiceName)
 		for _, serviceName := range serviceNames {
 			routableServices = append(routableServices, w.buildDetails(service, serviceName))
 		}

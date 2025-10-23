@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	mc_router "github.com/itzg/mc-router"
 	"strconv"
 	"strings"
 	"sync"
@@ -199,7 +200,7 @@ func (w *dockerWatcherImpl) parseContainerData(container *dockertypes.Container)
 					Warnf("ignoring container with duplicate %s label", DockerRouterLabelHost)
 				return
 			}
-			data.hosts = strings.Split(value, ",")
+			data.hosts = mc_router.SplitExternalHosts(value)
 		}
 
 		if key == DockerRouterLabelPort {

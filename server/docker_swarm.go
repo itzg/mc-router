@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	mc_router "github.com/itzg/mc-router"
 	"net"
 	"strconv"
 	"strings"
@@ -247,7 +248,7 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(service *swarm.Service, networ
 					Warnf("ignoring service with duplicate %s", DockerRouterLabelHost)
 				return
 			}
-			data.hosts = strings.Split(value, ",")
+			data.hosts = mc_router.SplitExternalHosts(value)
 		}
 		if key == DockerRouterLabelPort {
 			if data.port != 0 {
