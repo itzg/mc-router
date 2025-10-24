@@ -5,6 +5,15 @@ import (
 	"strings"
 )
 
+// splitPattern is the regex pattern used to split external host definitions.
+// kept as a const so the literal is easy to see and reuse in tests or docs.
+const splitPattern = ",|\n"
+
+// splitRe is the compiled regexp for splitPattern. Compiling once at package
+// initialization avoids repeated compilation on every call to
+// SplitExternalHosts and is slightly more efficient.
+var splitRe = regexp.MustCompile(splitPattern)
+
 // SplitExternalHosts splits a string containing external hostnames by comma and/or newline delimiters.
 // It trims whitespace around each hostname and filters out empty strings.
 // Examples:
@@ -14,8 +23,7 @@ import (
 //   - "host1.com,\nhost2.com" -> ["host1.com", "host2.com"]
 func SplitExternalHosts(s string) []string {
 	// Use regexp to split on either comma or newline
-	re := regexp.MustCompile(",|\n")
-	parts := re.Split(s, -1)
+	parts := splitRe.Split(s, -1)
 
 	// Trim whitespace and filter out empty strings
 	result := make([]string, 0, len(parts))
