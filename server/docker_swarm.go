@@ -247,7 +247,7 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(service *swarm.Service, networ
 					Warnf("ignoring service with duplicate %s", DockerRouterLabelHost)
 				return
 			}
-			data.hosts = strings.Split(value, ",")
+			data.hosts = SplitExternalHosts(value)
 		}
 		if key == DockerRouterLabelPort {
 			if data.port != 0 {

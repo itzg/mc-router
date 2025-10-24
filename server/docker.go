@@ -199,7 +199,7 @@ func (w *dockerWatcherImpl) parseContainerData(container *dockertypes.Container)
 					Warnf("ignoring container with duplicate %s label", DockerRouterLabelHost)
 				return
 			}
-			data.hosts = strings.Split(value, ",")
+			data.hosts = SplitExternalHosts(value)
 		}
 
 		if key == DockerRouterLabelPort {
