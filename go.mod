@@ -7,7 +7,7 @@ require (
 	github.com/go-kit/kit v0.13.0
 	github.com/gorilla/mux v1.8.1
 	github.com/influxdata/influxdb1-client v0.0.0-20220302092344-a9ab5670611c
-	github.com/itzg/go-flagsfiller v1.16.0
+	github.com/itzg/go-flagsfiller v1.17.0
 	github.com/juju/ratelimit v1.0.2
 	github.com/pires/go-proxyproto v0.8.1
 	github.com/pkg/errors v0.9.1
@@ -99,7 +99,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/spf13/pflag v1.0.6 // indirect
+	github.com/spf13/pflag v1.0.10 // indirect
 	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/sys v0.35.0 // indirect
