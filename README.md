@@ -594,6 +594,10 @@ In this case the `status` is `"failed-backend-connection"` indicating that a bac
 }
 ```
 
+## Community Solutions
+
+- _Coming soon..._
+
 ## Development
 
 ### Building locally with Docker
