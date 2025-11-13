@@ -596,7 +596,7 @@ In this case the `status` is `"failed-backend-connection"` indicating that a bac
 
 ## Community Solutions
 
-- _Coming soon..._
+- **[MC Router Discovery](https://github.com/Seedloaf/mc-router-discovery):** A lightweight sidecar to ensure mc-router is in sync with your list of running servers.
 
 ## Development
 
