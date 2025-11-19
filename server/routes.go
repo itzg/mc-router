@@ -101,6 +101,9 @@ func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddres
 	// Trim off Forge null-delimited address parts like \x00FML3\x00
 	serverAddress = strings.Split(serverAddress, "\x00")[0]
 
+	// Trim off infinity-filter backslash address parts like \\GUID\\CLIENT_IP...
+	serverAddress = strings.Split(serverAddress, "\\")[0]
+
 	serverAddress = strings.ToLower(
 		// trim the root zone indicator, see https://en.wikipedia.org/wiki/Fully_qualified_domain_name
 		strings.TrimSuffix(serverAddress, "."))
