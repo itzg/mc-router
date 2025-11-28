@@ -19,17 +19,27 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var DockerSwarmWatcher IDockerWatcher = &dockerSwarmWatcherImpl{}
+func NewDockerSwarmWatcher(socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool, dockerApiVersion string) IDockerWatcher {
+	return &dockerSwarmWatcherImpl{
+		config: dockerWatcherConfig{
+			socket:                 socket,
+			timeoutSeconds:         timeoutSeconds,
+			refreshIntervalSeconds: refreshIntervalSeconds,
+			autoScaleUp:            autoScaleUp,
+			autoScaleDown:          autoScaleDown,
+			apiVersion:             dockerApiVersion,
+		},
+	}
+}
 
 type dockerSwarmWatcherImpl struct {
 	sync.RWMutex
-	autoScaleUp   bool
-	autoScaleDown bool
-	client        *client.Client
+	config dockerWatcherConfig
+	client *client.Client
 }
 
 func (w *dockerSwarmWatcherImpl) makeWakerFunc(_ *routableService) ScalerFunc {
-	if !w.autoScaleUp {
+	if !w.config.autoScaleUp {
 		return nil
 	}
 	return func(ctx context.Context) error {
@@ -39,7 +49,7 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(_ *routableService) ScalerFunc {
 }
 
 func (w *dockerSwarmWatcherImpl) makeSleeperFunc(_ *routableService) ScalerFunc {
-	if !w.autoScaleDown {
+	if !w.config.autoScaleDown {
 		return nil
 	}
 	return func(ctx context.Context) error {
@@ -48,22 +58,19 @@ func (w *dockerSwarmWatcherImpl) makeSleeperFunc(_ *routableService) ScalerFunc 
 	}
 }
 
-func (w *dockerSwarmWatcherImpl) Start(ctx context.Context, socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool) error {
+func (w *dockerSwarmWatcherImpl) Start(ctx context.Context) error {
 	var err error
 
-	w.autoScaleUp = autoScaleUp
-	w.autoScaleDown = autoScaleDown
-
-	timeout := time.Duration(timeoutSeconds) * time.Second
-	refreshInterval := time.Duration(refreshIntervalSeconds) * time.Second
+	timeout := time.Duration(w.config.timeoutSeconds) * time.Second
+	refreshInterval := time.Duration(w.config.refreshIntervalSeconds) * time.Second
 
 	opts := []client.Opt{
-		client.WithHost(socket),
+		client.WithHost(w.config.socket),
 		client.WithTimeout(timeout),
 		client.WithHTTPHeaders(map[string]string{
 			"User-Agent": "mc-router ",
 		}),
-		client.WithVersion(DockerAPIVersion),
+		client.WithAPIVersionNegotiation(),
 	}
 
 	w.client, err = client.NewClientWithOpts(opts...)
