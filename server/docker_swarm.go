@@ -63,7 +63,7 @@ func (w *dockerSwarmWatcherImpl) Start(ctx context.Context, socket string, timeo
 		client.WithHTTPHeaders(map[string]string{
 			"User-Agent": "mc-router ",
 		}),
-		client.WithVersion(DockerAPIVersion),
+		client.WithAPIVersionNegotiation(),
 	}
 
 	w.client, err = client.NewClientWithOpts(opts...)

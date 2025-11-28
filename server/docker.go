@@ -19,7 +19,6 @@ type IDockerWatcher interface {
 }
 
 const (
-	DockerAPIVersion         = "1.24"
 	DockerRouterLabelHost    = "mc-router.host"
 	DockerRouterLabelPort    = "mc-router.port"
 	DockerRouterLabelDefault = "mc-router.default"
@@ -70,7 +69,7 @@ func (w *dockerWatcherImpl) Start(ctx context.Context, socket string, timeoutSec
 		client.WithHTTPHeaders(map[string]string{
 			"User-Agent": "mc-router ",
 		}),
-		client.WithVersion(DockerAPIVersion),
+		client.WithAPIVersionNegotiation(),
 	}
 
 	w.client, err = client.NewClientWithOpts(opts...)
