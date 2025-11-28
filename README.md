@@ -23,14 +23,14 @@ Some other features included:
 ```text
   -api-binding host:port
     	The host:port bound for servicing API requests (env API_BINDING)
+  -auto-scale-allow-deny string
+    	Path to config for server allowlists and denylists. If a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up when -auto-scale-up is enabled or cancel active down scalers when -auto-scale-down is enabled (env AUTO_SCALE_ALLOW_DENY)
+  -auto-scale-down
+    	Decrease Kubernetes StatefulSet Replicas (only) from 1 to 0 on respective backend servers after there are no connections (env AUTO_SCALE_DOWN)
+  -auto-scale-down-after string
+    	Server scale down delay after there are no connections (env AUTO_SCALE_DOWN_AFTER) (default "10m")
   -auto-scale-up
     	Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed (env AUTO_SCALE_UP)
-  -auto-scale-down
-      Decrease Kubernetes StatefulSet Replicas (only) from 1 to 0 after all backend connections have stopped and a configurable amount of delay has passed (env AUTO_SCALE_DOWN)
-  -auto-scale-down-after
-      String indicating how long an auto scale down should wait before scaling down a backend server. If a player rejoins the server during this delay, the scale down will be canceled (env AUTO_SCALE_DOWN_AFTER)
-  -auto-scale-allow-deny string
-      Path to config for server allowlists and denylists. If a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up when -auto-scale-up is enabled or cancel active down scalers when -auto-scale-down is enabled (env AUTO_SCALE_ALLOW_DENY)
   -clients-to-allow value
     	Zero or more client IP addresses or CIDRs to allow. Takes precedence over deny. (env CLIENTS_TO_ALLOW)
   -clients-to-deny value
@@ -43,6 +43,8 @@ Some other features included:
     	Enable debug logs (env DEBUG)
   -default string
     	host:port of a default Minecraft server to use when mapping not found (env DEFAULT)
+  -docker-api-version string
+    	Instead of auto-negotiating, use specific Docker API version (env DOCKER_API_VERSION)
   -docker-refresh-interval int
     	Refresh interval in seconds for the Docker integrations (env DOCKER_REFRESH_INTERVAL) (default 15)
   -docker-socket string
@@ -85,12 +87,16 @@ Some other features included:
     	The port bound to listen for Minecraft client connections (env PORT) (default 25565)
   -receive-proxy-protocol
     	Receive PROXY protocol from backend servers, by default trusts every proxy header that it receives, combine with -trusted-proxies to specify a list of trusted proxies (env RECEIVE_PROXY_PROTOCOL)
+  -record-logins
+    	Log and generate metrics on player logins. Metrics only supported with influxdb or prometheus backend (env RECORD_LOGINS)
   -routes-config path
     	Name or full path to routes config file (env ROUTES_CONFIG)
   -routes-config-watch
     	Watch for config file changes (env ROUTES_CONFIG_WATCH)
   -simplify-srv
     	Simplify fully qualified SRV records for mapping (env SIMPLIFY_SRV)
+  -trace
+    	Enable trace logs (env TRACE)
   -trusted-proxies value
     	Comma delimited list of CIDR notation IP blocks to trust when receiving PROXY protocol (env TRUSTED_PROXIES)
   -use-proxy-protocol
@@ -101,8 +107,6 @@ Some other features included:
     	Indicates if the webhook will only be called if a user is connecting rather than just server list/ping (env WEBHOOK_REQUIRE_USER)
   -webhook-url string
     	If set, a POST request that contains connection status notifications will be sent to this HTTP address (env WEBHOOK_URL)
-  -record-logins
-      Log and generate metrics on player logins. Metrics only supported with influxdb or prometheus backend (env RECORD_LOGINS)
 ```
 
 ## Docker Multi-Architecture Image

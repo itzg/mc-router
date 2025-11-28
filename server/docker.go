@@ -15,28 +15,56 @@ import (
 )
 
 type IDockerWatcher interface {
-	Start(ctx context.Context, socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool) error
+	Start(ctx context.Context) error
 }
 
 const (
-	DockerAPIVersion         = "1.24"
 	DockerRouterLabelHost    = "mc-router.host"
 	DockerRouterLabelPort    = "mc-router.port"
 	DockerRouterLabelDefault = "mc-router.default"
 	DockerRouterLabelNetwork = "mc-router.network"
 )
 
-var DockerWatcher IDockerWatcher = &dockerWatcherImpl{}
+type dockerWatcherConfig struct {
+	autoScaleUp            bool
+	autoScaleDown          bool
+	socket                 string
+	timeoutSeconds         int
+	refreshIntervalSeconds int
+	apiVersion             string
+}
+
+func (c *dockerWatcherConfig) apiVersionOpt() client.Opt {
+	if c.apiVersion != "" {
+		logrus.WithField("apiVersion", c.apiVersion).Debug("Using specific Docker API version")
+		return client.WithVersion(c.apiVersion)
+	} else {
+		logrus.Debug("Using Docker API version negotiation")
+		return client.WithAPIVersionNegotiation()
+	}
+}
+
+func NewDockerWatcher(socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool, dockerApiVersion string) IDockerWatcher {
+	return &dockerWatcherImpl{
+		config: dockerWatcherConfig{
+			socket:                 socket,
+			timeoutSeconds:         timeoutSeconds,
+			refreshIntervalSeconds: refreshIntervalSeconds,
+			autoScaleUp:            autoScaleUp,
+			autoScaleDown:          autoScaleDown,
+			apiVersion:             dockerApiVersion,
+		},
+	}
+}
 
 type dockerWatcherImpl struct {
 	sync.RWMutex
-	autoScaleUp   bool
-	autoScaleDown bool
-	client        *client.Client
+	config dockerWatcherConfig
+	client *client.Client
 }
 
 func (w *dockerWatcherImpl) makeWakerFunc(_ *routableContainer) ScalerFunc {
-	if !w.autoScaleUp {
+	if !w.config.autoScaleUp {
 		return nil
 	}
 	return func(ctx context.Context) error {
@@ -46,7 +74,7 @@ func (w *dockerWatcherImpl) makeWakerFunc(_ *routableContainer) ScalerFunc {
 }
 
 func (w *dockerWatcherImpl) makeSleeperFunc(_ *routableContainer) ScalerFunc {
-	if !w.autoScaleDown {
+	if !w.config.autoScaleDown {
 		return nil
 	}
 	return func(ctx context.Context) error {
@@ -55,22 +83,19 @@ func (w *dockerWatcherImpl) makeSleeperFunc(_ *routableContainer) ScalerFunc {
 	}
 }
 
-func (w *dockerWatcherImpl) Start(ctx context.Context, socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool) error {
+func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 	var err error
 
-	w.autoScaleUp = autoScaleUp
-	w.autoScaleDown = autoScaleDown
-
-	timeout := time.Duration(timeoutSeconds) * time.Second
-	refreshInterval := time.Duration(refreshIntervalSeconds) * time.Second
+	timeout := time.Duration(w.config.timeoutSeconds) * time.Second
+	refreshInterval := time.Duration(w.config.refreshIntervalSeconds) * time.Second
 
 	opts := []client.Opt{
-		client.WithHost(socket),
+		client.WithHost(w.config.socket),
 		client.WithTimeout(timeout),
 		client.WithHTTPHeaders(map[string]string{
 			"User-Agent": "mc-router ",
 		}),
-		client.WithVersion(DockerAPIVersion),
+		w.config.apiVersionOpt(),
 	}
 
 	w.client, err = client.NewClientWithOpts(opts...)

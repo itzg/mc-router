@@ -143,7 +143,8 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 
 	// TODO convert to RouteFinder
 	if config.InDocker {
-		err = DockerWatcher.Start(ctx, config.DockerSocket, config.DockerTimeout, config.DockerRefreshInterval, config.AutoScale.Up, config.AutoScale.Down)
+		watcher := NewDockerWatcher(config.DockerSocket, config.DockerTimeout, config.DockerRefreshInterval, config.AutoScale.Up, config.AutoScale.Down, config.DockerApiVersion)
+		err = watcher.Start(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("could not start docker integration: %w", err)
 		}
@@ -151,7 +152,8 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 
 	// TODO convert to RouteFinder
 	if config.InDockerSwarm {
-		err = DockerSwarmWatcher.Start(ctx, config.DockerSocket, config.DockerTimeout, config.DockerRefreshInterval, config.AutoScale.Up, config.AutoScale.Down)
+		watcher := NewDockerSwarmWatcher(config.DockerSocket, config.DockerTimeout, config.DockerRefreshInterval, config.AutoScale.Up, config.AutoScale.Down, config.DockerApiVersion)
+		err = watcher.Start(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("could not start docker swarm integration: %w", err)
 		}
