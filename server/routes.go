@@ -152,6 +152,9 @@ func (r *routesImpl) GetSleepers(backend string) []SleeperFunc {
 			sleepers = append(sleepers, m.sleeper)
 		}
 	}
+	if r.defaultRoute.backend == backend && r.defaultRoute.sleeper != nil {
+		sleepers = append(sleepers, r.defaultRoute.sleeper)
+	}
 	return sleepers
 }
 

@@ -81,21 +81,22 @@ func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
 		if err != nil {
 			return "", err
 		}
-		didStart := false
+		if inspect.State == nil {
+			return "", fmt.Errorf("unable to determine container state")
+		}
 		// If paused, unpause; if not running, start; otherwise no-op
-		if inspect.State != nil && inspect.State.Paused {
+		if inspect.State.Paused {
 			logrus.WithFields(logrus.Fields{"containerID": containerID}).Debug("Unpausing container for wake")
 			if err := w.client.ContainerUnpause(ctx, containerID); err != nil {
 				return "", err
 			}
-			didStart = true
-		} else if inspect.State != nil && !inspect.State.Running {
+		} else if !inspect.State.Running {
 			logrus.WithFields(logrus.Fields{"containerID": containerID}).Debug("Starting container for wake")
 			if err := w.client.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
 				return "", err
 			}
-			didStart = true
 		}
+
 		inspect, err = w.client.ContainerInspect(ctx, containerID)
 		if err != nil {
 			return "", err
@@ -107,34 +108,26 @@ func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
 		if data.ip == "" {
 			return "", fmt.Errorf("container has no accessible IP after starting")
 		}
-		endpoint := fmt.Sprintf("%s:%d", data.ip, data.port)
-		w.dockerRoutesLock.Lock()
-		if endpoint != rc.containerEndpoint {
-			rc.containerEndpoint = endpoint
-			wakerFunc := w.makeWakerFunc(rc)
-			sleeperFunc := w.makeSleeperFunc(rc)
-			if rc.externalContainerName != "" {
-				Routes.DeleteMapping(rc.externalContainerName)
-				Routes.CreateMapping(rc.externalContainerName, rc.containerEndpoint, wakerFunc, sleeperFunc)
-			} else {
-				Routes.SetDefaultRoute(rc.containerEndpoint, wakerFunc, sleeperFunc)
-			}
-		}
-		w.dockerRoutesLock.Unlock()
+		endpoint := net.JoinHostPort(data.ip, strconv.Itoa(int(data.port)))
 
-		if didStart {
-			// Wait for the container to become reachable
-			deadline := time.Now().Add(60 * time.Second)
-			for {
-				conn, err := net.DialTimeout("tcp", endpoint, 1*time.Second)
-				if err == nil {
-					_ = conn.Close()
-					break
-				}
-				if time.Now().After(deadline) {
-					return endpoint, fmt.Errorf("timeout waiting for container to become reachable at %s", endpoint)
-				}
-				time.Sleep(500 * time.Millisecond)
+		// Wait until the container is reachable
+		deadline := time.Now().Add(60 * time.Second)
+		for {
+			conn, err := net.DialTimeout("tcp", endpoint, 1*time.Second)
+			if err == nil {
+				_ = conn.Close()
+				break
+			}
+			if ctx.Err() != nil {
+				return endpoint, ctx.Err()
+			}
+			if time.Now().After(deadline) {
+				return endpoint, fmt.Errorf("timeout waiting for container to become reachable at %s", endpoint)
+			}
+			select {
+			case <-ctx.Done():
+				return endpoint, ctx.Err()
+			case <-time.After(500 * time.Millisecond):
 			}
 		}
 
@@ -164,20 +157,6 @@ func (w *dockerWatcherImpl) makeSleeperFunc(rc *routableContainer) SleeperFunc {
 			if err := w.client.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil {
 				return err
 			}
-			w.dockerRoutesLock.Lock()
-			defer w.dockerRoutesLock.Unlock()
-
-			rc.containerEndpoint = ""
-			wakerFunc := w.makeWakerFunc(rc)
-			sleeperFunc := w.makeSleeperFunc(rc)
-			if rc.externalContainerName != "" {
-				Routes.DeleteMapping(rc.externalContainerName)
-				Routes.CreateMapping(rc.externalContainerName, "", wakerFunc, sleeperFunc)
-			} else {
-				Routes.SetDefaultRoute("", wakerFunc, sleeperFunc)
-			}
-
-			return nil
 		}
 		return nil
 	}

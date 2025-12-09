@@ -84,18 +84,18 @@ func (ds *downScalerImpl) scaleDown(ctx context.Context, backendEndpoint string)
 			return
 		case <-time.After(ds.delay):
 			sleepers := Routes.GetSleepers(backendEndpoint)
-			if sleepers == nil {
+			if len(sleepers) == 0 {
 				return
 			}
 			for _, sleeper := range sleepers {
-				go func() {
-					err := sleeper(ctx)
+				go func(s SleeperFunc) {
+					err := s(ctx)
 					if err != nil {
 						logrus.WithError(err).
 							WithField("backendEndpoint", backendEndpoint).
 							Error("Error while executing sleeper function")
 					}
-				}()
+				}(sleeper)
 			}
 			return
 		}
