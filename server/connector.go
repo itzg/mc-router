@@ -38,30 +38,30 @@ func NewActiveConnections() *ActiveConnections {
 	}
 }
 
-func (sm *ActiveConnections) Increment(serverAddress string) {
+func (sm *ActiveConnections) Increment(backendAddress string) {
 	sm.Lock()
 	defer sm.Unlock()
-	if _, ok := sm.activeConnections[serverAddress]; !ok {
-		sm.activeConnections[serverAddress] = 1
+	if _, ok := sm.activeConnections[backendAddress]; !ok {
+		sm.activeConnections[backendAddress] = 1
 		return
 	}
-	sm.activeConnections[serverAddress] += 1
+	sm.activeConnections[backendAddress] += 1
 }
 
-func (sm *ActiveConnections) Decrement(serverAddress string) {
+func (sm *ActiveConnections) Decrement(backendAddress string) {
 	sm.Lock()
 	defer sm.Unlock()
-	if activeConnections, ok := sm.activeConnections[serverAddress]; ok && activeConnections <= 0 {
-		sm.activeConnections[serverAddress] = 0
+	if activeConnections, ok := sm.activeConnections[backendAddress]; ok && activeConnections <= 0 {
+		sm.activeConnections[backendAddress] = 0
 		return
 	}
-	sm.activeConnections[serverAddress] -= 1
+	sm.activeConnections[backendAddress] -= 1
 }
 
-func (sm *ActiveConnections) GetCount(serverAddress string) int {
+func (sm *ActiveConnections) GetCount(backendAddress string) int {
 	sm.Lock()
 	defer sm.Unlock()
-	if activeConnections, ok := sm.activeConnections[serverAddress]; ok {
+	if activeConnections, ok := sm.activeConnections[backendAddress]; ok {
 		return activeConnections
 	}
 	return 0
@@ -375,10 +375,10 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 		c.metrics.ActiveConnections.Set(float64(
 			atomic.AddInt32(&c.totalActiveConnections, -1)))
 
-		c.activeConnections.Decrement(serverAddress)
+		c.activeConnections.Decrement(backendHostPort)
 		c.metrics.ServerActiveConnections.
 			With("server_address", serverAddress).
-			Set(float64(c.activeConnections.GetCount(serverAddress)))
+			Set(float64(c.activeConnections.GetCount(backendHostPort)))
 
 		if c.recordLogins && playerInfo != nil {
 			c.metrics.ServerActivePlayer.
@@ -388,8 +388,13 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 				Set(0)
 		}
 	}
-	if checkScaleDown && c.activeConnections.GetCount(serverAddress) <= 0 {
-		DownScaler.Begin(serverAddress)
+	logrus.
+		WithField("client", clientAddr).
+		WithField("backendHostPort", backendHostPort).
+		WithField("connectionCount", c.activeConnections.GetCount(backendHostPort)).
+		Info("Closed connection to backend")
+	if checkScaleDown && c.activeConnections.GetCount(backendHostPort) <= 0 {
+		DownScaler.Begin(backendHostPort)
 	}
 	c.connectionsCond.Signal()
 }
@@ -415,7 +420,9 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			Debug("checked if player is allowed to wake up the server")
 		if serverAllowsPlayer {
 			// Cancel down scaler if active before scale up
-			DownScaler.Cancel(serverAddress)
+			if backendHostPort != "" {
+				DownScaler.Cancel(backendHostPort)
+			}
 			cleanupCheckScaleDown = true
 			logrus.WithField("serverAddress", serverAddress).Info("Waking up backend server")
 			newBackendHostPort, err := waker(c.ctx)
@@ -430,7 +437,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 				return
 			}
 			// Cancel again in case any routes were changed during wake up
-			DownScaler.Cancel(serverAddress)
+			DownScaler.Cancel(newBackendHostPort)
 			backendHostPort = newBackendHostPort
 			logrus.WithFields(logrus.Fields{
 				"serverAddress":   serverAddress,
@@ -497,10 +504,10 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 	c.metrics.ActiveConnections.Set(float64(
 		atomic.AddInt32(&c.totalActiveConnections, 1)))
 
-	c.activeConnections.Increment(serverAddress)
+	c.activeConnections.Increment(backendHostPort)
 	c.metrics.ServerActiveConnections.
 		With("server_address", serverAddress).
-		Set(float64(c.activeConnections.GetCount(serverAddress)))
+		Set(float64(c.activeConnections.GetCount(backendHostPort)))
 
 	if c.recordLogins && playerInfo != nil {
 		logrus.

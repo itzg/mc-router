@@ -41,6 +41,7 @@ type IRoutes interface {
 	// The 3rd value returned is an (optional) "waker" function which a caller must invoke to wake up serverAddress.
 	// The 4th value returned is an (optional) "sleeper" function which a caller must invoke to shut down serverAddress.
 	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, WakerFunc, SleeperFunc)
+	GetSleepers(backend string) []SleeperFunc
 	GetMappings() map[string]string
 	GetDefaultRoute() (string, WakerFunc, SleeperFunc)
 	SimplifySRV(srvEnabled bool)
@@ -141,6 +142,19 @@ func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddres
 	return r.defaultRoute.backend, serverAddress, r.defaultRoute.waker, r.defaultRoute.sleeper
 }
 
+func (r *routesImpl) GetSleepers(backend string) []SleeperFunc {
+	r.RLock()
+	defer r.RUnlock()
+
+	var sleepers []SleeperFunc
+	for _, m := range r.mappings {
+		if m.backend == backend && m.sleeper != nil {
+			sleepers = append(sleepers, m.sleeper)
+		}
+	}
+	return sleepers
+}
+
 func (r *routesImpl) GetMappings() map[string]string {
 	r.RLock()
 	defer r.RUnlock()
@@ -157,9 +171,8 @@ func (r *routesImpl) DeleteMapping(serverAddress string) bool {
 	defer r.Unlock()
 	logrus.WithField("serverAddress", serverAddress).Info("Deleting route")
 
-	DownScaler.Cancel(serverAddress)
-
-	if _, ok := r.mappings[serverAddress]; ok {
+	if m, ok := r.mappings[serverAddress]; ok {
+		DownScaler.Cancel(m.backend)
 		delete(r.mappings, serverAddress)
 		return true
 	} else {
@@ -181,6 +194,6 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, waker W
 
 	// Trigger auto scale down when mapping is created to ensure servers are shut down if router restarts
 	if backend != "" {
-		DownScaler.Begin(serverAddress)
+		DownScaler.Begin(backend)
 	}
 }

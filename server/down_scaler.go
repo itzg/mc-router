@@ -10,17 +10,17 @@ import (
 
 type IDownScaler interface {
 	Reset()
-	Begin(serverAddress string)
-	Cancel(serverAddress string)
+	Begin(backendEndpoint string)
+	Cancel(backendEndpoint string)
 }
 
 var DownScaler IDownScaler
 
 func NewDownScaler(ctx context.Context, enabled bool, delay time.Duration) IDownScaler {
 	ds := &downScalerImpl{
-		enabled: enabled,
-		delay: delay,
-		parentContext: ctx,
+		enabled:              enabled,
+		delay:                delay,
+		parentContext:        ctx,
 		contextCancellations: make(map[string]context.CancelFunc),
 	}
 
@@ -43,7 +43,7 @@ func (ds *downScalerImpl) Reset() {
 	ds.contextCancellations = make(map[string]context.CancelFunc)
 }
 
-func (ds *downScalerImpl) Begin(serverAddress string) {
+func (ds *downScalerImpl) Begin(backendEndpoint string) {
 	ds.Lock()
 	defer ds.Unlock()
 
@@ -52,17 +52,17 @@ func (ds *downScalerImpl) Begin(serverAddress string) {
 	}
 
 	// If an existing scale down routine exists, cancel it
-	if scaleDownCancel, ok := ds.contextCancellations[serverAddress]; ok {
+	if scaleDownCancel, ok := ds.contextCancellations[backendEndpoint]; ok {
 		scaleDownCancel()
 	}
-	
-	logrus.WithField("serverAddress", serverAddress).Debug("Beginning scale down")
+
+	logrus.WithField("backendEndpoint", backendEndpoint).Debug("Beginning scale down")
 	scaleDownContext, scaleDownContextCancellation := context.WithCancel(ds.parentContext)
-	ds.contextCancellations[serverAddress] = scaleDownContextCancellation
-	go ds.scaleDown(scaleDownContext, serverAddress)
+	ds.contextCancellations[backendEndpoint] = scaleDownContextCancellation
+	go ds.scaleDown(scaleDownContext, backendEndpoint)
 }
 
-func (ds *downScalerImpl) Cancel(serverAddress string) {
+func (ds *downScalerImpl) Cancel(backendEndpoint string) {
 	ds.Lock()
 	defer ds.Unlock()
 
@@ -70,27 +70,34 @@ func (ds *downScalerImpl) Cancel(serverAddress string) {
 		return
 	}
 
-	if scaleDownContextCancellation, ok := ds.contextCancellations[serverAddress]; ok {
-		logrus.WithField("serverAddress", serverAddress).Debug("Canceling scale down")
+	if scaleDownContextCancellation, ok := ds.contextCancellations[backendEndpoint]; ok {
+		logrus.WithField("backendEndpoint", backendEndpoint).Debug("Canceling scale down")
 		scaleDownContextCancellation()
-		delete(ds.contextCancellations, serverAddress)
+		delete(ds.contextCancellations, backendEndpoint)
 	}
 }
 
-func (ds *downScalerImpl) scaleDown(ctx context.Context, serverAddress string) {
+func (ds *downScalerImpl) scaleDown(ctx context.Context, backendEndpoint string) {
 	for {
 		select {
-			case <-ctx.Done():
+		case <-ctx.Done():
+			return
+		case <-time.After(ds.delay):
+			sleepers := Routes.GetSleepers(backendEndpoint)
+			if sleepers == nil {
 				return
-			case <-time.After(ds.delay):
-				_, _, _, sleeper := Routes.FindBackendForServerAddress(ctx, serverAddress)
-				if sleeper == nil {
-					return
-				}
-				if err := sleeper(ctx); err != nil {
-					logrus.WithField("serverAddress", serverAddress).WithError(err).Error("failed to scale down backend")
-				}
-				return
+			}
+			for _, sleeper := range sleepers {
+				go func() {
+					err := sleeper(ctx)
+					if err != nil {
+						logrus.WithError(err).
+							WithField("backendEndpoint", backendEndpoint).
+							Error("Error while executing sleeper function")
+					}
+				}()
+			}
+			return
 		}
 	}
 }
