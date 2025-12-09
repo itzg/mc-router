@@ -61,43 +61,42 @@ func NewDockerWatcher(socket string, timeoutSeconds int, refreshIntervalSeconds 
 
 type dockerWatcherImpl struct {
 	sync.RWMutex
-	config dockerWatcherConfig
-	client *client.Client
+	config           dockerWatcherConfig
+	client           *client.Client
+	dockerRoutesLock sync.RWMutex
 }
 
-var (
-	containerMap     = map[string]*routableContainer{}
-	dockerRoutesLock = sync.RWMutex{}
-)
-
 func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
-	if !w.config.autoScaleUp || rc == nil || !rc.autoScaleUp {
+	if rc == nil || !rc.autoScaleUp {
 		return nil
 	}
 	return func(ctx context.Context) (string, error) {
-		if rc == nil || rc.containerID == "" {
+		w.dockerRoutesLock.RLock()
+		containerID := rc.containerID
+		w.dockerRoutesLock.RUnlock()
+		if containerID == "" {
 			return "", fmt.Errorf("missing container id for wake")
 		}
-		inspect, err := w.client.ContainerInspect(ctx, rc.containerID)
+		inspect, err := w.client.ContainerInspect(ctx, containerID)
 		if err != nil {
 			return "", err
 		}
 		didStart := false
 		// If paused, unpause; if not running, start; otherwise no-op
 		if inspect.State != nil && inspect.State.Paused {
-			logrus.WithFields(logrus.Fields{"containerID": rc.containerID}).Debug("Unpausing container for wake")
-			if err := w.client.ContainerUnpause(ctx, rc.containerID); err != nil {
+			logrus.WithFields(logrus.Fields{"containerID": containerID}).Debug("Unpausing container for wake")
+			if err := w.client.ContainerUnpause(ctx, containerID); err != nil {
 				return "", err
 			}
 			didStart = true
 		} else if inspect.State != nil && !inspect.State.Running {
-			logrus.WithFields(logrus.Fields{"containerID": rc.containerID}).Debug("Starting container for wake")
-			if err := w.client.ContainerStart(ctx, rc.containerID, container.StartOptions{}); err != nil {
+			logrus.WithFields(logrus.Fields{"containerID": containerID}).Debug("Starting container for wake")
+			if err := w.client.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
 				return "", err
 			}
 			didStart = true
 		}
-		inspect, err = w.client.ContainerInspect(ctx, rc.containerID)
+		inspect, err = w.client.ContainerInspect(ctx, containerID)
 		if err != nil {
 			return "", err
 		}
@@ -109,7 +108,7 @@ func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
 			return "", fmt.Errorf("container has no accessible IP after starting")
 		}
 		endpoint := fmt.Sprintf("%s:%d", data.ip, data.port)
-		dockerRoutesLock.Lock()
+		w.dockerRoutesLock.Lock()
 		if endpoint != rc.containerEndpoint {
 			rc.containerEndpoint = endpoint
 			if rc.externalContainerName != "" {
@@ -119,7 +118,7 @@ func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
 				Routes.SetDefaultRoute(rc.containerEndpoint)
 			}
 		}
-		dockerRoutesLock.Unlock()
+		w.dockerRoutesLock.Unlock()
 
 		if didStart {
 			// Wait for the container to become reachable
@@ -142,26 +141,29 @@ func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
 }
 
 func (w *dockerWatcherImpl) makeSleeperFunc(rc *routableContainer) SleeperFunc {
-	if !w.config.autoScaleDown || rc == nil || !rc.autoScaleDown {
+	if rc == nil || !rc.autoScaleDown {
 		return nil
 	}
 	return func(ctx context.Context) error {
-		if rc == nil || rc.containerID == "" {
+		w.dockerRoutesLock.RLock()
+		containerID := rc.containerID
+		w.dockerRoutesLock.RUnlock()
+		if containerID == "" {
 			return fmt.Errorf("missing container id for sleep")
 		}
-		inspect, err := w.client.ContainerInspect(ctx, rc.containerID)
+		inspect, err := w.client.ContainerInspect(ctx, containerID)
 		if err != nil {
 			return err
 		}
 		if inspect.State != nil && inspect.State.Running {
 			// Graceful stop with 60s timeout
 			timeout := 60
-			logrus.WithFields(logrus.Fields{"containerID": rc.containerID}).Debug("Stopping container for sleep")
-			if err := w.client.ContainerStop(ctx, rc.containerID, container.StopOptions{Timeout: &timeout}); err != nil {
+			logrus.WithFields(logrus.Fields{"containerID": containerID}).Debug("Stopping container for sleep")
+			if err := w.client.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil {
 				return err
 			}
-			dockerRoutesLock.Lock()
-			defer dockerRoutesLock.Unlock()
+			w.dockerRoutesLock.Lock()
+			defer w.dockerRoutesLock.Unlock()
 
 			rc.containerEndpoint = ""
 			if rc.externalContainerName != "" {
@@ -205,7 +207,8 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 		return err
 	}
 
-	dockerRoutesLock.Lock()
+	w.dockerRoutesLock.Lock()
+	containerMap := map[string]*routableContainer{}
 	for _, c := range initialContainers {
 		containerMap[c.externalContainerName] = c
 		if c.externalContainerName != "" {
@@ -214,7 +217,7 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 			Routes.SetDefaultRoute(c.containerEndpoint)
 		}
 	}
-	dockerRoutesLock.Unlock()
+	w.dockerRoutesLock.Unlock()
 
 	go func() {
 		for {
@@ -228,7 +231,7 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 				}
 
 				visited := map[string]struct{}{}
-				dockerRoutesLock.Lock()
+				w.dockerRoutesLock.Lock()
 				for _, rs := range containers {
 					if oldRs, ok := containerMap[rs.externalContainerName]; !ok {
 						containerMap[rs.externalContainerName] = rs
@@ -261,7 +264,7 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 						logrus.WithField("routableContainer", rs).Debug("DELETE")
 					}
 				}
-				dockerRoutesLock.Unlock()
+				w.dockerRoutesLock.Unlock()
 
 			case <-ctx.Done():
 				logrus.Debug("Stopping Docker monitoring")
