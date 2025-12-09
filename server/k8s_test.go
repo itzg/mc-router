@@ -28,20 +28,25 @@ func (m *MockedRoutesHandler) GetBackendForServer(server string) string {
 	}
 }
 
-func (m *MockedRoutesHandler) CreateMapping(serverAddress string, backend string, waker WakerFunc, sleeper SleeperFunc) {
-	m.MethodCalled("CreateMapping", serverAddress, backend, waker, sleeper)
+func (m *MockedRoutesHandler) CreateMapping(serverAddress string, backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string) {
+	m.MethodCalled("CreateMapping", serverAddress, backend, waker, sleeper, asleepMOTD)
 	if m.routes == nil {
 		m.routes = make(map[string]string)
 	}
 	m.routes[serverAddress] = backend
 }
 
-func (m *MockedRoutesHandler) SetDefaultRoute(backend string, waker WakerFunc, sleeper SleeperFunc) {
-	m.MethodCalled("SetDefaultRoute", backend)
+func (m *MockedRoutesHandler) SetDefaultRoute(backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string) {
+	m.MethodCalled("SetDefaultRoute", backend, asleepMOTD)
 	if m.routes == nil {
 		m.routes = make(map[string]string)
 	}
 	m.defaultBackend = backend
+}
+
+func (m *MockedRoutesHandler) GetAsleepMOTD(serverAddress string) string {
+	args := m.MethodCalled("GetAsleepMOTD", serverAddress)
+	return args.String(0)
 }
 
 func (m *MockedRoutesHandler) DeleteMapping(serverAddress string) bool {

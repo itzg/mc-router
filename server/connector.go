@@ -346,7 +346,10 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 
 // serveStatus writes a predefined status JSON and optionally handles ping/pong
 func (c *Connector) serveStatus(frontendConn net.Conn, reader *bufio.Reader, serverAddress string, clientProtocol int) {
-	motd := c.asleepMOTD
+	motd := Routes.GetAsleepMOTD(serverAddress)
+	if motd == "" {
+		motd = c.asleepMOTD
+	}
 	if motd == "" {
 		return
 	}

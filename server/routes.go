@@ -24,8 +24,8 @@ type RouteFinder interface {
 }
 
 type RoutesHandler interface {
-	CreateMapping(serverAddress string, backend string, waker WakerFunc, sleeper SleeperFunc)
-	SetDefaultRoute(backend string, waker WakerFunc, sleeper SleeperFunc)
+	CreateMapping(serverAddress string, backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string)
+	SetDefaultRoute(backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string)
 	// DeleteMapping requests that the serverAddress be removed from routes.
 	// Returns true if the route existed.
 	DeleteMapping(serverAddress string) bool
@@ -44,6 +44,7 @@ type IRoutes interface {
 	GetSleepers(backend string) []SleeperFunc
 	GetMappings() map[string]string
 	GetDefaultRoute() (string, WakerFunc, SleeperFunc)
+	GetAsleepMOTD(serverAddress string) string
 	SimplifySRV(srvEnabled bool)
 }
 
@@ -59,14 +60,15 @@ func NewRoutes() IRoutes {
 
 func (r *routesImpl) RegisterAll(mappings map[string]string) {
 	for k, v := range mappings {
-		r.CreateMapping(k, v, nil, nil)
+		r.CreateMapping(k, v, nil, nil, "")
 	}
 }
 
 type mapping struct {
-	backend string
-	waker   WakerFunc
-	sleeper SleeperFunc
+	backend    string
+	waker      WakerFunc
+	sleeper    SleeperFunc
+	asleepMOTD string
 }
 
 type routesImpl struct {
@@ -81,8 +83,8 @@ func (r *routesImpl) Reset() {
 	DownScaler.Reset()
 }
 
-func (r *routesImpl) SetDefaultRoute(backend string, waker WakerFunc, sleeper SleeperFunc) {
-	r.defaultRoute = mapping{backend: backend, waker: waker, sleeper: sleeper}
+func (r *routesImpl) SetDefaultRoute(backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string) {
+	r.defaultRoute = mapping{backend: backend, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD}
 
 	logrus.WithFields(logrus.Fields{
 		"backend": backend,
@@ -91,6 +93,20 @@ func (r *routesImpl) SetDefaultRoute(backend string, waker WakerFunc, sleeper Sl
 
 func (r *routesImpl) GetDefaultRoute() (string, WakerFunc, SleeperFunc) {
 	return r.defaultRoute.backend, r.defaultRoute.waker, r.defaultRoute.sleeper
+}
+
+func (r *routesImpl) GetAsleepMOTD(serverAddress string) string {
+	r.RLock()
+	defer r.RUnlock()
+
+	if serverAddress == "" {
+		return r.defaultRoute.asleepMOTD
+	}
+
+	if m, ok := r.mappings[serverAddress]; ok {
+		return m.asleepMOTD
+	}
+	return ""
 }
 
 func (r *routesImpl) SimplifySRV(srvEnabled bool) {
@@ -183,7 +199,7 @@ func (r *routesImpl) DeleteMapping(serverAddress string) bool {
 	}
 }
 
-func (r *routesImpl) CreateMapping(serverAddress string, backend string, waker WakerFunc, sleeper SleeperFunc) {
+func (r *routesImpl) CreateMapping(serverAddress string, backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -193,7 +209,7 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, waker W
 		"serverAddress": serverAddress,
 		"backend":       backend,
 	}).Info("Created route mapping")
-	r.mappings[serverAddress] = mapping{backend: backend, waker: waker, sleeper: sleeper}
+	r.mappings[serverAddress] = mapping{backend: backend, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD}
 
 	// Trigger auto scale down when mapping is created to ensure servers are shut down if router restarts
 	if backend != "" {

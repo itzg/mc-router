@@ -19,12 +19,13 @@ type IDockerWatcher interface {
 }
 
 const (
-	DockerRouterLabelHost          = "mc-router.host"
-	DockerRouterLabelPort          = "mc-router.port"
-	DockerRouterLabelDefault       = "mc-router.default"
-	DockerRouterLabelNetwork       = "mc-router.network"
-	DockerRouterLabelAutoScaleUp   = "mc-router.auto-scale-up"
-	DockerRouterLabelAutoScaleDown = "mc-router.auto-scale-down"
+	DockerRouterLabelHost                = "mc-router.host"
+	DockerRouterLabelPort                = "mc-router.port"
+	DockerRouterLabelDefault             = "mc-router.default"
+	DockerRouterLabelNetwork             = "mc-router.network"
+	DockerRouterLabelAutoScaleUp         = "mc-router.auto-scale-up"
+	DockerRouterLabelAutoScaleDown       = "mc-router.auto-scale-down"
+	DockerRouterLabelAutoScaleAsleepMOTD = "mc-router.auto-scale-asleep-motd"
 )
 
 type dockerWatcherConfig struct {
@@ -193,9 +194,9 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 		wakerFunc := w.makeWakerFunc(c)
 		sleeperFunc := w.makeSleeperFunc(c)
 		if c.externalContainerName != "" {
-			Routes.CreateMapping(c.externalContainerName, c.containerEndpoint, wakerFunc, sleeperFunc)
+			Routes.CreateMapping(c.externalContainerName, c.containerEndpoint, wakerFunc, sleeperFunc, c.autoScaleAsleepMOTD)
 		} else {
-			Routes.SetDefaultRoute(c.containerEndpoint, wakerFunc, sleeperFunc)
+			Routes.SetDefaultRoute(c.containerEndpoint, wakerFunc, sleeperFunc, c.autoScaleAsleepMOTD)
 		}
 	}
 	w.dockerRoutesLock.Unlock()
@@ -220,22 +221,23 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 						wakerFunc := w.makeWakerFunc(rs)
 						sleeperFunc := w.makeSleeperFunc(rs)
 						if rs.externalContainerName != "" {
-							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, wakerFunc, sleeperFunc)
+							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
 						} else {
-							Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc)
+							Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
 						}
 					} else if oldRs.containerEndpoint != rs.containerEndpoint ||
 						oldRs.containerID != rs.containerID ||
 						oldRs.autoScaleUp != rs.autoScaleUp ||
-						oldRs.autoScaleDown != rs.autoScaleDown {
+						oldRs.autoScaleDown != rs.autoScaleDown ||
+						oldRs.autoScaleAsleepMOTD != rs.autoScaleAsleepMOTD {
 						containerMap[rs.externalContainerName] = rs
 						wakerFunc := w.makeWakerFunc(rs)
 						sleeperFunc := w.makeSleeperFunc(rs)
 						if rs.externalContainerName != "" {
 							Routes.DeleteMapping(rs.externalContainerName)
-							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, wakerFunc, sleeperFunc)
+							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
 						} else {
-							Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc)
+							Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
 						}
 						logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
 					}
@@ -247,7 +249,7 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 						if rs.externalContainerName != "" {
 							Routes.DeleteMapping(rs.externalContainerName)
 						} else {
-							Routes.SetDefaultRoute("", nil, nil)
+							Routes.SetDefaultRoute("", nil, nil, "")
 						}
 						logrus.WithField("routableContainer", rs).Debug("DELETE")
 					}
@@ -296,6 +298,7 @@ func (w *dockerWatcherImpl) listContainers(ctx context.Context) ([]*routableCont
 				containerID:           container.ID,
 				autoScaleUp:           data.autoScaleUp,
 				autoScaleDown:         data.autoScaleDown,
+				autoScaleAsleepMOTD:   data.autoScaleAsleepMOTD,
 			})
 		}
 		if data.def != nil && *data.def {
@@ -305,6 +308,7 @@ func (w *dockerWatcherImpl) listContainers(ctx context.Context) ([]*routableCont
 				containerID:           container.ID,
 				autoScaleUp:           data.autoScaleUp,
 				autoScaleDown:         data.autoScaleDown,
+				autoScaleAsleepMOTD:   data.autoScaleAsleepMOTD,
 			})
 		}
 	}
@@ -313,14 +317,15 @@ func (w *dockerWatcherImpl) listContainers(ctx context.Context) ([]*routableCont
 }
 
 type parsedDockerContainerData struct {
-	hosts         []string
-	port          uint64
-	def           *bool
-	network       *string
-	ip            string
-	autoScaleDown bool
-	autoScaleUp   bool
-	notRunning    bool
+	hosts               []string
+	port                uint64
+	def                 *bool
+	network             *string
+	ip                  string
+	autoScaleDown       bool
+	autoScaleUp         bool
+	autoScaleAsleepMOTD string
+	notRunning          bool
 }
 
 func (w *dockerWatcherImpl) parseContainerData(container *container.InspectResponse) (data parsedDockerContainerData, ok bool) {
@@ -378,6 +383,9 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 		if key == DockerRouterLabelAutoScaleDown {
 			lowerValue := strings.TrimSpace(strings.ToLower(value))
 			data.autoScaleDown = lowerValue != "" && lowerValue != "0" && lowerValue != "false" && lowerValue != "no"
+		}
+		if key == DockerRouterLabelAutoScaleAsleepMOTD {
+			data.autoScaleAsleepMOTD = value
 		}
 	}
 
@@ -458,4 +466,5 @@ type routableContainer struct {
 	containerID           string
 	autoScaleUp           bool
 	autoScaleDown         bool
+	autoScaleAsleepMOTD   string
 }
