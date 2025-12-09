@@ -14,7 +14,8 @@ Some other features included:
 - Rate limits incoming connections to reduce DDoS attacks.
 - Can be configured to allow/deny IP addresses or ranges
 - Includes a webhook integration for notifying other systems when a player connects and disconnects from a server.
-- Can auto-scale (between zero and one) backend servers deployed as Kubernetes StatefulSets.
+- Can auto-scale (between zero and one) backend servers deployed as Kubernetes StatefulSets
+- or start and stop backend servers running as docker containers.
 - Built-in ngrok integration where mc-router acts as an agent
 - Exports/exposes metrics for various Prometheus and InfluxDB. If enabled, includes player login metrics.
 
@@ -26,11 +27,11 @@ Some other features included:
   -auto-scale-allow-deny string
     	Path to config for server allowlists and denylists. If a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up when -auto-scale-up is enabled or cancel active down scalers when -auto-scale-down is enabled (env AUTO_SCALE_ALLOW_DENY)
   -auto-scale-down
-    	Decrease Kubernetes StatefulSet Replicas (only) from 1 to 0 on respective backend servers after there are no connections (env AUTO_SCALE_DOWN)
+    	Scale to zero after idle. For Kubernetes, decreases StatefulSet replicas from 1 to 0. For Docker, gracefully stops the container when there are no connections (env AUTO_SCALE_DOWN)
   -auto-scale-down-after string
     	Server scale down delay after there are no connections (env AUTO_SCALE_DOWN_AFTER) (default "10m")
   -auto-scale-up
-    	Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed (env AUTO_SCALE_UP)
+    	Scale from zero on access. For Kubernetes, increases StatefulSet replicas from 0 to 1. For Docker, starts or unpauses the container when accessed (env AUTO_SCALE_UP)
   -clients-to-allow value
     	Zero or more client IP addresses or CIDRs to allow. Takes precedence over deny. (env CLIENTS_TO_ALLOW)
   -clients-to-deny value
@@ -169,6 +170,31 @@ These are the labels scanned:
 - `mc-router.port`: This value must be set to the port the Minecraft server is listening on. The default value is 25565.
 - `mc-router.default`: Set this to a truthy value to make this server the default backend. Please note that `mc-router.host` is still required to be set.
 - `mc-router.network`: Specify the network you are using for the router if multiple are present in the container/service. You can either use the network ID, it's full name or an alias.
+- `mc-router.auto-scale-up`: Per-container override to enable/disable auto scale up for Docker. When true (or left unspecified and the global `-auto-scale-up` flag is enabled), mc-router will start or unpause this container when a client connects to the declared hostname(s).
+- `mc-router.auto-scale-down`: Per-container override to enable/disable auto scale down for Docker. When true (or left unspecified and the global `-auto-scale-down` flag is enabled), mc-router will stop this container after it has been idle for the configured `-auto-scale-down-after` duration.
+
+#### Docker Auto Scale Up/Down
+
+To use scale-to-zero with Docker containers:
+
+- Start mc-router with Docker discovery and scaling enabled, for example:
+
+  ```bash
+  docker run --rm \
+    -p 25565:25565 \
+    -v /var/run/docker.sock:/var/run/docker.sock:ro \
+    itzg/mc-router \
+    -in-docker -auto-scale-up -auto-scale-down -auto-scale-down-after=10m
+  ```
+
+- Label each Minecraft container with at least `mc-router.host`, and optionally `mc-router.port` (defaults to 25565). You can also set per-container autoscale overrides using `mc-router.auto-scale-up` and `mc-router.auto-scale-down`.
+
+Behavior:
+
+- When a client connects to a labeled hostname and the container is stopped or paused, mc-router will start/unpause it and wait until it becomes reachable (up to ~60s).
+- When no clients remain connected and the idle timer elapses (`-auto-scale-down-after`), mc-router gracefully stops the container.
+
+Note: Docker Swarm discovery is supported; however, auto scale up/down is not yet supported for Swarm services.
 
 #### Example Docker deployment
 
