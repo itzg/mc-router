@@ -3,12 +3,12 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/sirupsen/logrus"
@@ -19,10 +19,12 @@ type IDockerWatcher interface {
 }
 
 const (
-	DockerRouterLabelHost    = "mc-router.host"
-	DockerRouterLabelPort    = "mc-router.port"
-	DockerRouterLabelDefault = "mc-router.default"
-	DockerRouterLabelNetwork = "mc-router.network"
+	DockerRouterLabelHost          = "mc-router.host"
+	DockerRouterLabelPort          = "mc-router.port"
+	DockerRouterLabelDefault       = "mc-router.default"
+	DockerRouterLabelNetwork       = "mc-router.network"
+	DockerRouterLabelAutoScaleUp   = "mc-router.auto-scale-up"
+	DockerRouterLabelAutoScaleDown = "mc-router.auto-scale-down"
 )
 
 type dockerWatcherConfig struct {
@@ -63,22 +65,114 @@ type dockerWatcherImpl struct {
 	client *client.Client
 }
 
-func (w *dockerWatcherImpl) makeWakerFunc(_ *routableContainer) ScalerFunc {
-	if !w.config.autoScaleUp {
+var (
+	containerMap     = map[string]*routableContainer{}
+	dockerRoutesLock = sync.RWMutex{}
+)
+
+func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
+	if !w.config.autoScaleUp || rc == nil || !rc.autoScaleUp {
 		return nil
 	}
-	return func(ctx context.Context) error {
-		logrus.Fatal("Auto scale up is not yet supported for docker")
-		return nil
+	return func(ctx context.Context) (string, error) {
+		if rc == nil || rc.containerID == "" {
+			return "", fmt.Errorf("missing container id for wake")
+		}
+		inspect, err := w.client.ContainerInspect(ctx, rc.containerID)
+		if err != nil {
+			return "", err
+		}
+		didStart := false
+		// If paused, unpause; if not running, start; otherwise no-op
+		if inspect.State != nil && inspect.State.Paused {
+			logrus.WithFields(logrus.Fields{"containerID": rc.containerID}).Debug("Unpausing container for wake")
+			if err := w.client.ContainerUnpause(ctx, rc.containerID); err != nil {
+				return "", err
+			}
+			didStart = true
+		} else if inspect.State != nil && !inspect.State.Running {
+			logrus.WithFields(logrus.Fields{"containerID": rc.containerID}).Debug("Starting container for wake")
+			if err := w.client.ContainerStart(ctx, rc.containerID, container.StartOptions{}); err != nil {
+				return "", err
+			}
+			didStart = true
+		}
+		inspect, err = w.client.ContainerInspect(ctx, rc.containerID)
+		if err != nil {
+			return "", err
+		}
+		data, ok := w.parseContainerData(&inspect)
+		if !ok {
+			return "", fmt.Errorf("failed to parse container data after starting")
+		}
+		if data.ip == "" {
+			return "", fmt.Errorf("container has no accessible IP after starting")
+		}
+		endpoint := fmt.Sprintf("%s:%d", data.ip, data.port)
+		dockerRoutesLock.Lock()
+		if endpoint != rc.containerEndpoint {
+			rc.containerEndpoint = endpoint
+			if rc.externalContainerName != "" {
+				Routes.DeleteMapping(rc.externalContainerName)
+				Routes.CreateMapping(rc.externalContainerName, rc.containerEndpoint, w.makeWakerFunc(rc), w.makeSleeperFunc(rc))
+			} else {
+				Routes.SetDefaultRoute(rc.containerEndpoint)
+			}
+		}
+		dockerRoutesLock.Unlock()
+
+		if didStart {
+			// Wait for the container to become reachable
+			deadline := time.Now().Add(60 * time.Second)
+			for {
+				conn, err := net.DialTimeout("tcp", endpoint, 1*time.Second)
+				if err == nil {
+					_ = conn.Close()
+					break
+				}
+				if time.Now().After(deadline) {
+					return endpoint, fmt.Errorf("timeout waiting for container to become reachable at %s", endpoint)
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
+		}
+
+		return endpoint, nil
 	}
 }
 
-func (w *dockerWatcherImpl) makeSleeperFunc(_ *routableContainer) ScalerFunc {
-	if !w.config.autoScaleDown {
+func (w *dockerWatcherImpl) makeSleeperFunc(rc *routableContainer) SleeperFunc {
+	if !w.config.autoScaleDown || rc == nil || !rc.autoScaleDown {
 		return nil
 	}
 	return func(ctx context.Context) error {
-		logrus.Fatal("Auto scale down is not yet supported for docker")
+		if rc == nil || rc.containerID == "" {
+			return fmt.Errorf("missing container id for sleep")
+		}
+		inspect, err := w.client.ContainerInspect(ctx, rc.containerID)
+		if err != nil {
+			return err
+		}
+		if inspect.State != nil && inspect.State.Running {
+			// Graceful stop with 60s timeout
+			timeout := 60
+			logrus.WithFields(logrus.Fields{"containerID": rc.containerID}).Debug("Stopping container for sleep")
+			if err := w.client.ContainerStop(ctx, rc.containerID, container.StopOptions{Timeout: &timeout}); err != nil {
+				return err
+			}
+			dockerRoutesLock.Lock()
+			defer dockerRoutesLock.Unlock()
+
+			rc.containerEndpoint = ""
+			if rc.externalContainerName != "" {
+				Routes.DeleteMapping(rc.externalContainerName)
+				Routes.CreateMapping(rc.externalContainerName, "", w.makeWakerFunc(rc), w.makeSleeperFunc(rc))
+			} else {
+				Routes.SetDefaultRoute("")
+			}
+
+			return nil
+		}
 		return nil
 	}
 }
@@ -104,7 +198,6 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 	}
 
 	ticker := time.NewTicker(refreshInterval)
-	containerMap := map[string]*routableContainer{}
 
 	logrus.Trace("Performing initial listing of Docker containers")
 	initialContainers, err := w.listContainers(ctx)
@@ -112,6 +205,7 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 		return err
 	}
 
+	dockerRoutesLock.Lock()
 	for _, c := range initialContainers {
 		containerMap[c.externalContainerName] = c
 		if c.externalContainerName != "" {
@@ -120,6 +214,7 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 			Routes.SetDefaultRoute(c.containerEndpoint)
 		}
 	}
+	dockerRoutesLock.Unlock()
 
 	go func() {
 		for {
@@ -133,6 +228,7 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 				}
 
 				visited := map[string]struct{}{}
+				dockerRoutesLock.Lock()
 				for _, rs := range containers {
 					if oldRs, ok := containerMap[rs.externalContainerName]; !ok {
 						containerMap[rs.externalContainerName] = rs
@@ -165,6 +261,7 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 						logrus.WithField("routableContainer", rs).Debug("DELETE")
 					}
 				}
+				dockerRoutesLock.Unlock()
 
 			case <-ctx.Done():
 				logrus.Debug("Stopping Docker monitoring")
@@ -179,28 +276,44 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 }
 
 func (w *dockerWatcherImpl) listContainers(ctx context.Context) ([]*routableContainer, error) {
-	containers, err := w.client.ContainerList(ctx, container.ListOptions{})
+	containers, err := w.client.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
 		return nil, err
 	}
 
 	var result []*routableContainer
 	for _, container := range containers {
-		data, ok := w.parseContainerData(&container)
+		inspect, err := w.client.ContainerInspect(ctx, container.ID)
+		if err != nil {
+			logrus.WithFields(logrus.Fields{"containerID": container.ID}).WithError(err).Error("Failed to inspect Docker container")
+			continue
+		}
+		data, ok := w.parseContainerData(&inspect)
 		if !ok {
 			continue
 		}
 
+		endpoint := ""
+		if !data.notRunning {
+			endpoint = fmt.Sprintf("%s:%d", data.ip, data.port)
+		}
+
 		for _, host := range data.hosts {
 			result = append(result, &routableContainer{
-				containerEndpoint:     fmt.Sprintf("%s:%d", data.ip, data.port),
+				containerEndpoint:     endpoint,
 				externalContainerName: host,
+				containerID:           container.ID,
+				autoScaleUp:           data.autoScaleUp,
+				autoScaleDown:         data.autoScaleDown,
 			})
 		}
 		if data.def != nil && *data.def {
 			result = append(result, &routableContainer{
-				containerEndpoint:     fmt.Sprintf("%s:%d", data.ip, data.port),
+				containerEndpoint:     endpoint,
 				externalContainerName: "",
+				containerID:           container.ID,
+				autoScaleUp:           data.autoScaleUp,
+				autoScaleDown:         data.autoScaleDown,
 			})
 		}
 	}
@@ -209,18 +322,23 @@ func (w *dockerWatcherImpl) listContainers(ctx context.Context) ([]*routableCont
 }
 
 type parsedDockerContainerData struct {
-	hosts   []string
-	port    uint64
-	def     *bool
-	network *string
-	ip      string
+	hosts         []string
+	port          uint64
+	def           *bool
+	network       *string
+	ip            string
+	autoScaleDown bool
+	autoScaleUp   bool
+	notRunning    bool
 }
 
-func (w *dockerWatcherImpl) parseContainerData(container *dockertypes.Container) (data parsedDockerContainerData, ok bool) {
-	for key, value := range container.Labels {
+func (w *dockerWatcherImpl) parseContainerData(container *container.InspectResponse) (data parsedDockerContainerData, ok bool) {
+	data.autoScaleUp = w.config.autoScaleUp
+	data.autoScaleDown = w.config.autoScaleDown
+	for key, value := range container.Config.Labels {
 		if key == DockerRouterLabelHost {
 			if data.hosts != nil {
-				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Names}).
+				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
 					Warnf("ignoring container with duplicate %s label", DockerRouterLabelHost)
 				return
 			}
@@ -229,14 +347,14 @@ func (w *dockerWatcherImpl) parseContainerData(container *dockertypes.Container)
 
 		if key == DockerRouterLabelPort {
 			if data.port != 0 {
-				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Names}).
+				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
 					Warnf("ignoring container with duplicate %s label", DockerRouterLabelPort)
 				return
 			}
 			var err error
 			data.port, err = strconv.ParseUint(value, 10, 32)
 			if err != nil {
-				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Names}).
+				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
 					WithError(err).
 					Warnf("ignoring container with invalid %s label", DockerRouterLabelPort)
 				return
@@ -244,7 +362,7 @@ func (w *dockerWatcherImpl) parseContainerData(container *dockertypes.Container)
 		}
 		if key == DockerRouterLabelDefault {
 			if data.def != nil {
-				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Names}).
+				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
 					Warnf("ignoring container with duplicate %s label", DockerRouterLabelDefault)
 				return
 			}
@@ -255,12 +373,20 @@ func (w *dockerWatcherImpl) parseContainerData(container *dockertypes.Container)
 		}
 		if key == DockerRouterLabelNetwork {
 			if data.network != nil {
-				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Names}).
+				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
 					Warnf("ignoring container with duplicate %s label", DockerRouterLabelNetwork)
 				return
 			}
 			data.network = new(string)
 			*data.network = value
+		}
+		if key == DockerRouterLabelAutoScaleUp {
+			lowerValue := strings.TrimSpace(strings.ToLower(value))
+			data.autoScaleUp = lowerValue != "" && lowerValue != "0" && lowerValue != "false" && lowerValue != "no"
+		}
+		if key == DockerRouterLabelAutoScaleDown {
+			lowerValue := strings.TrimSpace(strings.ToLower(value))
+			data.autoScaleDown = lowerValue != "" && lowerValue != "0" && lowerValue != "false" && lowerValue != "no"
 		}
 	}
 
@@ -270,7 +396,7 @@ func (w *dockerWatcherImpl) parseContainerData(container *dockertypes.Container)
 	}
 
 	if len(container.NetworkSettings.Networks) == 0 {
-		logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Names}).
+		logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
 			Warnf("ignoring container, no networks found")
 		return
 	}
@@ -304,7 +430,7 @@ func (w *dockerWatcherImpl) parseContainerData(container *dockertypes.Container)
 		// if there's more than one network on this container, we should require that the user specifies a network to avoid
 		// weird problems.
 		if len(container.NetworkSettings.Networks) > 1 {
-			logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Names}).
+			logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
 				Warnf("ignoring container, multiple networks found and none specified using label %s", DockerRouterLabelNetwork)
 			return
 		}
@@ -315,10 +441,19 @@ func (w *dockerWatcherImpl) parseContainerData(container *dockertypes.Container)
 		}
 	}
 
-	if data.ip == "" {
-		logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Names}).
+	if data.ip == "" && container.State != nil && container.State.Running {
+		logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
 			Warnf("ignoring container, unable to find accessible ip address")
 		return
+	}
+
+	if container.State != nil && !container.State.Running {
+		if !w.config.autoScaleUp {
+			logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
+				Warnf("ignoring container, not running and auto scale up is disabled")
+			return
+		}
+		data.notRunning = true
 	}
 
 	ok = true
@@ -329,4 +464,7 @@ func (w *dockerWatcherImpl) parseContainerData(container *dockertypes.Container)
 type routableContainer struct {
 	externalContainerName string
 	containerEndpoint     string
+	containerID           string
+	autoScaleUp           bool
+	autoScaleDown         bool
 }

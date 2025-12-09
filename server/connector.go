@@ -417,11 +417,25 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			// Cancel down scaler if active before scale up
 			DownScaler.Cancel(serverAddress)
 			cleanupCheckScaleDown = true
-			if err := waker(c.ctx); err != nil {
+			logrus.WithField("serverAddress", serverAddress).Info("Waking up backend server")
+			newBackendHostPort, err := waker(c.ctx)
+			if err != nil {
 				logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend")
 				c.metrics.Errors.With("type", "wakeup_failed").Add(1)
 				return
 			}
+			if newBackendHostPort == "" {
+				logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).Warn("waker did not return a backend address")
+				c.metrics.Errors.With("type", "wakeup_no_address").Add(1)
+				return
+			}
+			// Cancel again in case any routes were changed during wake up
+			DownScaler.Cancel(serverAddress)
+			backendHostPort = newBackendHostPort
+			logrus.WithFields(logrus.Fields{
+				"serverAddress":   serverAddress,
+				"backendHostPort": backendHostPort,
+			}).Info("Woke up backend server")
 		}
 	}
 
