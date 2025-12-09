@@ -26,6 +26,8 @@ Some other features included:
     	The host:port bound for servicing API requests (env API_BINDING)
   -auto-scale-allow-deny string
     	Path to config for server allowlists and denylists. If a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up when -auto-scale-up is enabled or cancel active down scalers when -auto-scale-down is enabled (env AUTO_SCALE_ALLOW_DENY)
+  -auto-scale-asleep-motd string
+      MOTD to display when auto-scaled down servers are accessed; if empty, no status will be served (env AUTO_SCALE_ASLEEP_MOTD)
   -auto-scale-down
     	Scale to zero after idle. For Kubernetes, decreases StatefulSet replicas from 1 to 0. For Docker, gracefully stops the container when there are no connections (env AUTO_SCALE_DOWN)
   -auto-scale-down-after string
@@ -172,6 +174,8 @@ These are the labels scanned:
 - `mc-router.network`: Specify the network you are using for the router if multiple are present in the container/service. You can either use the network ID, it's full name or an alias.
 - `mc-router.auto-scale-up`: Per-container override to enable/disable auto scale up for Docker. When true (or left unspecified and the global `-auto-scale-up` flag is enabled), mc-router will start or unpause this container when a client connects to the declared hostname(s).
 - `mc-router.auto-scale-down`: Per-container override to enable/disable auto scale down for Docker. When true (or left unspecified and the global `-auto-scale-down` flag is enabled), mc-router will stop this container after it has been idle for the configured `-auto-scale-down-after` duration.
+- `mc-router.auto-scale-asleep-motd`: Per-container override for MOTD to show when container is scaled to zero. If empty or not set the host will
+appear unresponsive.
 
 #### Docker Auto Scale Up/Down
 
