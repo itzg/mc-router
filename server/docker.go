@@ -71,9 +71,7 @@ func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
 		return nil
 	}
 	return func(ctx context.Context) (string, error) {
-		w.dockerRoutesLock.RLock()
 		containerID := rc.containerID
-		w.dockerRoutesLock.RUnlock()
 		if containerID == "" {
 			return "", fmt.Errorf("missing container id for wake")
 		}
@@ -140,9 +138,7 @@ func (w *dockerWatcherImpl) makeSleeperFunc(rc *routableContainer) SleeperFunc {
 		return nil
 	}
 	return func(ctx context.Context) error {
-		w.dockerRoutesLock.RLock()
 		containerID := rc.containerID
-		w.dockerRoutesLock.RUnlock()
 		if containerID == "" {
 			return fmt.Errorf("missing container id for sleep")
 		}
@@ -228,7 +224,10 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 						} else {
 							Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc)
 						}
-					} else if oldRs.containerEndpoint != rs.containerEndpoint {
+					} else if oldRs.containerEndpoint != rs.containerEndpoint ||
+						oldRs.containerID != rs.containerID ||
+						oldRs.autoScaleUp != rs.autoScaleUp ||
+						oldRs.autoScaleDown != rs.autoScaleDown {
 						containerMap[rs.externalContainerName] = rs
 						wakerFunc := w.makeWakerFunc(rs)
 						sleeperFunc := w.makeSleeperFunc(rs)
