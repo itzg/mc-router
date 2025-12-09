@@ -37,7 +37,7 @@ func (m *MockedRoutesHandler) CreateMapping(serverAddress string, backend string
 }
 
 func (m *MockedRoutesHandler) SetDefaultRoute(backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string) {
-	m.MethodCalled("SetDefaultRoute", backend, asleepMOTD)
+	m.MethodCalled("SetDefaultRoute", backend, waker, sleeper, asleepMOTD)
 	if m.routes == nil {
 		m.routes = make(map[string]string)
 	}

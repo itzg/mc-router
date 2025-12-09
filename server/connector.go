@@ -442,10 +442,7 @@ func (c *Connector) serveLegacyStatus(frontendConn net.Conn) {
 	}
 	_ = frontendConn.SetWriteDeadline(time.Now().Add(handshakeTimeout))
 	// 127 protocol for legacy response per spec; version name and motd from predefined JSON if available
-	if motd == "" {
-		motd = "Server is asleep"
-	}
-	// write a basic response: protocol=127, version="1.7+", motd, online=0, max=0
+	// write a basic response: protocol=127, version="1.7+", motd, online=0, max=1
 	if err := mcproto.WriteLegacySLPResponse(frontendConn, 127, "1.7+", motd, 0, 1); err != nil {
 		logrus.WithError(err).Warn("Failed to write legacy SLP response")
 	}
