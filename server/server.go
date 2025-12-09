@@ -86,6 +86,8 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		config.RecordLogins,
 		autoScaleAllowDenyConfig)
 
+	connector.UseAsleepMOTD(config.AutoScale.AsleepMOTD)
+
 	clientFilter, err := NewClientFilter(config.ClientsToAllow, config.ClientsToDeny)
 	if err != nil {
 		return nil, fmt.Errorf("could not create client filter: %w", err)

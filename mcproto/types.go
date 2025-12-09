@@ -79,6 +79,8 @@ const (
 	PacketIdHandshake            = 0x00
 	PacketIdLogin                = 0x00 // during StateLogin
 	PacketIdLegacyServerListPing = 0xFE
+	PacketIdStatusRequest        = 0x00
+	PacketIdStatusPing           = 0x01
 )
 
 type Handshake struct {
@@ -104,6 +106,11 @@ type LegacyServerListPing struct {
 	ProtocolVersion int
 	ServerAddress   string
 	ServerPort      uint16
+}
+
+// PingPayload represents the status ping payload (packet 0x01)
+type PingPayload struct {
+	Value int64
 }
 
 type ByteReader interface {

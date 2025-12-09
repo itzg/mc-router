@@ -6,10 +6,11 @@ type WebhookConfig struct {
 }
 
 type AutoScale struct {
-	Up        bool   `usage:"Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed"`
-	Down      bool   `default:"false" usage:"Decrease Kubernetes StatefulSet Replicas (only) from 1 to 0 on respective backend servers after there are no connections"`
-	DownAfter string `default:"10m" usage:"Server scale down delay after there are no connections"`
-	AllowDeny string `usage:"Path to config for server allowlists and denylists. If a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up when -auto-scale-up is enabled or cancel active down scalers when -auto-scale-down is enabled"`
+	Up         bool   `usage:"Increase Kubernetes StatefulSet Replicas (only) from 0 to 1 on respective backend servers when accessed"`
+	Down       bool   `default:"false" usage:"Decrease Kubernetes StatefulSet Replicas (only) from 1 to 0 on respective backend servers after there are no connections"`
+	DownAfter  string `default:"10m" usage:"Server scale down delay after there are no connections"`
+	AllowDeny  string `usage:"Path to config for server allowlists and denylists. If a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up when -auto-scale-up is enabled or cancel active down scalers when -auto-scale-down is enabled"`
+	AsleepMOTD string `usage:"MOTD to display when auto-scaled down servers are accessed; if empty, no status will be served"`
 }
 
 type RoutesConfig struct {

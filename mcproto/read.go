@@ -58,7 +58,30 @@ func ReadPacket(reader *bufio.Reader, addr net.Addr, state State) (*Packet, erro
 		return nil, err
 	}
 
-	packet.Data = remainder.Bytes()
+	// For status state, decode based on packet ID:
+	// - 0x00 Status Request: no payload
+	// - 0x01 Ping: 8-byte long payload
+	if state == StateStatus {
+		switch packet.PacketID {
+		case PacketIdStatusRequest:
+			// no payload
+			packet.Data = nil
+		case PacketIdStatusPing:
+			// read 8-byte long from remainder
+			if remainder.Len() >= 8 {
+				val := int64(binary.BigEndian.Uint64(remainder.Next(8)))
+				packet.Data = PingPayload{Value: val}
+			} else {
+				// not enough bytes; keep raw for debugging
+				packet.Data = remainder.Bytes()
+			}
+		default:
+			// unknown in status state; keep raw
+			packet.Data = remainder.Bytes()
+		}
+	} else {
+		packet.Data = remainder.Bytes()
+	}
 
 	logrus.
 		WithField("client", addr).
