@@ -185,7 +185,7 @@ func (w *K8sWatcher) handleUpdate(oldObj interface{}, newObj interface{}) {
 		if newRoutableService.externalServiceName != "" {
 			w.routesHandler.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown)
 		} else {
-			w.routesHandler.SetDefaultRoute(newRoutableService.containerEndpoint)
+			w.routesHandler.SetDefaultRoute(newRoutableService.containerEndpoint, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown)
 		}
 	}
 }
@@ -200,7 +200,7 @@ func (w *K8sWatcher) handleDelete(obj interface{}) {
 			if routableService.externalServiceName != "" {
 				w.routesHandler.DeleteMapping(routableService.externalServiceName)
 			} else {
-				w.routesHandler.SetDefaultRoute("")
+				w.routesHandler.SetDefaultRoute("", nil, nil)
 			}
 		}
 	}
@@ -216,7 +216,7 @@ func (w *K8sWatcher) handleAdd(obj interface{}) {
 			if routableService.externalServiceName != "" {
 				w.routesHandler.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint, routableService.autoScaleUp, routableService.autoScaleDown)
 			} else {
-				w.routesHandler.SetDefaultRoute(routableService.containerEndpoint)
+				w.routesHandler.SetDefaultRoute(routableService.containerEndpoint, routableService.autoScaleUp, routableService.autoScaleDown)
 			}
 		}
 	}

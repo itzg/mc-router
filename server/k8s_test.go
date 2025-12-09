@@ -3,9 +3,10 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"github.com/stretchr/testify/mock"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/mock"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,7 +28,7 @@ func (m *MockedRoutesHandler) GetBackendForServer(server string) string {
 	}
 }
 
-func (m *MockedRoutesHandler) CreateMapping(serverAddress string, backend string, waker ScalerFunc, sleeper ScalerFunc) {
+func (m *MockedRoutesHandler) CreateMapping(serverAddress string, backend string, waker WakerFunc, sleeper SleeperFunc) {
 	m.MethodCalled("CreateMapping", serverAddress, backend, waker, sleeper)
 	if m.routes == nil {
 		m.routes = make(map[string]string)
@@ -35,7 +36,7 @@ func (m *MockedRoutesHandler) CreateMapping(serverAddress string, backend string
 	m.routes[serverAddress] = backend
 }
 
-func (m *MockedRoutesHandler) SetDefaultRoute(backend string) {
+func (m *MockedRoutesHandler) SetDefaultRoute(backend string, waker WakerFunc, sleeper SleeperFunc) {
 	m.MethodCalled("SetDefaultRoute", backend)
 	if m.routes == nil {
 		m.routes = make(map[string]string)

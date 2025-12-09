@@ -15,9 +15,6 @@ type WakerFunc func(ctx context.Context) (string, error)
 // SleeperFunc is a function that puts a server to sleep.
 type SleeperFunc func(ctx context.Context) error
 
-var EmptyWakerFunc = func(ctx context.Context) (string, error) { return "", nil }
-var EmptySleeperFunc = func(ctx context.Context) error { return nil }
-
 var tcpShieldPattern = regexp.MustCompile("///.*")
 
 // RouteFinder implementations find new routes in the system that can be tracked by a RoutesHandler
@@ -28,7 +25,7 @@ type RouteFinder interface {
 
 type RoutesHandler interface {
 	CreateMapping(serverAddress string, backend string, waker WakerFunc, sleeper SleeperFunc)
-	SetDefaultRoute(backend string)
+	SetDefaultRoute(backend string, waker WakerFunc, sleeper SleeperFunc)
 	// DeleteMapping requests that the serverAddress be removed from routes.
 	// Returns true if the route existed.
 	DeleteMapping(serverAddress string) bool
@@ -45,7 +42,7 @@ type IRoutes interface {
 	// The 4th value returned is an (optional) "sleeper" function which a caller must invoke to shut down serverAddress.
 	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, WakerFunc, SleeperFunc)
 	GetMappings() map[string]string
-	GetDefaultRoute() string
+	GetDefaultRoute() (string, WakerFunc, SleeperFunc)
 	SimplifySRV(srvEnabled bool)
 }
 
@@ -61,7 +58,7 @@ func NewRoutes() IRoutes {
 
 func (r *routesImpl) RegisterAll(mappings map[string]string) {
 	for k, v := range mappings {
-		r.CreateMapping(k, v, EmptyWakerFunc, EmptySleeperFunc)
+		r.CreateMapping(k, v, nil, nil)
 	}
 }
 
@@ -74,7 +71,7 @@ type mapping struct {
 type routesImpl struct {
 	sync.RWMutex
 	mappings     map[string]mapping
-	defaultRoute string
+	defaultRoute mapping
 	simplifySRV  bool
 }
 
@@ -83,16 +80,16 @@ func (r *routesImpl) Reset() {
 	DownScaler.Reset()
 }
 
-func (r *routesImpl) SetDefaultRoute(backend string) {
-	r.defaultRoute = backend
+func (r *routesImpl) SetDefaultRoute(backend string, waker WakerFunc, sleeper SleeperFunc) {
+	r.defaultRoute = mapping{backend: backend, waker: waker, sleeper: sleeper}
 
 	logrus.WithFields(logrus.Fields{
 		"backend": backend,
 	}).Info("Using default route")
 }
 
-func (r *routesImpl) GetDefaultRoute() string {
-	return r.defaultRoute
+func (r *routesImpl) GetDefaultRoute() (string, WakerFunc, SleeperFunc) {
+	return r.defaultRoute.backend, r.defaultRoute.waker, r.defaultRoute.sleeper
 }
 
 func (r *routesImpl) SimplifySRV(srvEnabled bool) {
@@ -141,7 +138,7 @@ func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddres
 			return mapping.backend, serverAddress, mapping.waker, mapping.sleeper
 		}
 	}
-	return r.defaultRoute, serverAddress, nil, nil
+	return r.defaultRoute.backend, serverAddress, r.defaultRoute.waker, r.defaultRoute.sleeper
 }
 
 func (r *routesImpl) GetMappings() map[string]string {

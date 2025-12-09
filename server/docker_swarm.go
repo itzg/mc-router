@@ -89,10 +89,12 @@ func (w *dockerSwarmWatcherImpl) Start(ctx context.Context) error {
 
 	for _, s := range initialServices {
 		serviceMap[s.externalServiceName] = s
+		wakerFunc := w.makeWakerFunc(s)
+		sleeperFunc := w.makeSleeperFunc(s)
 		if s.externalServiceName != "" {
-			Routes.CreateMapping(s.externalServiceName, s.containerEndpoint, w.makeWakerFunc(s), w.makeSleeperFunc(s))
+			Routes.CreateMapping(s.externalServiceName, s.containerEndpoint, wakerFunc, sleeperFunc)
 		} else {
-			Routes.SetDefaultRoute(s.containerEndpoint)
+			Routes.SetDefaultRoute(s.containerEndpoint, wakerFunc, sleeperFunc)
 		}
 	}
 
@@ -111,18 +113,22 @@ func (w *dockerSwarmWatcherImpl) Start(ctx context.Context) error {
 					if oldRs, ok := serviceMap[rs.externalServiceName]; !ok {
 						serviceMap[rs.externalServiceName] = rs
 						logrus.WithField("routableService", rs).Debug("ADD")
+						wakerFunc := w.makeWakerFunc(rs)
+						sleeperFunc := w.makeSleeperFunc(rs)
 						if rs.externalServiceName != "" {
-							Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, w.makeWakerFunc(rs), w.makeSleeperFunc(rs))
+							Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, wakerFunc, sleeperFunc)
 						} else {
-							Routes.SetDefaultRoute(rs.containerEndpoint)
+							Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc)
 						}
 					} else if oldRs.containerEndpoint != rs.containerEndpoint {
 						serviceMap[rs.externalServiceName] = rs
+						wakerFunc := w.makeWakerFunc(rs)
+						sleeperFunc := w.makeSleeperFunc(rs)
 						if rs.externalServiceName != "" {
 							Routes.DeleteMapping(rs.externalServiceName)
-							Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, w.makeWakerFunc(rs), w.makeSleeperFunc(rs))
+							Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, wakerFunc, sleeperFunc)
 						} else {
-							Routes.SetDefaultRoute(rs.containerEndpoint)
+							Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc)
 						}
 						logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
 					}
@@ -134,7 +140,7 @@ func (w *dockerSwarmWatcherImpl) Start(ctx context.Context) error {
 						if rs.externalServiceName != "" {
 							Routes.DeleteMapping(rs.externalServiceName)
 						} else {
-							Routes.SetDefaultRoute("")
+							Routes.SetDefaultRoute("", nil, nil)
 						}
 						logrus.WithField("routableService", rs).Debug("DELETE")
 					}

@@ -111,11 +111,13 @@ func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
 		w.dockerRoutesLock.Lock()
 		if endpoint != rc.containerEndpoint {
 			rc.containerEndpoint = endpoint
+			wakerFunc := w.makeWakerFunc(rc)
+			sleeperFunc := w.makeSleeperFunc(rc)
 			if rc.externalContainerName != "" {
 				Routes.DeleteMapping(rc.externalContainerName)
-				Routes.CreateMapping(rc.externalContainerName, rc.containerEndpoint, w.makeWakerFunc(rc), w.makeSleeperFunc(rc))
+				Routes.CreateMapping(rc.externalContainerName, rc.containerEndpoint, wakerFunc, sleeperFunc)
 			} else {
-				Routes.SetDefaultRoute(rc.containerEndpoint)
+				Routes.SetDefaultRoute(rc.containerEndpoint, wakerFunc, sleeperFunc)
 			}
 		}
 		w.dockerRoutesLock.Unlock()
@@ -166,11 +168,13 @@ func (w *dockerWatcherImpl) makeSleeperFunc(rc *routableContainer) SleeperFunc {
 			defer w.dockerRoutesLock.Unlock()
 
 			rc.containerEndpoint = ""
+			wakerFunc := w.makeWakerFunc(rc)
+			sleeperFunc := w.makeSleeperFunc(rc)
 			if rc.externalContainerName != "" {
 				Routes.DeleteMapping(rc.externalContainerName)
-				Routes.CreateMapping(rc.externalContainerName, "", w.makeWakerFunc(rc), w.makeSleeperFunc(rc))
+				Routes.CreateMapping(rc.externalContainerName, "", wakerFunc, sleeperFunc)
 			} else {
-				Routes.SetDefaultRoute("")
+				Routes.SetDefaultRoute("", wakerFunc, sleeperFunc)
 			}
 
 			return nil
@@ -211,10 +215,12 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 	containerMap := map[string]*routableContainer{}
 	for _, c := range initialContainers {
 		containerMap[c.externalContainerName] = c
+		wakerFunc := w.makeWakerFunc(c)
+		sleeperFunc := w.makeSleeperFunc(c)
 		if c.externalContainerName != "" {
-			Routes.CreateMapping(c.externalContainerName, c.containerEndpoint, w.makeWakerFunc(c), w.makeSleeperFunc(c))
+			Routes.CreateMapping(c.externalContainerName, c.containerEndpoint, wakerFunc, sleeperFunc)
 		} else {
-			Routes.SetDefaultRoute(c.containerEndpoint)
+			Routes.SetDefaultRoute(c.containerEndpoint, wakerFunc, sleeperFunc)
 		}
 	}
 	w.dockerRoutesLock.Unlock()
@@ -236,18 +242,22 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 					if oldRs, ok := containerMap[rs.externalContainerName]; !ok {
 						containerMap[rs.externalContainerName] = rs
 						logrus.WithField("routableContainer", rs).Debug("ADD")
+						wakerFunc := w.makeWakerFunc(rs)
+						sleeperFunc := w.makeSleeperFunc(rs)
 						if rs.externalContainerName != "" {
-							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, w.makeWakerFunc(rs), w.makeSleeperFunc(rs))
+							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, wakerFunc, sleeperFunc)
 						} else {
-							Routes.SetDefaultRoute(rs.containerEndpoint)
+							Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc)
 						}
 					} else if oldRs.containerEndpoint != rs.containerEndpoint {
 						containerMap[rs.externalContainerName] = rs
+						wakerFunc := w.makeWakerFunc(rs)
+						sleeperFunc := w.makeSleeperFunc(rs)
 						if rs.externalContainerName != "" {
 							Routes.DeleteMapping(rs.externalContainerName)
-							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, w.makeWakerFunc(rs), w.makeSleeperFunc(rs))
+							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, wakerFunc, sleeperFunc)
 						} else {
-							Routes.SetDefaultRoute(rs.containerEndpoint)
+							Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc)
 						}
 						logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
 					}
@@ -259,7 +269,7 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 						if rs.externalContainerName != "" {
 							Routes.DeleteMapping(rs.externalContainerName)
 						} else {
-							Routes.SetDefaultRoute("")
+							Routes.SetDefaultRoute("", nil, nil)
 						}
 						logrus.WithField("routableContainer", rs).Debug("DELETE")
 					}
