@@ -225,8 +225,8 @@ func (w *K8sWatcher) handleAdd(obj interface{}) {
 type routableService struct {
 	externalServiceName string
 	containerEndpoint   string
-	autoScaleUp         ScalerFunc
-	autoScaleDown       ScalerFunc
+	autoScaleUp         WakerFunc
+	autoScaleDown       SleeperFunc
 }
 
 // obj is expected to be a *v1.Service
@@ -271,16 +271,23 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 	} else if len(mcPort) > 0 {
 		port = mcPort
 	}
+	endpoint := net.JoinHostPort(clusterIp, port)
+	waker_func := w.buildScaleFunction(service, 0, 1)
 	rs := &routableService{
 		externalServiceName: externalServiceName,
-		containerEndpoint:   net.JoinHostPort(clusterIp, port),
-		autoScaleUp:         w.buildScaleFunction(service, 0, 1),
-		autoScaleDown:       w.buildScaleFunction(service, 1, 0),
+		containerEndpoint:   endpoint,
+		autoScaleUp: func(ctx context.Context) (string, error) {
+			if err := waker_func(ctx); err != nil {
+				return "", err
+			}
+			return endpoint, nil
+		},
+		autoScaleDown: w.buildScaleFunction(service, 1, 0),
 	}
 	return rs
 }
 
-func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to int32) ScalerFunc {
+func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to int32) SleeperFunc {
 	// Currently, annotations can only be used to opt-out of auto-scaling.
 	// However, this logic is prepared also for opt-in, as it returns a `ScalerFunc` when flags are false but annotations are set to `enabled`.
 	if from <= to {

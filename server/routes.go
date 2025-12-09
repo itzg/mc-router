@@ -9,9 +9,14 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type ScalerFunc func(ctx context.Context) error
+// WakerFunc is a function that wakes up a server and returns its address.
+type WakerFunc func(ctx context.Context) (string, error)
 
-var EmptyScalerFunc = func(ctx context.Context) error { return nil }
+// SleeperFunc is a function that puts a server to sleep.
+type SleeperFunc func(ctx context.Context) error
+
+var EmptyWakerFunc = func(ctx context.Context) (string, error) { return "", nil }
+var EmptySleeperFunc = func(ctx context.Context) error { return nil }
 
 var tcpShieldPattern = regexp.MustCompile("///.*")
 
@@ -22,7 +27,7 @@ type RouteFinder interface {
 }
 
 type RoutesHandler interface {
-	CreateMapping(serverAddress string, backend string, waker ScalerFunc, sleeper ScalerFunc)
+	CreateMapping(serverAddress string, backend string, waker WakerFunc, sleeper SleeperFunc)
 	SetDefaultRoute(backend string)
 	// DeleteMapping requests that the serverAddress be removed from routes.
 	// Returns true if the route existed.
@@ -38,7 +43,7 @@ type IRoutes interface {
 	// Otherwise, an empty string is returned. Also returns the normalized version of the given serverAddress.
 	// The 3rd value returned is an (optional) "waker" function which a caller must invoke to wake up serverAddress.
 	// The 4th value returned is an (optional) "sleeper" function which a caller must invoke to shut down serverAddress.
-	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, ScalerFunc, ScalerFunc)
+	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, WakerFunc, SleeperFunc)
 	GetMappings() map[string]string
 	GetDefaultRoute() string
 	SimplifySRV(srvEnabled bool)
@@ -56,14 +61,14 @@ func NewRoutes() IRoutes {
 
 func (r *routesImpl) RegisterAll(mappings map[string]string) {
 	for k, v := range mappings {
-		r.CreateMapping(k, v, EmptyScalerFunc, EmptyScalerFunc)
+		r.CreateMapping(k, v, EmptyWakerFunc, EmptySleeperFunc)
 	}
 }
 
 type mapping struct {
 	backend string
-	waker   ScalerFunc
-	sleeper ScalerFunc
+	waker   WakerFunc
+	sleeper SleeperFunc
 }
 
 type routesImpl struct {
@@ -94,7 +99,7 @@ func (r *routesImpl) SimplifySRV(srvEnabled bool) {
 	r.simplifySRV = srvEnabled
 }
 
-func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddress string) (string, string, ScalerFunc, ScalerFunc) {
+func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddress string) (string, string, WakerFunc, SleeperFunc) {
 	r.RLock()
 	defer r.RUnlock()
 
@@ -165,7 +170,7 @@ func (r *routesImpl) DeleteMapping(serverAddress string) bool {
 	}
 }
 
-func (r *routesImpl) CreateMapping(serverAddress string, backend string, waker ScalerFunc, sleeper ScalerFunc) {
+func (r *routesImpl) CreateMapping(serverAddress string, backend string, waker WakerFunc, sleeper SleeperFunc) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -178,5 +183,7 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, waker S
 	r.mappings[serverAddress] = mapping{backend: backend, waker: waker, sleeper: sleeper}
 
 	// Trigger auto scale down when mapping is created to ensure servers are shut down if router restarts
-	DownScaler.Begin(serverAddress)
+	if backend != "" {
+		DownScaler.Begin(serverAddress)
+	}
 }

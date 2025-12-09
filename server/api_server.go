@@ -81,7 +81,7 @@ func routesCreateHandler(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	Routes.CreateMapping(definition.ServerAddress, definition.Backend, EmptyScalerFunc, EmptyScalerFunc)
+	Routes.CreateMapping(definition.ServerAddress, definition.Backend, EmptyWakerFunc, EmptySleeperFunc)
 	RoutesConfigLoader.SaveRoutes()
 	writer.WriteHeader(http.StatusCreated)
 }

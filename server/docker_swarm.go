@@ -38,17 +38,17 @@ type dockerSwarmWatcherImpl struct {
 	client *client.Client
 }
 
-func (w *dockerSwarmWatcherImpl) makeWakerFunc(_ *routableService) ScalerFunc {
+func (w *dockerSwarmWatcherImpl) makeWakerFunc(_ *routableService) WakerFunc {
 	if !w.config.autoScaleUp {
 		return nil
 	}
-	return func(ctx context.Context) error {
+	return func(ctx context.Context) (string, error) {
 		logrus.Fatal("Auto scale up is not yet supported for docker swarm")
-		return nil
+		return "", nil
 	}
 }
 
-func (w *dockerSwarmWatcherImpl) makeSleeperFunc(_ *routableService) ScalerFunc {
+func (w *dockerSwarmWatcherImpl) makeSleeperFunc(_ *routableService) SleeperFunc {
 	if !w.config.autoScaleDown {
 		return nil
 	}
