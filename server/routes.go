@@ -40,6 +40,7 @@ type IRoutes interface {
 	// Otherwise, an empty string is returned. Also returns the normalized version of the given serverAddress.
 	// The 3rd value returned is an (optional) "waker" function which a caller must invoke to wake up serverAddress.
 	// The 4th value returned is an (optional) "sleeper" function which a caller must invoke to shut down serverAddress.
+	HasRoute(serverAddress string) bool
 	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, WakerFunc, SleeperFunc)
 	GetSleepers(backend string) []SleeperFunc
 	GetMappings() map[string]string
@@ -111,6 +112,14 @@ func (r *routesImpl) GetAsleepMOTD(serverAddress string) string {
 
 func (r *routesImpl) SimplifySRV(srvEnabled bool) {
 	r.simplifySRV = srvEnabled
+}
+
+func (r *routesImpl) HasRoute(serverAddress string) bool {
+	r.RLock()
+	defer r.RUnlock()
+
+	_, exists := r.mappings[serverAddress]
+	return exists
 }
 
 func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddress string) (string, string, WakerFunc, SleeperFunc) {

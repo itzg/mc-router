@@ -567,7 +567,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		}
 
 		// If status request and configured, serve predefined response
-		if nextState == mcproto.StateStatus {
+		if nextState == mcproto.StateStatus && Routes.HasRoute(serverAddress) {
 			logrus.WithFields(logrus.Fields{
 				"client":   clientAddr,
 				"server":   serverAddress,
