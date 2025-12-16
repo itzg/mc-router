@@ -66,14 +66,13 @@ func ReadPacket(reader *bufio.Reader, addr net.Addr, state State) (*Packet, erro
 		case PacketIdStatusRequest:
 			// no payload
 			packet.Data = nil
-		case PacketIdStatusPing:
-			// read 8-byte long from remainder
-			if remainder.Len() >= 8 {
-				val := int64(binary.BigEndian.Uint64(remainder.Next(8)))
-				packet.Data = PingPayload{Value: val}
-			} else {
-				// not enough bytes; keep raw for debugging
-				packet.Data = remainder.Bytes()
+		case PacketIdPingRequest:
+			timestamp, err := ReadLong(remainder)
+			if err != nil {
+				return nil, err
+			}
+			packet.Data = &PingPayload{
+				Timestamp: timestamp,
 			}
 		default:
 			// unknown in status state; keep raw

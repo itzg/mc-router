@@ -360,10 +360,10 @@ func (c *Connector) serveStatus(frontendConn net.Conn, reader *bufio.Reader, ser
 	var pingPending bool
 	var pingVal int64
 	if err == nil && firstPkt != nil {
-		if firstPkt.PacketID == mcproto.PacketIdStatusPing {
+		if firstPkt.PacketID == mcproto.PacketIdPingRequest {
 			if payload, ok := firstPkt.Data.(mcproto.PingPayload); ok {
 				pingPending = true
-				pingVal = payload.Value
+				pingVal = payload.Timestamp
 				logrus.WithFields(logrus.Fields{
 					"client":   frontendConn.RemoteAddr(),
 					"ping_val": pingVal,
@@ -375,7 +375,7 @@ func (c *Connector) serveStatus(frontendConn net.Conn, reader *bufio.Reader, ser
 		logrus.WithFields(logrus.Fields{
 			"client": frontendConn.RemoteAddr(),
 			"error":  err,
-		}).Debug("Predefined status: error reading initial status packet")
+		}).Warn("Predefined status: error reading initial status packet")
 	}
 
 	// Build and write Status Response
@@ -398,10 +398,10 @@ func (c *Connector) serveStatus(frontendConn net.Conn, reader *bufio.Reader, ser
 	if !pingPending {
 		_ = frontendConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 		if nextPkt, err2 := mcproto.ReadPacket(reader, frontendConn.RemoteAddr(), mcproto.StateStatus); err2 == nil && nextPkt != nil {
-			if nextPkt.PacketID == mcproto.PacketIdStatusPing {
+			if nextPkt.PacketID == mcproto.PacketIdPingRequest {
 				if payload, ok := nextPkt.Data.(mcproto.PingPayload); ok {
 					pingPending = true
-					pingVal = payload.Value
+					pingVal = payload.Timestamp
 					logrus.WithFields(logrus.Fields{
 						"client":   frontendConn.RemoteAddr(),
 						"ping_val": pingVal,

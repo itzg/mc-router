@@ -51,25 +51,6 @@ func buildPacket(packetID int32, payload []byte) []byte {
 	return framed.Bytes()
 }
 
-// StatusResponse is a minimal structure for the status JSON
-type StatusResponse struct {
-	Version struct {
-		Name     string `json:"name"`
-		Protocol int    `json:"protocol"`
-	} `json:"version"`
-	Players struct {
-		Max    int `json:"max"`
-		Online int `json:"online"`
-		Sample []struct {
-			Name string `json:"name"`
-			ID   string `json:"id"`
-		} `json:"sample,omitempty"`
-	} `json:"players"`
-	Description        map[string]interface{} `json:"description"`
-	Favicon            string                 `json:"favicon,omitempty"`
-	EnforcesSecureChat *bool                  `json:"enforcesSecureChat,omitempty"`
-}
-
 // WriteStatusJSONPacket writes a Status Response (packet 0x00) with the provided JSON string
 func WriteStatusJSONPacket(w io.Writer, jsonString string) error {
 	// payload is the JSON as a Minecraft string
@@ -77,7 +58,7 @@ func WriteStatusJSONPacket(w io.Writer, jsonString string) error {
 	if err := WriteString(&payload, jsonString); err != nil {
 		return err
 	}
-	pkt := buildPacket(0x00, payload.Bytes())
+	pkt := buildPacket(PacketIdStatusResponse, payload.Bytes())
 	_, err := w.Write(pkt)
 	return err
 }
@@ -92,13 +73,13 @@ func WriteStatusFromStruct(w io.Writer, status StatusResponse) error {
 }
 
 // WritePongPacket writes Pong (packet 0x01) with the same payload
-func WritePongPacket(w io.Writer, payload int64) error {
+func WritePongPacket(w io.Writer, timestamp int64) error {
 	var pl bytes.Buffer
 	// payload is a signed long (64-bit)
 	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], uint64(payload))
+	binary.BigEndian.PutUint64(buf[:], uint64(timestamp))
 	pl.Write(buf[:])
-	pkt := buildPacket(0x01, pl.Bytes())
+	pkt := buildPacket(PackedIdPongResponse, pl.Bytes())
 	_, err := w.Write(pkt)
 	return err
 }
