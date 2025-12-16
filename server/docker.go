@@ -357,10 +357,14 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 					Warnf("ignoring container with duplicate %s label", DockerRouterLabelDefault)
 				return
 			}
-			data.def = new(bool)
-
-			lowerValue := strings.TrimSpace(strings.ToLower(value))
-			*data.def = lowerValue != "" && lowerValue != "0" && lowerValue != "false" && lowerValue != "no"
+			defaultValue, err := strconv.ParseBool(strings.TrimSpace(value))
+			if err != nil {
+				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
+					WithError(err).
+					Warnf("ignoring container with invalid value for %s label", DockerRouterLabelDefault)
+				return
+			}
+			data.def = &defaultValue
 		}
 		if key == DockerRouterLabelNetwork {
 			if data.network != nil {
@@ -372,12 +376,24 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 			*data.network = value
 		}
 		if key == DockerRouterLabelAutoScaleUp {
-			lowerValue := strings.TrimSpace(strings.ToLower(value))
-			data.autoScaleUp = lowerValue != "" && lowerValue != "0" && lowerValue != "false" && lowerValue != "no"
+			autoScaleUp, err := strconv.ParseBool(strings.TrimSpace(value))
+			if err != nil {
+				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
+					WithError(err).
+					Warnf("ignoring container with invalid value for %s label", DockerRouterLabelAutoScaleUp)
+				return
+			}
+			data.autoScaleUp = autoScaleUp
 		}
 		if key == DockerRouterLabelAutoScaleDown {
-			lowerValue := strings.TrimSpace(strings.ToLower(value))
-			data.autoScaleDown = lowerValue != "" && lowerValue != "0" && lowerValue != "false" && lowerValue != "no"
+			autoScaleDown, err := strconv.ParseBool(strings.TrimSpace(value))
+			if err != nil {
+				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
+					WithError(err).
+					Warnf("ignoring container with invalid value for %s label", DockerRouterLabelAutoScaleDown)
+				return
+			}
+			data.autoScaleDown = autoScaleDown
 		}
 		if key == DockerRouterLabelAutoScaleAsleepMOTD {
 			data.autoScaleAsleepMOTD = value

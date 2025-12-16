@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -293,7 +294,15 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 	if from <= to {
 		enabled, exists := service.Annotations[AnnotationAutoScaleUp]
 		if exists {
-			if enabled == "false" {
+			enabledBool, err := strconv.ParseBool(strings.TrimSpace(enabled))
+			if err != nil {
+				logrus.WithFields(logrus.Fields{"service": service.Name}).
+					WithError(err).
+					Warnf("invalid value for %s annotation - disabling service auto-scale-up", AnnotationAutoScaleUp)
+				return nil
+			}
+
+			if !enabledBool {
 				return nil
 			}
 		} else {
@@ -305,7 +314,15 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 	if from >= to {
 		enabled, exists := service.Annotations[AnnotationAutoScaleDown]
 		if exists {
-			if enabled == "false" {
+			enabledBool, err := strconv.ParseBool(strings.TrimSpace(enabled))
+			if err != nil {
+				logrus.WithFields(logrus.Fields{"service": service.Name}).
+					WithError(err).
+					Warnf("invalid value for %s annotation - disabling service auto-scale-down", AnnotationAutoScaleDown)
+				return nil
+			}
+
+			if !enabledBool {
 				return nil
 			}
 		} else {
