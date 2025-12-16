@@ -62,9 +62,8 @@ func NewDockerWatcher(socket string, timeoutSeconds int, refreshIntervalSeconds 
 
 type dockerWatcherImpl struct {
 	sync.RWMutex
-	config           dockerWatcherConfig
-	client           *client.Client
-	dockerRoutesLock sync.RWMutex
+	config dockerWatcherConfig
+	client *client.Client
 }
 
 func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
@@ -187,7 +186,6 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 		return err
 	}
 
-	w.dockerRoutesLock.Lock()
 	containerMap := map[string]*routableContainer{}
 	for _, c := range initialContainers {
 		containerMap[c.externalContainerName] = c
@@ -199,7 +197,6 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 			Routes.SetDefaultRoute(c.containerEndpoint, wakerFunc, sleeperFunc, c.autoScaleAsleepMOTD)
 		}
 	}
-	w.dockerRoutesLock.Unlock()
 
 	go func() {
 		for {
@@ -213,7 +210,6 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 				}
 
 				visited := map[string]struct{}{}
-				w.dockerRoutesLock.Lock()
 				for _, rs := range containers {
 					if oldRs, ok := containerMap[rs.externalContainerName]; !ok {
 						containerMap[rs.externalContainerName] = rs
@@ -254,7 +250,6 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 						logrus.WithField("routableContainer", rs).Debug("DELETE")
 					}
 				}
-				w.dockerRoutesLock.Unlock()
 
 			case <-ctx.Done():
 				logrus.Debug("Stopping Docker monitoring")
