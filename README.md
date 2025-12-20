@@ -191,7 +191,9 @@ To use scale-to-zero with Docker containers:
     -in-docker -auto-scale-up -auto-scale-down -auto-scale-down-after=10m
   ```
 
-- Label each Minecraft container with at least `mc-router.host`, and optionally `mc-router.port` (defaults to 25565). You can also set per-container autoscale overrides using `mc-router.auto-scale-up` and `mc-router.auto-scale-down`.
+- Label each Minecraft container with at least `mc-router.host`. You can also set per-container autoscale overrides using `mc-router.auto-scale-up` and `mc-router.auto-scale-down` labels.
+
+For usage with docker compose refer to the [examples/docker-autoscale/compose.yml](examples/docker-autoscale/compose.yml) or [examples/docker-autoscale/compose-minimal.yml](examples/docker-autoscale/compose-minimal.yml) examples.
 
 Behavior:
 
