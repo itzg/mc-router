@@ -38,30 +38,30 @@ func NewActiveConnections() *ActiveConnections {
 	}
 }
 
-func (sm *ActiveConnections) Increment(serverAddress string) {
+func (sm *ActiveConnections) Increment(backendAddress string) {
 	sm.Lock()
 	defer sm.Unlock()
-	if _, ok := sm.activeConnections[serverAddress]; !ok {
-		sm.activeConnections[serverAddress] = 1
+	if _, ok := sm.activeConnections[backendAddress]; !ok {
+		sm.activeConnections[backendAddress] = 1
 		return
 	}
-	sm.activeConnections[serverAddress] += 1
+	sm.activeConnections[backendAddress] += 1
 }
 
-func (sm *ActiveConnections) Decrement(serverAddress string) {
+func (sm *ActiveConnections) Decrement(backendAddress string) {
 	sm.Lock()
 	defer sm.Unlock()
-	if activeConnections, ok := sm.activeConnections[serverAddress]; ok && activeConnections <= 0 {
-		sm.activeConnections[serverAddress] = 0
+	if activeConnections, ok := sm.activeConnections[backendAddress]; ok && activeConnections <= 0 {
+		sm.activeConnections[backendAddress] = 0
 		return
 	}
-	sm.activeConnections[serverAddress] -= 1
+	sm.activeConnections[backendAddress] -= 1
 }
 
-func (sm *ActiveConnections) GetCount(serverAddress string) int {
+func (sm *ActiveConnections) GetCount(backendAddress string) int {
 	sm.Lock()
 	defer sm.Unlock()
-	if activeConnections, ok := sm.activeConnections[serverAddress]; ok {
+	if activeConnections, ok := sm.activeConnections[backendAddress]; ok {
 		return activeConnections
 	}
 	return 0
@@ -100,6 +100,7 @@ type Connector struct {
 	clientFilter               *ClientFilter
 	autoScaleUpAllowDenyConfig *AllowDenyConfig
 	connectionNotifier         ConnectionNotifier
+	asleepMOTD                 string
 }
 
 func (c *Connector) UseConnectionNotifier(notifier ConnectionNotifier) {
@@ -312,7 +313,7 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 				Debug("Got user info")
 		}
 
-		c.findAndConnectBackend(frontendConn, clientAddr, inspectionBuffer, handshake.ServerAddress, playerInfo, handshake.NextState)
+		c.findAndConnectBackend(frontendConn, clientAddr, inspectionBuffer, handshake.ServerAddress, playerInfo, handshake.NextState, false, int(handshake.ProtocolVersion))
 
 	} else if packet.PacketID == mcproto.PacketIdLegacyServerListPing {
 		handshake, ok := packet.Data.(*mcproto.LegacyServerListPing)
@@ -332,7 +333,7 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 
 		serverAddress := handshake.ServerAddress
 
-		c.findAndConnectBackend(frontendConn, clientAddr, inspectionBuffer, serverAddress, nil, mcproto.StateStatus)
+		c.findAndConnectBackend(frontendConn, clientAddr, inspectionBuffer, serverAddress, nil, mcproto.StateStatus, true, 0)
 	} else {
 		logrus.
 			WithField("client", clientAddr).
@@ -340,6 +341,110 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 			Error("Unexpected packetID, expected handshake")
 		c.metrics.Errors.With("type", "unexpected_content").Add(1)
 		return
+	}
+}
+
+// serveStatus writes a predefined status JSON and optionally handles ping/pong
+func (c *Connector) serveStatus(frontendConn net.Conn, reader *bufio.Reader, serverAddress string, clientProtocol int) {
+	motd := Routes.GetAsleepMOTD(serverAddress)
+	if motd == "" {
+		motd = c.asleepMOTD
+	}
+	if motd == "" {
+		return
+	}
+
+	// Consume Status Request (0x00) if present; some clients may send Ping (0x01) directly
+	_ = frontendConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	firstPkt, err := mcproto.ReadPacket(reader, frontendConn.RemoteAddr(), mcproto.StateStatus)
+	var pingPending bool
+	var pingVal int64
+	if err == nil && firstPkt != nil {
+		if firstPkt.PacketID == mcproto.PacketIdPingRequest {
+			if payload, ok := firstPkt.Data.(mcproto.PingPayload); ok {
+				pingPending = true
+				pingVal = payload.Timestamp
+				logrus.WithFields(logrus.Fields{
+					"client":   frontendConn.RemoteAddr(),
+					"ping_val": pingVal,
+				}).Debug("Predefined status: received immediate ping")
+			}
+		}
+		// else 0x00 is the normal status request; proceed to write response
+	} else if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"client": frontendConn.RemoteAddr(),
+			"error":  err,
+		}).Warn("Predefined status: error reading initial status packet")
+	}
+
+	// Build and write Status Response
+	viName, viProto := c.getVersionInfo(serverAddress, clientProtocol)
+	var status mcproto.StatusResponse
+	status.Version.Name = viName
+	status.Version.Protocol = viProto
+	status.Players.Max = 1
+	status.Players.Online = 0
+	status.Description = map[string]interface{}{"text": motd}
+
+	// Write Status Response
+	_ = frontendConn.SetWriteDeadline(time.Now().Add(handshakeTimeout))
+	if err := mcproto.WriteStatusFromStruct(frontendConn, status); err != nil {
+		logrus.WithError(err).Warn("Failed to write predefined status response")
+		return
+	}
+
+	// If we didn't already get a ping, briefly wait for one
+	if !pingPending {
+		_ = frontendConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		if nextPkt, err2 := mcproto.ReadPacket(reader, frontendConn.RemoteAddr(), mcproto.StateStatus); err2 == nil && nextPkt != nil {
+			if nextPkt.PacketID == mcproto.PacketIdPingRequest {
+				if payload, ok := nextPkt.Data.(mcproto.PingPayload); ok {
+					pingPending = true
+					pingVal = payload.Timestamp
+					logrus.WithFields(logrus.Fields{
+						"client":   frontendConn.RemoteAddr(),
+						"ping_val": pingVal,
+					}).Debug("Predefined status: received ping after status")
+				}
+			}
+		} else if err2 != nil {
+			logrus.WithFields(logrus.Fields{
+				"client": frontendConn.RemoteAddr(),
+				"error":  err2,
+			}).Debug("Predefined status: error/timeout reading ping after status")
+		}
+	}
+	if pingPending {
+		if err := mcproto.WritePongPacket(frontendConn, pingVal); err != nil {
+			logrus.WithFields(logrus.Fields{
+				"client": frontendConn.RemoteAddr(),
+				"error":  err,
+			}).Warn("Predefined status: failed to write pong")
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"client":   frontendConn.RemoteAddr(),
+				"ping_val": pingVal,
+			}).Debug("Predefined status: wrote pong")
+		}
+	} else {
+		logrus.WithFields(logrus.Fields{
+			"client": frontendConn.RemoteAddr(),
+		}).Debug("Predefined status: no ping received, closing")
+	}
+}
+
+// serveLegacyStatus writes a simple legacy SLP response and closes the connection
+func (c *Connector) serveLegacyStatus(frontendConn net.Conn) {
+	motd := c.asleepMOTD
+	if motd == "" {
+		return
+	}
+	_ = frontendConn.SetWriteDeadline(time.Now().Add(handshakeTimeout))
+	// 127 protocol for legacy response per spec; version name and motd from predefined JSON if available
+	// write a basic response: protocol=127, version="1.7+", motd, online=0, max=1
+	if err := mcproto.WriteLegacySLPResponse(frontendConn, 127, "1.7+", motd, 0, 1); err != nil {
+		logrus.WithError(err).Warn("Failed to write legacy SLP response")
 	}
 }
 
@@ -375,10 +480,10 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 		c.metrics.ActiveConnections.Set(float64(
 			atomic.AddInt32(&c.totalActiveConnections, -1)))
 
-		c.activeConnections.Decrement(serverAddress)
+		c.activeConnections.Decrement(backendHostPort)
 		c.metrics.ServerActiveConnections.
 			With("server_address", serverAddress).
-			Set(float64(c.activeConnections.GetCount(serverAddress)))
+			Set(float64(c.activeConnections.GetCount(backendHostPort)))
 
 		if c.recordLogins && playerInfo != nil {
 			c.metrics.ServerActivePlayer.
@@ -388,14 +493,19 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 				Set(0)
 		}
 	}
-	if checkScaleDown && c.activeConnections.GetCount(serverAddress) <= 0 {
-		DownScaler.Begin(serverAddress)
+	logrus.
+		WithField("client", clientAddr).
+		WithField("backendHostPort", backendHostPort).
+		WithField("connectionCount", c.activeConnections.GetCount(backendHostPort)).
+		Info("Closed connection to backend")
+	if checkScaleDown && c.activeConnections.GetCount(backendHostPort) <= 0 {
+		DownScaler.Begin(backendHostPort)
 	}
 	c.connectionsCond.Signal()
 }
 
 func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
-	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, playerInfo *PlayerInfo, nextState mcproto.State) {
+	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, playerInfo *PlayerInfo, nextState mcproto.State, isLegacy bool, clientProtocol int) {
 
 	backendHostPort, resolvedHost, waker, _ := Routes.FindBackendForServerAddress(c.ctx, serverAddress)
 	cleanupMetrics := false
@@ -415,13 +525,29 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			Debug("checked if player is allowed to wake up the server")
 		if serverAllowsPlayer {
 			// Cancel down scaler if active before scale up
-			DownScaler.Cancel(serverAddress)
+			if backendHostPort != "" {
+				DownScaler.Cancel(backendHostPort)
+			}
 			cleanupCheckScaleDown = true
-			if err := waker(c.ctx); err != nil {
+			logrus.WithField("serverAddress", serverAddress).Info("Waking up backend server")
+			newBackendHostPort, err := waker(c.ctx)
+			if err != nil {
 				logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend")
 				c.metrics.Errors.With("type", "wakeup_failed").Add(1)
 				return
 			}
+			if newBackendHostPort == "" {
+				logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).Warn("waker did not return a backend address")
+				c.metrics.Errors.With("type", "wakeup_no_address").Add(1)
+				return
+			}
+			// Cancel again in case any routes were changed during wake up
+			DownScaler.Cancel(newBackendHostPort)
+			backendHostPort = newBackendHostPort
+			logrus.WithFields(logrus.Fields{
+				"serverAddress":   serverAddress,
+				"backendHostPort": backendHostPort,
+			}).Info("Woke up backend server")
 		}
 	}
 
@@ -440,6 +566,22 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			}
 		}
 
+		// If status request and configured, serve predefined response
+		if nextState == mcproto.StateStatus && Routes.HasRoute(serverAddress) {
+			logrus.WithFields(logrus.Fields{
+				"client":   clientAddr,
+				"server":   serverAddress,
+				"isLegacy": isLegacy,
+			}).Debug("Missing backend: serving predefined status response")
+
+			// Read Status Request and Ping directly from the client connection
+			br := bufio.NewReader(frontendConn)
+			if isLegacy {
+				c.serveLegacyStatus(frontendConn)
+			} else {
+				c.serveStatus(frontendConn, br, serverAddress, clientProtocol)
+			}
+		}
 		return
 	}
 
@@ -483,10 +625,10 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 	c.metrics.ActiveConnections.Set(float64(
 		atomic.AddInt32(&c.totalActiveConnections, 1)))
 
-	c.activeConnections.Increment(serverAddress)
+	c.activeConnections.Increment(backendHostPort)
 	c.metrics.ServerActiveConnections.
 		With("server_address", serverAddress).
-		Set(float64(c.activeConnections.GetCount(serverAddress)))
+		Set(float64(c.activeConnections.GetCount(backendHostPort)))
 
 	if c.recordLogins && playerInfo != nil {
 		logrus.
@@ -623,4 +765,25 @@ func (c *Connector) UseNgrok(config NgrokConfig) {
 func (c *Connector) UseReceiveProxyProto(trustedProxyNets []*net.IPNet) {
 	c.trustedProxyNets = trustedProxyNets
 	c.receiveProxyProto = true
+}
+
+// UseAsleepMOTD configures a predefined MOTD to serve when backends are asleep
+func (c *Connector) UseAsleepMOTD(motd string) {
+	c.asleepMOTD = motd
+}
+
+// getVersionInfo falls back to client protocol and a derived name but in future
+// could be extended to cache server-reported versions
+func (c *Connector) getVersionInfo(_ string, clientProtocol int) (string, int) {
+	// no cache; use client protocol
+	return protocolToName(clientProtocol), clientProtocol
+}
+
+// protocolToName maps protocol numbers to a friendly name; falls back to "1.7+"
+func protocolToName(proto int) string {
+	switch proto {
+	// TODO: expand this mapping as needed
+	default:
+		return "1.7+"
+	}
 }

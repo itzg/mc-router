@@ -79,6 +79,13 @@ const (
 	PacketIdHandshake            = 0x00
 	PacketIdLogin                = 0x00 // during StateLogin
 	PacketIdLegacyServerListPing = 0xFE
+	PacketIdStatusRequest        = 0x00
+	PacketIdPingRequest          = 0x01
+)
+
+const (
+	PacketIdStatusResponse = 0x00
+	PackedIdPongResponse   = 0x01
 )
 
 type Handshake struct {
@@ -104,6 +111,30 @@ type LegacyServerListPing struct {
 	ProtocolVersion int
 	ServerAddress   string
 	ServerPort      uint16
+}
+
+// StatusResponse is a minimal structure for the status JSON
+type StatusResponse struct {
+	Version struct {
+		Name     string `json:"name"`
+		Protocol int    `json:"protocol"`
+	} `json:"version"`
+	Players struct {
+		Max    int `json:"max"`
+		Online int `json:"online"`
+		Sample []struct {
+			Name string `json:"name"`
+			ID   string `json:"id"`
+		} `json:"sample,omitempty"`
+	} `json:"players"`
+	Description        map[string]interface{} `json:"description"`
+	Favicon            string                 `json:"favicon,omitempty"`
+	EnforcesSecureChat *bool                  `json:"enforcesSecureChat,omitempty"`
+}
+
+// PingPayload represents the status ping payload (packet 0x01)
+type PingPayload struct {
+	Timestamp int64
 }
 
 type ByteReader interface {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -183,9 +184,9 @@ func (w *K8sWatcher) handleUpdate(oldObj interface{}, newObj interface{}) {
 			"new": newRoutableService,
 		}).Debug("UPDATE")
 		if newRoutableService.externalServiceName != "" {
-			w.routesHandler.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown)
+			w.routesHandler.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown, "")
 		} else {
-			w.routesHandler.SetDefaultRoute(newRoutableService.containerEndpoint)
+			w.routesHandler.SetDefaultRoute(newRoutableService.containerEndpoint, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown, "")
 		}
 	}
 }
@@ -200,7 +201,7 @@ func (w *K8sWatcher) handleDelete(obj interface{}) {
 			if routableService.externalServiceName != "" {
 				w.routesHandler.DeleteMapping(routableService.externalServiceName)
 			} else {
-				w.routesHandler.SetDefaultRoute("")
+				w.routesHandler.SetDefaultRoute("", nil, nil, "")
 			}
 		}
 	}
@@ -214,9 +215,9 @@ func (w *K8sWatcher) handleAdd(obj interface{}) {
 			logrus.WithField("routableService", routableService).Debug("ADD")
 
 			if routableService.externalServiceName != "" {
-				w.routesHandler.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint, routableService.autoScaleUp, routableService.autoScaleDown)
+				w.routesHandler.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint, routableService.autoScaleUp, routableService.autoScaleDown, "")
 			} else {
-				w.routesHandler.SetDefaultRoute(routableService.containerEndpoint)
+				w.routesHandler.SetDefaultRoute(routableService.containerEndpoint, routableService.autoScaleUp, routableService.autoScaleDown, "")
 			}
 		}
 	}
@@ -225,8 +226,8 @@ func (w *K8sWatcher) handleAdd(obj interface{}) {
 type routableService struct {
 	externalServiceName string
 	containerEndpoint   string
-	autoScaleUp         ScalerFunc
-	autoScaleDown       ScalerFunc
+	autoScaleUp         WakerFunc
+	autoScaleDown       SleeperFunc
 }
 
 // obj is expected to be a *v1.Service
@@ -271,22 +272,37 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 	} else if len(mcPort) > 0 {
 		port = mcPort
 	}
+	endpoint := net.JoinHostPort(clusterIp, port)
+	wakerFunc := w.buildScaleFunction(service, 0, 1)
 	rs := &routableService{
 		externalServiceName: externalServiceName,
-		containerEndpoint:   net.JoinHostPort(clusterIp, port),
-		autoScaleUp:         w.buildScaleFunction(service, 0, 1),
-		autoScaleDown:       w.buildScaleFunction(service, 1, 0),
+		containerEndpoint:   endpoint,
+		autoScaleUp: func(ctx context.Context) (string, error) {
+			if err := wakerFunc(ctx); err != nil {
+				return "", err
+			}
+			return endpoint, nil
+		},
+		autoScaleDown: w.buildScaleFunction(service, 1, 0),
 	}
 	return rs
 }
 
-func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to int32) ScalerFunc {
+func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to int32) SleeperFunc {
 	// Currently, annotations can only be used to opt-out of auto-scaling.
-	// However, this logic is prepared also for opt-in, as it returns a `ScalerFunc` when flags are false but annotations are set to `enabled`.
+	// However, this logic is prepared also for opt-in, as it returns a `SleeperFunc` when flags are false but annotations are set to `enabled`.
 	if from <= to {
 		enabled, exists := service.Annotations[AnnotationAutoScaleUp]
 		if exists {
-			if enabled == "false" {
+			enabledBool, err := strconv.ParseBool(strings.TrimSpace(enabled))
+			if err != nil {
+				logrus.WithFields(logrus.Fields{"service": service.Name}).
+					WithError(err).
+					Warnf("invalid value for %s annotation - disabling service auto-scale-up", AnnotationAutoScaleUp)
+				return nil
+			}
+
+			if !enabledBool {
 				return nil
 			}
 		} else {
@@ -298,7 +314,15 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 	if from >= to {
 		enabled, exists := service.Annotations[AnnotationAutoScaleDown]
 		if exists {
-			if enabled == "false" {
+			enabledBool, err := strconv.ParseBool(strings.TrimSpace(enabled))
+			if err != nil {
+				logrus.WithFields(logrus.Fields{"service": service.Name}).
+					WithError(err).
+					Warnf("invalid value for %s annotation - disabling service auto-scale-down", AnnotationAutoScaleDown)
+				return nil
+			}
+
+			if !enabledBool {
 				return nil
 			}
 		} else {

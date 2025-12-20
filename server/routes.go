@@ -9,9 +9,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type ScalerFunc func(ctx context.Context) error
+// WakerFunc is a function that wakes up a server and returns its address.
+type WakerFunc func(ctx context.Context) (string, error)
 
-var EmptyScalerFunc = func(ctx context.Context) error { return nil }
+// SleeperFunc is a function that puts a server to sleep.
+type SleeperFunc func(ctx context.Context) error
 
 var tcpShieldPattern = regexp.MustCompile("///.*")
 
@@ -22,8 +24,8 @@ type RouteFinder interface {
 }
 
 type RoutesHandler interface {
-	CreateMapping(serverAddress string, backend string, waker ScalerFunc, sleeper ScalerFunc)
-	SetDefaultRoute(backend string)
+	CreateMapping(serverAddress string, backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string)
+	SetDefaultRoute(backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string)
 	// DeleteMapping requests that the serverAddress be removed from routes.
 	// Returns true if the route existed.
 	DeleteMapping(serverAddress string) bool
@@ -38,9 +40,12 @@ type IRoutes interface {
 	// Otherwise, an empty string is returned. Also returns the normalized version of the given serverAddress.
 	// The 3rd value returned is an (optional) "waker" function which a caller must invoke to wake up serverAddress.
 	// The 4th value returned is an (optional) "sleeper" function which a caller must invoke to shut down serverAddress.
-	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, ScalerFunc, ScalerFunc)
+	HasRoute(serverAddress string) bool
+	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, WakerFunc, SleeperFunc)
+	GetSleepers(backend string) []SleeperFunc
 	GetMappings() map[string]string
-	GetDefaultRoute() string
+	GetDefaultRoute() (string, WakerFunc, SleeperFunc)
+	GetAsleepMOTD(serverAddress string) string
 	SimplifySRV(srvEnabled bool)
 }
 
@@ -56,20 +61,21 @@ func NewRoutes() IRoutes {
 
 func (r *routesImpl) RegisterAll(mappings map[string]string) {
 	for k, v := range mappings {
-		r.CreateMapping(k, v, EmptyScalerFunc, EmptyScalerFunc)
+		r.CreateMapping(k, v, nil, nil, "")
 	}
 }
 
 type mapping struct {
-	backend string
-	waker   ScalerFunc
-	sleeper ScalerFunc
+	backend    string
+	waker      WakerFunc
+	sleeper    SleeperFunc
+	asleepMOTD string
 }
 
 type routesImpl struct {
 	sync.RWMutex
 	mappings     map[string]mapping
-	defaultRoute string
+	defaultRoute mapping
 	simplifySRV  bool
 }
 
@@ -78,23 +84,45 @@ func (r *routesImpl) Reset() {
 	DownScaler.Reset()
 }
 
-func (r *routesImpl) SetDefaultRoute(backend string) {
-	r.defaultRoute = backend
+func (r *routesImpl) SetDefaultRoute(backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string) {
+	r.defaultRoute = mapping{backend: backend, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD}
 
 	logrus.WithFields(logrus.Fields{
 		"backend": backend,
 	}).Info("Using default route")
 }
 
-func (r *routesImpl) GetDefaultRoute() string {
-	return r.defaultRoute
+func (r *routesImpl) GetDefaultRoute() (string, WakerFunc, SleeperFunc) {
+	return r.defaultRoute.backend, r.defaultRoute.waker, r.defaultRoute.sleeper
+}
+
+func (r *routesImpl) GetAsleepMOTD(serverAddress string) string {
+	r.RLock()
+	defer r.RUnlock()
+
+	if serverAddress == "" {
+		return r.defaultRoute.asleepMOTD
+	}
+
+	if m, ok := r.mappings[serverAddress]; ok {
+		return m.asleepMOTD
+	}
+	return ""
 }
 
 func (r *routesImpl) SimplifySRV(srvEnabled bool) {
 	r.simplifySRV = srvEnabled
 }
 
-func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddress string) (string, string, ScalerFunc, ScalerFunc) {
+func (r *routesImpl) HasRoute(serverAddress string) bool {
+	r.RLock()
+	defer r.RUnlock()
+
+	_, exists := r.mappings[serverAddress]
+	return exists
+}
+
+func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddress string) (string, string, WakerFunc, SleeperFunc) {
 	r.RLock()
 	defer r.RUnlock()
 
@@ -136,7 +164,23 @@ func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddres
 			return mapping.backend, serverAddress, mapping.waker, mapping.sleeper
 		}
 	}
-	return r.defaultRoute, serverAddress, nil, nil
+	return r.defaultRoute.backend, serverAddress, r.defaultRoute.waker, r.defaultRoute.sleeper
+}
+
+func (r *routesImpl) GetSleepers(backend string) []SleeperFunc {
+	r.RLock()
+	defer r.RUnlock()
+
+	var sleepers []SleeperFunc
+	for _, m := range r.mappings {
+		if m.backend == backend && m.sleeper != nil {
+			sleepers = append(sleepers, m.sleeper)
+		}
+	}
+	if r.defaultRoute.backend == backend && r.defaultRoute.sleeper != nil {
+		sleepers = append(sleepers, r.defaultRoute.sleeper)
+	}
+	return sleepers
 }
 
 func (r *routesImpl) GetMappings() map[string]string {
@@ -155,9 +199,8 @@ func (r *routesImpl) DeleteMapping(serverAddress string) bool {
 	defer r.Unlock()
 	logrus.WithField("serverAddress", serverAddress).Info("Deleting route")
 
-	DownScaler.Cancel(serverAddress)
-
-	if _, ok := r.mappings[serverAddress]; ok {
+	if m, ok := r.mappings[serverAddress]; ok {
+		DownScaler.Cancel(m.backend)
 		delete(r.mappings, serverAddress)
 		return true
 	} else {
@@ -165,7 +208,7 @@ func (r *routesImpl) DeleteMapping(serverAddress string) bool {
 	}
 }
 
-func (r *routesImpl) CreateMapping(serverAddress string, backend string, waker ScalerFunc, sleeper ScalerFunc) {
+func (r *routesImpl) CreateMapping(serverAddress string, backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -175,8 +218,10 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, waker S
 		"serverAddress": serverAddress,
 		"backend":       backend,
 	}).Info("Created route mapping")
-	r.mappings[serverAddress] = mapping{backend: backend, waker: waker, sleeper: sleeper}
+	r.mappings[serverAddress] = mapping{backend: backend, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD}
 
 	// Trigger auto scale down when mapping is created to ensure servers are shut down if router restarts
-	DownScaler.Begin(serverAddress)
+	if DownScaler != nil && backend != "" {
+		DownScaler.Begin(backend)
+	}
 }

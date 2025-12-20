@@ -49,7 +49,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 
 	metricsBuilder := NewMetricsBuilder(config.MetricsBackend, &config.MetricsBackendConfig)
 
-	downScalerEnabled := config.AutoScale.Down && (config.InKubeCluster || config.KubeConfig != "")
+	downScalerEnabled := config.AutoScale.Down && (config.InKubeCluster || config.KubeConfig != "" || config.InDocker)
 	downScalerDelay, err := time.ParseDuration(config.AutoScale.DownAfter)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse auto-scale-down-after duration: %w", err)
@@ -73,7 +73,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 
 	Routes.RegisterAll(config.Mapping)
 	if config.Default != "" {
-		Routes.SetDefaultRoute(config.Default)
+		Routes.SetDefaultRoute(config.Default, nil, nil, "")
 	}
 
 	if config.ConnectionRateLimit < 1 {
@@ -85,6 +85,8 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		config.UseProxyProtocol,
 		config.RecordLogins,
 		autoScaleAllowDenyConfig)
+
+	connector.UseAsleepMOTD(config.AutoScale.AsleepMOTD)
 
 	clientFilter, err := NewClientFilter(config.ClientsToAllow, config.ClientsToDeny)
 	if err != nil {
