@@ -183,7 +183,9 @@ func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 			DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
 
 			routesHandler := new(MockedRoutesHandler)
-			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+			routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+			routesHandler.On("GetAsleepMOTD", mock.Anything).Return("")
 			routesHandler.On("DeleteMapping", mock.Anything).Return(true)
 
 			watcher := &K8sWatcher{
@@ -262,7 +264,9 @@ func TestK8sWatcherImpl_handleAddThenDelete(t *testing.T) {
 			DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
 
 			routesHandler := new(MockedRoutesHandler)
-			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+			routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+			routesHandler.On("GetAsleepMOTD", mock.Anything).Return("")
 			routesHandler.On("DeleteMapping", mock.Anything).Return(true)
 
 			watcher := &K8sWatcher{
@@ -359,7 +363,9 @@ func TestK8s_externalName(t *testing.T) {
 			DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
 
 			routesHandler := new(MockedRoutesHandler)
-			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+			routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+			routesHandler.On("GetAsleepMOTD", mock.Anything).Return("")
 			routesHandler.On("DeleteMapping", mock.Anything).Return(true)
 
 			watcher := &K8sWatcher{
