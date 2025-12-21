@@ -15,6 +15,18 @@ type WakerFunc func(ctx context.Context) (string, error)
 // SleeperFunc is a function that puts a server to sleep.
 type SleeperFunc func(ctx context.Context) error
 
+func buildWakerFromSleeper(endpoint string, sleeper SleeperFunc) WakerFunc {
+	if sleeper == nil {
+		return nil
+	}
+	return func(ctx context.Context) (string, error) {
+		if err := sleeper(ctx); err != nil {
+			return "", err
+		}
+		return endpoint, nil
+	}
+}
+
 var tcpShieldPattern = regexp.MustCompile("///.*")
 
 // RouteFinder implementations find new routes in the system that can be tracked by a RoutesHandler

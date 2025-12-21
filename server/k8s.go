@@ -277,17 +277,14 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 	rs := &routableService{
 		externalServiceName: externalServiceName,
 		containerEndpoint:   endpoint,
-		autoScaleUp: func(ctx context.Context) (string, error) {
-			if err := wakerFunc(ctx); err != nil {
-				return "", err
-			}
-			return endpoint, nil
-		},
-		autoScaleDown: w.buildScaleFunction(service, 1, 0),
+		autoScaleUp:         buildWakerFromSleeper(endpoint, wakerFunc),
+		autoScaleDown:       w.buildScaleFunction(service, 1, 0),
 	}
 	return rs
 }
 
+// buildScaleFunction generates a SleeperFunc to scale StatefulSets based on specified criteria and service annotations.
+// Will return nil if the service should not be auto-scaled due config or annotation.
 func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to int32) SleeperFunc {
 	// Currently, annotations can only be used to opt-out of auto-scaling.
 	// However, this logic is prepared also for opt-in, as it returns a `SleeperFunc` when flags are false but annotations are set to `enabled`.
