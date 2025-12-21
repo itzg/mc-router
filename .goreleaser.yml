@@ -36,103 +36,23 @@ archives:
     files:
       - LICENSE*
       - README*
-dockers:
-  - image_templates:
-      - "itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
-      - "itzg/{{ .ProjectName }}:latest-amd64"
-    dockerfile: Dockerfile.release
-    goarch: amd64
-    use: buildx
-    build_flag_templates:
-      - --platform
-      - linux/amd64
-      - --load
-      - --label=org.opencontainers.image.version={{ .Version }}
-      - --label=org.opencontainers.image.revision={{ .FullCommit }}
-  - image_templates:
-      - "itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
-      - "itzg/{{ .ProjectName }}:latest-arm64"
-    dockerfile: Dockerfile.release
-    goarch: arm64
-    use: buildx
-    build_flag_templates:
-      - --platform
-      - linux/arm64
-      - --load
-      - --label=org.opencontainers.image.version={{ .Version }}
-      - --label=org.opencontainers.image.revision={{ .FullCommit }}
-  - image_templates:
-      - "itzg/{{ .ProjectName }}:{{ .Version }}-arm32v6"
-      - "itzg/{{ .ProjectName }}:latest-arm32v6"
-    dockerfile: Dockerfile.release
-    goarch: arm
-    goarm: "6"
-    use: buildx
-    build_flag_templates:
-      - --platform
-      - linux/arm/v6
-      - --load
-      - --label=org.opencontainers.image.version={{ .Version }}
-      - --label=org.opencontainers.image.revision={{ .FullCommit }}
-  - image_templates:
-      - "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
-      - "ghcr.io/itzg/{{ .ProjectName }}:latest-amd64"
-    dockerfile: Dockerfile.release
-    goarch: amd64
-    use: buildx
-    build_flag_templates:
-      - --platform
-      - linux/amd64
-      - --load
-      - --label=org.opencontainers.image.version={{ .Version }}
-      - --label=org.opencontainers.image.revision={{ .FullCommit }}
-  - image_templates:
-      - "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
-      - "ghcr.io/itzg/{{ .ProjectName }}:latest-arm64"
-    dockerfile: Dockerfile.release
-    goarch: arm64
-    use: buildx
-    build_flag_templates:
-      - --platform
-      - linux/arm64
-      - --load
-      - --label=org.opencontainers.image.version={{ .Version }}
-      - --label=org.opencontainers.image.revision={{ .FullCommit }}
-  - image_templates:
-      - "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}-arm32v6"
-      - "ghcr.io/itzg/{{ .ProjectName }}:latest-arm32v6"
-    dockerfile: Dockerfile.release
-    goarch: arm
-    goarm: "6"
-    use: buildx
-    build_flag_templates:
-      - --platform
-      - linux/arm/v6
-      - --load
-      - --label=org.opencontainers.image.version={{ .Version }}
-      - --label=org.opencontainers.image.revision={{ .FullCommit }}
-
-docker_manifests:
-  - name_template: "itzg/{{ .ProjectName }}:{{ .Version }}"
-    image_templates:
-      - "itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
-      - "itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
-      - "itzg/{{ .ProjectName }}:{{ .Version }}-arm32v6"
-  - name_template: "itzg/{{ .ProjectName }}:latest"
-    image_templates:
-      - "itzg/{{ .ProjectName }}:latest-amd64"
-      - "itzg/{{ .ProjectName }}:latest-arm64"
-      - "itzg/{{ .ProjectName }}:latest-arm32v6"
-  - name_template: "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}"
-    image_templates:
-      - "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}-amd64"
-      - "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}-arm64"
-      - "ghcr.io/itzg/{{ .ProjectName }}:{{ .Version }}-arm32v6"
-  - name_template: "ghcr.io/itzg/{{ .ProjectName }}:latest"
-    image_templates:
-      - "ghcr.io/itzg/{{ .ProjectName }}:latest-amd64"
-      - "ghcr.io/itzg/{{ .ProjectName }}:latest-arm64"
-      - "ghcr.io/itzg/{{ .ProjectName }}:latest-arm32v6"
+dockers_v2:
+  - images:
+      - "itzg/{{ .ProjectName }}"
+      - "ghcr.io/itzg/{{ .ProjectName }}"
+    dockerfile: Dockerfile.release  
+    tags:
+      - "{{ .Version }}"
+      - "latest"
+    labels:
+      org.opencontainers.image.authors: "Geoff Bourne <itzgeoff@gmail.com>"
+      org.opencontainers.image.title: "mc-router"
+      org.opencontainers.image.description: "Routes Minecraft Java Edition client connections to backend servers based upon the requested server address."
+      org.opencontainers.image.source: "{{ .GitURL }}"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .Date }}"
+      org.opencontainers.image.name: "{{ .ProjectName }}"
 changelog:
   filters:
     exclude:

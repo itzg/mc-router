@@ -4,10 +4,8 @@ RUN apk add -U \
 
 FROM scratch
 
-LABEL org.opencontainers.image.authors="Geoff Bourne <itzgeoff@gmail.com>"
-LABEL org.opencontainers.image.title="mc-router"
-LABEL org.opencontainers.image.source="https://github.com/itzg/mc-router"
+ARG TARGETPLATFORM
 
 COPY --from=certs /etc/ssl/certs/ /etc/ssl/certs
-COPY mc-router /
+COPY $TARGETPLATFORM/mc-router /
 ENTRYPOINT ["/mc-router"]
