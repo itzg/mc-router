@@ -7,12 +7,16 @@ services:
       - "25565:25565"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    # Matches MCs below
+    network_mode: bridge
   vanilla:
     image: itzg/minecraft-server
     environment:
       EULA: "TRUE"
     labels:
-      mc-router.host: "vanilla.example.com"
+      mc-router.host: "localhost.itzg.me"
+    # To allow for routing from devcontainer
+    network_mode: bridge
   paper:
     image: itzg/minecraft-server
     environment:
@@ -20,4 +24,6 @@ services:
       TYPE: PAPER
     labels:
       mc-router.host: "paper.example.com"
+    # To allow for routing from devcontainer
+    network_mode: bridge
 
