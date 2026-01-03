@@ -206,6 +206,7 @@ func (c *Connector) acceptConnections(ln net.Listener, connRateLimit int) {
 	defer ln.Close()
 
 	bucket := ratelimit.NewBucketWithRate(float64(connRateLimit), int64(connRateLimit*2))
+	go c.bucketMetrics(bucket)
 
 	for {
 		select {
@@ -219,6 +220,19 @@ func (c *Connector) acceptConnections(ln net.Listener, connRateLimit int) {
 			} else {
 				go c.HandleConnection(conn)
 			}
+		}
+	}
+}
+
+func (c *Connector) bucketMetrics(bucket *ratelimit.Bucket) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-ticker.C:
+			c.metrics.RateLimitAvailable.Set(float64(bucket.Available()))
 		}
 	}
 }

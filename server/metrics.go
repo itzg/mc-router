@@ -78,6 +78,7 @@ type ConnectorMetrics struct {
 	ServerActivePlayer      metrics.Gauge
 	ServerLogins            metrics.Counter
 	ServerActiveConnections metrics.Gauge
+	RateLimitAvailable      metrics.Gauge
 }
 
 func (b expvarMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
@@ -91,6 +92,7 @@ func (b expvarMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
 		ServerActivePlayer:      expvarMetrics.NewGauge("server_active_player"),
 		ServerLogins:            expvarMetrics.NewCounter("server_logins"),
 		ServerActiveConnections: expvarMetrics.NewGauge("server_active_connections"),
+		RateLimitAvailable:      expvarMetrics.NewGauge("rate_limit_available"),
 	}
 }
 
@@ -112,6 +114,7 @@ func (b discardMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
 		ServerActivePlayer:      discardMetrics.NewGauge(),
 		ServerLogins:            discardMetrics.NewCounter(),
 		ServerActiveConnections: discardMetrics.NewGauge(),
+		RateLimitAvailable:      discardMetrics.NewGauge(),
 	}
 }
 
@@ -164,6 +167,7 @@ func (b *influxMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
 		ServerActivePlayer:      metrics.NewGauge("mc_router_server_player_active"),
 		ServerLogins:            metrics.NewCounter("mc_router_server_logins"),
 		ServerActiveConnections: metrics.NewGauge("mc_router_server_active_connections"),
+		RateLimitAvailable:      metrics.NewGauge("mc_router_rate_limit_available"),
 	}
 }
 
@@ -225,5 +229,10 @@ func (b prometheusMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
 			Name:      "server_active_connections",
 			Help:      "The number of active connections per server",
 		}, []string{"server_address"})),
+		RateLimitAvailable: prometheusMetrics.NewGauge(promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "mc_router",
+			Name:      "rate_limit_available",
+			Help:      "The number of available tokens in the rate limit bucket",
+		}, nil)),
 	}
 }
