@@ -111,13 +111,13 @@ func (c *Connector) UseClientFilter(filter *ClientFilter) {
 	c.clientFilter = filter
 }
 
-func (c *Connector) StartAcceptingConnections(listenAddress string, connRateLimit int) error {
+func (c *Connector) StartAcceptingConnections(listenAddress string, connRateLimit, metricsFrequency int) error {
 	ln, err := c.createListener(listenAddress)
 	if err != nil {
 		return err
 	}
 
-	go c.acceptConnections(ln, connRateLimit)
+	go c.acceptConnections(ln, connRateLimit, metricsFrequency)
 
 	return nil
 }
@@ -201,12 +201,14 @@ func (c *Connector) AcceptConnection(conn net.Conn) {
 	go c.HandleConnection(conn)
 }
 
-func (c *Connector) acceptConnections(ln net.Listener, connRateLimit int) {
+func (c *Connector) acceptConnections(ln net.Listener, connRateLimit, metricsFrequency int) {
 	//noinspection GoUnhandledErrorResult
 	defer ln.Close()
 
 	bucket := ratelimit.NewBucketWithRate(float64(connRateLimit), int64(connRateLimit*2))
-	go c.bucketMetrics(bucket)
+	if metricsFrequency > 0 {
+		go c.bucketMetrics(bucket, metricsFrequency)
+	}
 
 	for {
 		select {
@@ -224,8 +226,8 @@ func (c *Connector) acceptConnections(ln net.Listener, connRateLimit int) {
 	}
 }
 
-func (c *Connector) bucketMetrics(bucket *ratelimit.Bucket) {
-	ticker := time.NewTicker(1 * time.Second)
+func (c *Connector) bucketMetrics(bucket *ratelimit.Bucket, frequency int) {
+	ticker := time.NewTicker(time.Duration(frequency) * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
