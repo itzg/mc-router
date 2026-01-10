@@ -633,6 +633,7 @@ In this case the `status` is `"failed-backend-connection"` indicating that a bac
 ## Community Solutions
 
 - **[MC Router Discovery](https://github.com/Seedloaf/mc-router-discovery):** A lightweight sidecar to ensure mc-router is in sync with your list of running servers.
+- **[svc-router](https://github.com/JLSchuler99/svc-router):** A sidecar router that uses mc-router webhooks to route traffic for the Simple Voice Chat mod to the correct backend server.
 
 ## Development
 
