@@ -62,8 +62,11 @@ func NewDockerWatcher(socket string, timeoutSeconds int, refreshIntervalSeconds 
 
 type dockerWatcherImpl struct {
 	sync.RWMutex
-	config dockerWatcherConfig
-	client *client.Client
+	config       dockerWatcherConfig
+	client       *client.Client
+	containerMap map[string]*routableContainer
+	monitorLock  sync.Mutex
+	monitorCtx   context.Context
 }
 
 func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
@@ -107,6 +110,13 @@ func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
 			return "", fmt.Errorf("container has no accessible IP after starting")
 		}
 		endpoint := net.JoinHostPort(data.ip, strconv.Itoa(int(data.port)))
+
+		// Update the route mappings
+		err = w.monitorContainers()
+		if err != nil {
+			logrus.WithError(err).Error("Docker monitoring failed")
+			return "", err
+		}
 
 		// Wait until the container is reachable
 		deadline := time.Now().Add(60 * time.Second)
@@ -158,6 +168,61 @@ func (w *dockerWatcherImpl) makeSleeperFunc(rc *routableContainer) SleeperFunc {
 	}
 }
 
+func (w *dockerWatcherImpl) monitorContainers() error {
+	w.monitorLock.Lock()
+	defer w.monitorLock.Unlock()
+
+	logrus.Trace("Listing Docker containers")
+	containers, err := w.listContainers(w.monitorCtx)
+	if err != nil {
+		logrus.WithError(err).Error("Docker failed to list containers")
+		return err
+	}
+
+	visited := map[string]struct{}{}
+	for _, rs := range containers {
+		if oldRs, ok := w.containerMap[rs.externalContainerName]; !ok {
+			w.containerMap[rs.externalContainerName] = rs
+			logrus.WithField("routableContainer", rs).Debug("ADD")
+			wakerFunc := w.makeWakerFunc(rs)
+			sleeperFunc := w.makeSleeperFunc(rs)
+			if rs.externalContainerName != "" {
+				Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
+			} else {
+				Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
+			}
+		} else if oldRs.containerEndpoint != rs.containerEndpoint ||
+			oldRs.containerID != rs.containerID ||
+			oldRs.autoScaleUp != rs.autoScaleUp ||
+			oldRs.autoScaleDown != rs.autoScaleDown ||
+			oldRs.autoScaleAsleepMOTD != rs.autoScaleAsleepMOTD {
+			w.containerMap[rs.externalContainerName] = rs
+			wakerFunc := w.makeWakerFunc(rs)
+			sleeperFunc := w.makeSleeperFunc(rs)
+			if rs.externalContainerName != "" {
+				Routes.DeleteMapping(rs.externalContainerName)
+				Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
+			} else {
+				Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
+			}
+			logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
+		}
+		visited[rs.externalContainerName] = struct{}{}
+	}
+	for _, rs := range w.containerMap {
+		if _, ok := visited[rs.externalContainerName]; !ok {
+			delete(w.containerMap, rs.externalContainerName)
+			if rs.externalContainerName != "" {
+				Routes.DeleteMapping(rs.externalContainerName)
+			} else {
+				Routes.SetDefaultRoute("", nil, nil, "")
+			}
+			logrus.WithField("routableContainer", rs).Debug("DELETE")
+		}
+	}
+	return nil
+}
+
 func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 	var err error
 
@@ -186,71 +251,34 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 		return err
 	}
 
-	containerMap := map[string]*routableContainer{}
-	for _, c := range initialContainers {
-		containerMap[c.externalContainerName] = c
-		wakerFunc := w.makeWakerFunc(c)
-		sleeperFunc := w.makeSleeperFunc(c)
-		if c.externalContainerName != "" {
-			Routes.CreateMapping(c.externalContainerName, c.containerEndpoint, wakerFunc, sleeperFunc, c.autoScaleAsleepMOTD)
-		} else {
-			Routes.SetDefaultRoute(c.containerEndpoint, wakerFunc, sleeperFunc, c.autoScaleAsleepMOTD)
+	w.monitorCtx = ctx
+	w.monitorLock = sync.Mutex{}
+
+	w.containerMap = map[string]*routableContainer{}
+	func() {
+		w.monitorLock.Lock()
+		defer w.monitorLock.Unlock()
+		for _, c := range initialContainers {
+			w.containerMap[c.externalContainerName] = c
+			wakerFunc := w.makeWakerFunc(c)
+			sleeperFunc := w.makeSleeperFunc(c)
+			if c.externalContainerName != "" {
+				Routes.CreateMapping(c.externalContainerName, c.containerEndpoint, wakerFunc, sleeperFunc, c.autoScaleAsleepMOTD)
+			} else {
+				Routes.SetDefaultRoute(c.containerEndpoint, wakerFunc, sleeperFunc, c.autoScaleAsleepMOTD)
+			}
 		}
-	}
+	}()
 
 	go func() {
 		for {
 			select {
 			case <-ticker.C:
-				logrus.Trace("Listing Docker containers")
-				containers, err := w.listContainers(ctx)
+				err := w.monitorContainers()
 				if err != nil {
-					logrus.WithError(err).Error("Docker failed to list containers")
+					logrus.WithError(err).Error("Docker monitoring failed")
 					return
 				}
-
-				visited := map[string]struct{}{}
-				for _, rs := range containers {
-					if oldRs, ok := containerMap[rs.externalContainerName]; !ok {
-						containerMap[rs.externalContainerName] = rs
-						logrus.WithField("routableContainer", rs).Debug("ADD")
-						wakerFunc := w.makeWakerFunc(rs)
-						sleeperFunc := w.makeSleeperFunc(rs)
-						if rs.externalContainerName != "" {
-							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
-						} else {
-							Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
-						}
-					} else if oldRs.containerEndpoint != rs.containerEndpoint ||
-						oldRs.containerID != rs.containerID ||
-						oldRs.autoScaleUp != rs.autoScaleUp ||
-						oldRs.autoScaleDown != rs.autoScaleDown ||
-						oldRs.autoScaleAsleepMOTD != rs.autoScaleAsleepMOTD {
-						containerMap[rs.externalContainerName] = rs
-						wakerFunc := w.makeWakerFunc(rs)
-						sleeperFunc := w.makeSleeperFunc(rs)
-						if rs.externalContainerName != "" {
-							Routes.DeleteMapping(rs.externalContainerName)
-							Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
-						} else {
-							Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
-						}
-						logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
-					}
-					visited[rs.externalContainerName] = struct{}{}
-				}
-				for _, rs := range containerMap {
-					if _, ok := visited[rs.externalContainerName]; !ok {
-						delete(containerMap, rs.externalContainerName)
-						if rs.externalContainerName != "" {
-							Routes.DeleteMapping(rs.externalContainerName)
-						} else {
-							Routes.SetDefaultRoute("", nil, nil, "")
-						}
-						logrus.WithField("routableContainer", rs).Debug("DELETE")
-					}
-				}
-
 			case <-ctx.Done():
 				logrus.Debug("Stopping Docker monitoring")
 				ticker.Stop()
