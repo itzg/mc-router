@@ -66,7 +66,6 @@ type dockerWatcherImpl struct {
 	client       *client.Client
 	containerMap map[string]*routableContainer
 	monitorLock  sync.Mutex
-	monitorCtx   context.Context
 }
 
 func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
@@ -112,7 +111,7 @@ func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
 		endpoint := net.JoinHostPort(data.ip, strconv.Itoa(int(data.port)))
 
 		// Update the route mappings
-		err = w.monitorContainers()
+		err = w.monitorContainers(ctx)
 		if err != nil {
 			logrus.WithError(err).Error("Docker monitoring failed")
 			return "", err
@@ -168,12 +167,12 @@ func (w *dockerWatcherImpl) makeSleeperFunc(rc *routableContainer) SleeperFunc {
 	}
 }
 
-func (w *dockerWatcherImpl) monitorContainers() error {
+func (w *dockerWatcherImpl) monitorContainers(ctx context.Context) error {
 	w.monitorLock.Lock()
 	defer w.monitorLock.Unlock()
 
 	logrus.Trace("Listing Docker containers")
-	containers, err := w.listContainers(w.monitorCtx)
+	containers, err := w.listContainers(ctx)
 	if err != nil {
 		logrus.WithError(err).Error("Docker failed to list containers")
 		return err
@@ -251,30 +250,23 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 		return err
 	}
 
-	w.monitorCtx = ctx
-	w.monitorLock = sync.Mutex{}
-
 	w.containerMap = map[string]*routableContainer{}
-	func() {
-		w.monitorLock.Lock()
-		defer w.monitorLock.Unlock()
-		for _, c := range initialContainers {
-			w.containerMap[c.externalContainerName] = c
-			wakerFunc := w.makeWakerFunc(c)
-			sleeperFunc := w.makeSleeperFunc(c)
-			if c.externalContainerName != "" {
-				Routes.CreateMapping(c.externalContainerName, c.containerEndpoint, wakerFunc, sleeperFunc, c.autoScaleAsleepMOTD)
-			} else {
-				Routes.SetDefaultRoute(c.containerEndpoint, wakerFunc, sleeperFunc, c.autoScaleAsleepMOTD)
-			}
+	for _, c := range initialContainers {
+		w.containerMap[c.externalContainerName] = c
+		wakerFunc := w.makeWakerFunc(c)
+		sleeperFunc := w.makeSleeperFunc(c)
+		if c.externalContainerName != "" {
+			Routes.CreateMapping(c.externalContainerName, c.containerEndpoint, wakerFunc, sleeperFunc, c.autoScaleAsleepMOTD)
+		} else {
+			Routes.SetDefaultRoute(c.containerEndpoint, wakerFunc, sleeperFunc, c.autoScaleAsleepMOTD)
 		}
-	}()
+	}
 
 	go func() {
 		for {
 			select {
 			case <-ticker.C:
-				err := w.monitorContainers()
+				err := w.monitorContainers(ctx)
 				if err != nil {
 					logrus.WithError(err).Error("Docker monitoring failed")
 					return
