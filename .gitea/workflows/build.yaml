@@ -33,7 +33,7 @@ jobs:
         with:
           registry: git.farh.net
           username: ${{ gitea.actor }}
-          password: ${{ secrets.GITEA_TOKEN }}
+          password: ${{ secrets.FARHOODLIQUOR_PACKAGE_PUBLISH_TOKEN }}
 
       - name: Docker meta
         id: meta
