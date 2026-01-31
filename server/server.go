@@ -73,7 +73,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 
 	Routes.RegisterAll(config.Mapping)
 	if config.Default != "" {
-		Routes.SetDefaultRoute(config.Default, nil, nil, "")
+		Routes.SetDefaultRoute(config.Default, "", nil, nil, "")
 	}
 
 	if config.ConnectionRateLimit < 1 {

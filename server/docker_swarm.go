@@ -92,9 +92,9 @@ func (w *dockerSwarmWatcherImpl) Start(ctx context.Context) error {
 		wakerFunc := w.makeWakerFunc(s)
 		sleeperFunc := w.makeSleeperFunc(s)
 		if s.externalServiceName != "" {
-			Routes.CreateMapping(s.externalServiceName, s.containerEndpoint, wakerFunc, sleeperFunc, "")
+			Routes.CreateMapping(s.externalServiceName, s.containerEndpoint, "", wakerFunc, sleeperFunc, "")
 		} else {
-			Routes.SetDefaultRoute(s.containerEndpoint, wakerFunc, sleeperFunc, "")
+			Routes.SetDefaultRoute(s.containerEndpoint, "", wakerFunc, sleeperFunc, "")
 		}
 	}
 
@@ -116,9 +116,9 @@ func (w *dockerSwarmWatcherImpl) Start(ctx context.Context) error {
 						wakerFunc := w.makeWakerFunc(rs)
 						sleeperFunc := w.makeSleeperFunc(rs)
 						if rs.externalServiceName != "" {
-							Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, wakerFunc, sleeperFunc, "")
+							Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, "")
 						} else {
-							Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc, "")
+							Routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, "")
 						}
 					} else if oldRs.containerEndpoint != rs.containerEndpoint {
 						serviceMap[rs.externalServiceName] = rs
@@ -126,9 +126,9 @@ func (w *dockerSwarmWatcherImpl) Start(ctx context.Context) error {
 						sleeperFunc := w.makeSleeperFunc(rs)
 						if rs.externalServiceName != "" {
 							Routes.DeleteMapping(rs.externalServiceName)
-							Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, wakerFunc, sleeperFunc, "")
+							Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, "")
 						} else {
-							Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc, "")
+							Routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, "")
 						}
 						logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
 					}
@@ -140,7 +140,7 @@ func (w *dockerSwarmWatcherImpl) Start(ctx context.Context) error {
 						if rs.externalServiceName != "" {
 							Routes.DeleteMapping(rs.externalServiceName)
 						} else {
-							Routes.SetDefaultRoute("", nil, nil, "")
+							Routes.SetDefaultRoute("", "", nil, nil, "")
 						}
 						logrus.WithField("routableService", rs).Debug("DELETE")
 					}
