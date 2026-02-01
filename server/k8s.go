@@ -11,10 +11,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	apps "k8s.io/api/apps/v1"
-	autoscaling "k8s.io/api/autoscaling/v1"
 	core "k8s.io/api/core/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -348,6 +348,7 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 	return func(ctx context.Context) error {
 		serviceName := service.Name
 		if statefulSetName, exists := w.mappings[serviceName]; exists {
+			// Get current replicas to check if scaling is needed
 			if scale, err := w.clientset.AppsV1().StatefulSets(service.Namespace).GetScale(ctx, statefulSetName, meta.GetOptions{}); err == nil {
 				replicas := scale.Status.Replicas
 				logrus.WithFields(logrus.Fields{
@@ -355,25 +356,30 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 					"statefulSet": statefulSetName,
 					"replicas":    replicas,
 				}).Debug("StatefulSet of Service Replicas")
+
 				if replicas == from {
-					if _, err := w.clientset.AppsV1().StatefulSets(service.Namespace).UpdateScale(ctx, statefulSetName, &autoscaling.Scale{
-						ObjectMeta: meta.ObjectMeta{
-							Name:            scale.Name,
-							Namespace:       scale.Namespace,
-							UID:             scale.UID,
-							ResourceVersion: scale.ResourceVersion,
-						},
-						Spec: autoscaling.ScaleSpec{Replicas: to}}, meta.UpdateOptions{},
+					// Use Patch instead of Update to avoid optimistic concurrency errors
+					// This doesn't require resourceVersion and is atomic
+					patchData := fmt.Sprintf(`{"spec":{"replicas":%d}}`, to)
+					if _, err := w.clientset.AppsV1().StatefulSets(service.Namespace).Patch(
+						ctx,
+						statefulSetName,
+						types.StrategicMergePatchType,
+						[]byte(patchData),
+						meta.PatchOptions{},
 					); err == nil {
 						logrus.WithFields(logrus.Fields{
 							"service":     serviceName,
 							"statefulSet": statefulSetName,
 							"replicas":    replicas,
 						}).Infof("StatefulSet Replicas Autoscaled from %d to %d", from, to)
+						return nil
 					} else {
-						return errors.Wrapf(err, "UpdateScale for Replicas=%d failed for StatefulSet: %s", to, statefulSetName)
+						return errors.Wrapf(err, "Patch for Replicas=%d failed for StatefulSet: %s", to, statefulSetName)
 					}
 				}
+				// Replicas already at desired state
+				return nil
 			} else {
 				return fmt.Errorf("GetScale failed for StatefulSet %s: %w", statefulSetName, err)
 			}
