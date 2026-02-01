@@ -504,3 +504,33 @@ func TestK8s_proxyServerNameUpdate(t *testing.T) {
 	watcher.handleUpdate(&initialSvc, &updatedSvc)
 	assert.Equal(t, "10.0.0.5:25565", routesHandler.GetBackendForServer("mc.example.com"))
 }
+
+func TestK8s_autoScaleWithoutProxy(t *testing.T) {
+	DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
+
+	routesHandler := new(MockedRoutesHandler)
+	routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+	routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+	routesHandler.On("GetAsleepMOTD", mock.Anything).Return("")
+	routesHandler.On("DeleteMapping", mock.Anything).Return(true)
+
+	watcher := &K8sWatcher{
+		autoScaleUp:   true,
+		autoScaleDown: true,
+		routesHandler: routesHandler,
+	}
+
+	// Service WITHOUT proxyServerName but WITH autoScaleUp/Down annotations
+	svc := v1.Service{}
+	err := json.Unmarshal([]byte(`{"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "atm-10.example.com", "mc-router.itzg.me/autoScaleUp": "true", "mc-router.itzg.me/autoScaleDown": "true"}}, "spec":{"clusterIP": "10.0.0.10"}}`), &svc)
+	require.NoError(t, err)
+
+	watcher.handleAdd(&svc)
+
+	// Verify routes to ClusterIP (not proxy)
+	assert.Equal(t, "10.0.0.10:25565", routesHandler.GetBackendForServer("atm-10.example.com"))
+
+	// CRITICAL: Verify scaleKey is set to the service endpoint (not empty)
+	// This ensures auto-scaling targets the correct StatefulSet
+	routesHandler.AssertCalled(t, "CreateMapping", "atm-10.example.com", "10.0.0.10:25565", "10.0.0.10:25565", mock.Anything, mock.Anything, mock.Anything)
+}

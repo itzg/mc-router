@@ -185,9 +185,9 @@ func (w *K8sWatcher) handleUpdate(oldObj interface{}, newObj interface{}) {
 			"new": newRoutableService,
 		}).Debug("UPDATE")
 		if newRoutableService.externalServiceName != "" {
-			w.routesHandler.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint, newRoutableService.scaleEndpoint, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown, "")
+			w.routesHandler.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint, newRoutableService.scalingTarget, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown, "")
 		} else {
-			w.routesHandler.SetDefaultRoute(newRoutableService.containerEndpoint, newRoutableService.scaleEndpoint, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown, "")
+			w.routesHandler.SetDefaultRoute(newRoutableService.containerEndpoint, newRoutableService.scalingTarget, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown, "")
 		}
 	}
 }
@@ -216,9 +216,9 @@ func (w *K8sWatcher) handleAdd(obj interface{}) {
 			logrus.WithField("routableService", routableService).Debug("ADD")
 
 			if routableService.externalServiceName != "" {
-				w.routesHandler.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint, routableService.scaleEndpoint, routableService.autoScaleUp, routableService.autoScaleDown, "")
+				w.routesHandler.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint, routableService.scalingTarget, routableService.autoScaleUp, routableService.autoScaleDown, "")
 			} else {
-				w.routesHandler.SetDefaultRoute(routableService.containerEndpoint, routableService.scaleEndpoint, routableService.autoScaleUp, routableService.autoScaleDown, "")
+				w.routesHandler.SetDefaultRoute(routableService.containerEndpoint, routableService.scalingTarget, routableService.autoScaleUp, routableService.autoScaleDown, "")
 			}
 		}
 	}
@@ -227,7 +227,7 @@ func (w *K8sWatcher) handleAdd(obj interface{}) {
 type routableService struct {
 	externalServiceName string
 	containerEndpoint   string
-	scaleEndpoint       string
+	scalingTarget       string
 	autoScaleUp         WakerFunc
 	autoScaleDown       SleeperFunc
 }
@@ -277,7 +277,7 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 	endpoint := net.JoinHostPort(clusterIp, port)
 
 	routingEndpoint := endpoint
-	scaleEndpoint := ""
+	scalingTarget := endpoint // Default to service endpoint for scaling
 
 	if proxyServerName, exists := service.Annotations[AnnotationProxyServerName]; exists && proxyServerName != "" {
 		// Ensure the proxy address has a port
@@ -285,14 +285,14 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 			proxyServerName = net.JoinHostPort(proxyServerName, "25565")
 		}
 		routingEndpoint = proxyServerName
-		scaleEndpoint = endpoint
+		// scalingTarget remains the service endpoint (already set above)
 	}
 
 	wakerFunc := w.buildScaleFunction(service, 0, 1)
 	rs := &routableService{
 		externalServiceName: externalServiceName,
 		containerEndpoint:   routingEndpoint,
-		scaleEndpoint:       scaleEndpoint,
+		scalingTarget:       scalingTarget,
 		autoScaleUp:         buildWakerFromSleeper(routingEndpoint, wakerFunc),
 		autoScaleDown:       w.buildScaleFunction(service, 1, 0),
 	}

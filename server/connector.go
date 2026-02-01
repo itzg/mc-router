@@ -486,7 +486,7 @@ func (c *Connector) readPlayerInfo(protocolVersion mcproto.ProtocolVersion, buff
 	}
 }
 
-func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress string, playerInfo *PlayerInfo, backendHostPort string, scaleKey string, cleanupMetrics bool, checkScaleDown bool) {
+func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress string, playerInfo *PlayerInfo, backendHostPort string, scalingTarget string, cleanupMetrics bool, checkScaleDown bool) {
 	if c.connectionNotifier != nil {
 		err := c.connectionNotifier.NotifyDisconnected(c.ctx, clientAddr, serverAddress, playerInfo, backendHostPort)
 		if err != nil {
@@ -503,7 +503,7 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 			With("server_address", serverAddress).
 			Set(float64(c.activeConnections.GetCount(backendHostPort)))
 
-		c.scaleActiveConnections.Decrement(scaleKey)
+		c.scaleActiveConnections.Decrement(scalingTarget)
 
 		if c.recordLogins && playerInfo != nil {
 			c.metrics.ServerActivePlayer.
@@ -518,8 +518,8 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 		WithField("backendHostPort", backendHostPort).
 		WithField("connectionCount", c.activeConnections.GetCount(backendHostPort)).
 		Info("Closed connection to backend")
-	if checkScaleDown && c.scaleActiveConnections.GetCount(scaleKey) <= 0 {
-		DownScaler.Begin(scaleKey)
+	if checkScaleDown && c.scaleActiveConnections.GetCount(scalingTarget) <= 0 {
+		DownScaler.Begin(scalingTarget)
 	}
 	c.connectionsCond.Signal()
 }
@@ -527,12 +527,12 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, playerInfo *PlayerInfo, nextState mcproto.State, isLegacy bool, clientProtocol int) {
 
-	backendHostPort, resolvedHost, scaleKey, waker, _ := Routes.FindBackendForServerAddress(c.ctx, serverAddress)
+	backendHostPort, resolvedHost, scalingTarget, waker, _ := Routes.FindBackendForServerAddress(c.ctx, serverAddress)
 	cleanupMetrics := false
 	cleanupCheckScaleDown := false
 
 	defer func() {
-		c.cleanupBackendConnection(clientAddr, serverAddress, playerInfo, backendHostPort, scaleKey, cleanupMetrics, cleanupCheckScaleDown)
+		c.cleanupBackendConnection(clientAddr, serverAddress, playerInfo, backendHostPort, scalingTarget, cleanupMetrics, cleanupCheckScaleDown)
 	}()
 
 	if waker != nil && nextState > mcproto.StateStatus {
@@ -545,8 +545,8 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			Debug("checked if player is allowed to wake up the server")
 		if serverAllowsPlayer {
 			// Cancel down scaler if active before scale up
-			if scaleKey != "" {
-				DownScaler.Cancel(scaleKey)
+			if scalingTarget != "" {
+				DownScaler.Cancel(scalingTarget)
 			}
 			cleanupCheckScaleDown = true
 			logrus.WithField("serverAddress", serverAddress).Info("Waking up backend server")
@@ -562,7 +562,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 				return
 			}
 			// Cancel again in case any routes were changed during wake up
-			DownScaler.Cancel(scaleKey)
+			DownScaler.Cancel(scalingTarget)
 			backendHostPort = newBackendHostPort
 			logrus.WithFields(logrus.Fields{
 				"serverAddress":   serverAddress,
@@ -646,7 +646,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		atomic.AddInt32(&c.totalActiveConnections, 1)))
 
 	c.activeConnections.Increment(backendHostPort)
-	c.scaleActiveConnections.Increment(scaleKey)
+	c.scaleActiveConnections.Increment(scalingTarget)
 	c.metrics.ServerActiveConnections.
 		With("server_address", serverAddress).
 		Set(float64(c.activeConnections.GetCount(backendHostPort)))
