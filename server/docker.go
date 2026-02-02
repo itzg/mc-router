@@ -186,9 +186,9 @@ func (w *dockerWatcherImpl) monitorContainers(ctx context.Context) error {
 			wakerFunc := w.makeWakerFunc(rs)
 			sleeperFunc := w.makeSleeperFunc(rs)
 			if rs.externalContainerName != "" {
-				Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
+				Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
 			} else {
-				Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
+				Routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
 			}
 		} else if oldRs.containerEndpoint != rs.containerEndpoint ||
 			oldRs.containerID != rs.containerID ||
@@ -200,9 +200,9 @@ func (w *dockerWatcherImpl) monitorContainers(ctx context.Context) error {
 			sleeperFunc := w.makeSleeperFunc(rs)
 			if rs.externalContainerName != "" {
 				Routes.DeleteMapping(rs.externalContainerName)
-				Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
+				Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
 			} else {
-				Routes.SetDefaultRoute(rs.containerEndpoint, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
+				Routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD)
 			}
 			logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
 		}
@@ -214,7 +214,7 @@ func (w *dockerWatcherImpl) monitorContainers(ctx context.Context) error {
 			if rs.externalContainerName != "" {
 				Routes.DeleteMapping(rs.externalContainerName)
 			} else {
-				Routes.SetDefaultRoute("", nil, nil, "")
+				Routes.SetDefaultRoute("", "", nil, nil, "")
 			}
 			logrus.WithField("routableContainer", rs).Debug("DELETE")
 		}
@@ -256,9 +256,9 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 		wakerFunc := w.makeWakerFunc(c)
 		sleeperFunc := w.makeSleeperFunc(c)
 		if c.externalContainerName != "" {
-			Routes.CreateMapping(c.externalContainerName, c.containerEndpoint, wakerFunc, sleeperFunc, c.autoScaleAsleepMOTD)
+			Routes.CreateMapping(c.externalContainerName, c.containerEndpoint, "", wakerFunc, sleeperFunc, c.autoScaleAsleepMOTD)
 		} else {
-			Routes.SetDefaultRoute(c.containerEndpoint, wakerFunc, sleeperFunc, c.autoScaleAsleepMOTD)
+			Routes.SetDefaultRoute(c.containerEndpoint, "", wakerFunc, sleeperFunc, c.autoScaleAsleepMOTD)
 		}
 	}
 
