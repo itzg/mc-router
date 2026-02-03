@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/itzg/mc-router/mcproto"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	apps "k8s.io/api/apps/v1"
@@ -23,6 +24,7 @@ import (
 
 const (
 	AnnotationExternalServerName = "mc-router.itzg.me/externalServerName"
+	AnnotationBetaServerVersion  = "mc-router.itzg.me/betaServerVersion"
 	AnnotationDefaultServer      = "mc-router.itzg.me/defaultServer"
 	AnnotationAutoScaleUp        = "mc-router.itzg.me/autoScaleUp"
 	AnnotationAutoScaleDown      = "mc-router.itzg.me/autoScaleDown"
@@ -189,6 +191,25 @@ func (w *K8sWatcher) handleUpdate(oldObj interface{}, newObj interface{}) {
 			w.routesHandler.SetDefaultRoute(newRoutableService.containerEndpoint, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown, "")
 		}
 	}
+	for _, oldRoutableBetaService := range w.extractRoutableBetaServices(oldObj) {
+		logrus.WithFields(logrus.Fields{
+			"old": oldRoutableBetaService,
+		}).Debug("UPDATE BETA")
+		if oldRoutableBetaService.externalServiceProtocolNumber != 0 {
+			w.routesHandler.CreateBetaMapping(oldRoutableBetaService.externalServiceProtocolNumber, "", nil, nil, "")
+		}
+	}
+
+	for _, newRoutableBetaService := range w.extractRoutableBetaServices(newObj) {
+		logrus.WithFields(logrus.Fields{
+			"new": newRoutableBetaService,
+		}).Debug("UPDATE BETA")
+		if newRoutableBetaService.externalServiceProtocolNumber != 0 {
+			w.routesHandler.CreateBetaMapping(newRoutableBetaService.externalServiceProtocolNumber, newRoutableBetaService.containerEndpoint, newRoutableBetaService.autoScaleUp, newRoutableBetaService.autoScaleDown, "")
+		} else { //TODO default beta route
+			w.routesHandler.SetDefaultRoute(newRoutableBetaService.containerEndpoint, newRoutableBetaService.autoScaleUp, newRoutableBetaService.autoScaleDown, "")
+		}
+	}
 }
 
 // obj is expected to be a *v1.Service
@@ -205,6 +226,17 @@ func (w *K8sWatcher) handleDelete(obj interface{}) {
 			}
 		}
 	}
+	for _, routableBetaService := range w.extractRoutableBetaServices(obj) {
+		if routableBetaService != nil {
+			logrus.WithField("routableBetaService", routableBetaService).Debug("DELETE BETA")
+
+			if routableBetaService.externalServiceProtocolNumber != 0 {
+				w.routesHandler.CreateBetaMapping(routableBetaService.externalServiceProtocolNumber, "", nil, nil, "")
+			} else { //TODO default beta route
+				w.routesHandler.SetDefaultRoute("", nil, nil, "")
+			}
+		}
+	}
 }
 
 // obj is expected to be a *v1.Service
@@ -216,9 +248,17 @@ func (w *K8sWatcher) handleAdd(obj interface{}) {
 
 			if routableService.externalServiceName != "" {
 				w.routesHandler.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint, routableService.autoScaleUp, routableService.autoScaleDown, "")
-			} else {
+			} else { //TODO default beta route
 				w.routesHandler.SetDefaultRoute(routableService.containerEndpoint, routableService.autoScaleUp, routableService.autoScaleDown, "")
 			}
+		}
+	}
+	routableBetaServices := w.extractRoutableBetaServices(obj)
+	for _, routableBetaService := range routableBetaServices {
+		if routableBetaService != nil {
+			logrus.WithField("routableBetaService", routableBetaService).Debug("ADD BETA")
+
+			w.routesHandler.CreateBetaMapping(routableBetaService.externalServiceProtocolNumber, routableBetaService.containerEndpoint, routableBetaService.autoScaleUp, routableBetaService.autoScaleDown, "")
 		}
 	}
 }
@@ -228,6 +268,13 @@ type routableService struct {
 	containerEndpoint   string
 	autoScaleUp         WakerFunc
 	autoScaleDown       SleeperFunc
+}
+
+type routableBetaService struct {
+	externalServiceProtocolNumber int
+	containerEndpoint             string
+	autoScaleUp                   WakerFunc
+	autoScaleDown                 SleeperFunc
 }
 
 // obj is expected to be a *v1.Service
@@ -246,6 +293,34 @@ func (w *K8sWatcher) extractRoutableServices(obj interface{}) []*routableService
 		return routableServices
 	} else if _, exists := service.Annotations[AnnotationDefaultServer]; exists {
 		return []*routableService{w.buildDetails(service, "")}
+	}
+
+	return nil
+}
+
+func (w *K8sWatcher) extractRoutableBetaServices(obj interface{}) []*routableBetaService {
+	service, ok := obj.(*core.Service)
+	if !ok {
+		return nil
+	}
+
+	routableBetaServices := make([]*routableBetaService, 0)
+	if betaServerVersion, exists := service.Annotations[AnnotationBetaServerVersion]; exists {
+		versionStrings := strings.Split(betaServerVersion, ",")
+		for _, versionString := range versionStrings {
+			versionProtocol := mcproto.VersionToProtocolVersion(versionString)
+			if versionProtocol != -1 {
+				routableBetaServices = append(routableBetaServices, w.buildBetaDetails(service, versionProtocol))
+			} else {
+				logrus.WithFields(logrus.Fields{
+					"service": service.Name,
+					"version": versionString,
+				}).Warn("Ignoring invalid beta server version annotation")
+			}
+		}
+		return routableBetaServices
+	} else if _, exists := service.Annotations[AnnotationDefaultServer]; exists {
+		return []*routableBetaService{w.buildBetaDetails(service, 0)}
 	}
 
 	return nil
@@ -279,6 +354,38 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 		containerEndpoint:   endpoint,
 		autoScaleUp:         buildWakerFromSleeper(endpoint, wakerFunc),
 		autoScaleDown:       w.buildScaleFunction(service, 1, 0),
+	}
+	return rs
+}
+
+func (w *K8sWatcher) buildBetaDetails(service *core.Service, externalServiceProtocolNumber int) *routableBetaService {
+	clusterIp := service.Spec.ClusterIP
+	if service.Spec.Type == core.ServiceTypeExternalName {
+		clusterIp = service.Spec.ExternalName
+	}
+	mcRouterPort := ""
+	mcPort := ""
+	for _, p := range service.Spec.Ports {
+		if p.Name == "mc-router" {
+			mcRouterPort = strconv.Itoa(int(p.Port))
+		}
+		if p.Name == "minecraft" {
+			mcPort = strconv.Itoa(int(p.Port))
+		}
+	}
+	port := "25565"
+	if len(mcRouterPort) > 0 {
+		port = mcRouterPort
+	} else if len(mcPort) > 0 {
+		port = mcPort
+	}
+	endpoint := net.JoinHostPort(clusterIp, port)
+	wakerFunc := w.buildScaleFunction(service, 0, 1)
+	rs := &routableBetaService{
+		externalServiceProtocolNumber: externalServiceProtocolNumber,
+		containerEndpoint:             endpoint,
+		autoScaleUp:                   buildWakerFromSleeper(endpoint, wakerFunc),
+		autoScaleDown:                 w.buildScaleFunction(service, 1, 0),
 	}
 	return rs
 }

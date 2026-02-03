@@ -269,6 +269,15 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 
 	bufferedReader := bufio.NewReader(inspectionReader)
 
+	// Peek first byte to check for Beta Packet ID (0x02)
+	peekBytes, _ := bufferedReader.Peek(1)
+	if len(peekBytes) > 0 && peekBytes[0] == 0x02 {
+		logrus.Debug("Beta Handshake detected. Initiating Version Probe.")
+		bufferedReader.ReadByte() // consume the peeked byte
+		c.HandleBetaConnection(frontendConn, bufferedReader)
+		return
+	}
+
 	if err := frontendConn.SetReadDeadline(time.Now().Add(handshakeTimeout)); err != nil {
 		logrus.
 			WithError(err).

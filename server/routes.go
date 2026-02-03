@@ -38,6 +38,7 @@ type RouteFinder interface {
 type RoutesHandler interface {
 	CreateMapping(serverAddress string, backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string)
 	SetDefaultRoute(backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string)
+	CreateBetaMapping(serverProtocolVersion int, backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string)
 	// DeleteMapping requests that the serverAddress be removed from routes.
 	// Returns true if the route existed.
 	DeleteMapping(serverAddress string) bool
@@ -54,6 +55,7 @@ type IRoutes interface {
 	// The 4th value returned is an (optional) "sleeper" function which a caller must invoke to shut down serverAddress.
 	HasRoute(serverAddress string) bool
 	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, WakerFunc, SleeperFunc)
+	FindBackendForProtocolVersion(ctx context.Context, protocolVersion int) (string, string, WakerFunc, SleeperFunc)
 	GetSleepers(backend string) []SleeperFunc
 	GetMappings() map[string]string
 	GetDefaultRoute() (string, WakerFunc, SleeperFunc)
@@ -178,6 +180,19 @@ func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddres
 	}
 	return r.defaultRoute.backend, serverAddress, r.defaultRoute.waker, r.defaultRoute.sleeper
 }
+func (r *routesImpl) FindBackendForProtocolVersion(_ context.Context, protocolVersion int) (string, string, WakerFunc, SleeperFunc) {
+	r.RLock()
+	defer r.RUnlock()
+
+	key := "beta_protocol_" + string(rune(protocolVersion))
+
+	if r.mappings != nil {
+		if mapping, exists := r.mappings[key]; exists {
+			return mapping.backend, key, mapping.waker, mapping.sleeper
+		}
+	}
+	return r.defaultRoute.backend, key, r.defaultRoute.waker, r.defaultRoute.sleeper
+}
 
 func (r *routesImpl) GetSleepers(backend string) []SleeperFunc {
 	r.RLock()
@@ -231,6 +246,23 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, waker W
 		"backend":       backend,
 	}).Info("Created route mapping")
 	r.mappings[serverAddress] = mapping{backend: backend, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD}
+
+	// Trigger auto scale down when mapping is created to ensure servers are shut down if router restarts
+	if DownScaler != nil && backend != "" {
+		DownScaler.Begin(backend)
+	}
+}
+
+func (r *routesImpl) CreateBetaMapping(serverProtocolVersion int, backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string) {
+	r.Lock()
+	defer r.Unlock()
+
+	key := "beta_protocol_" + string(rune(serverProtocolVersion))
+	logrus.WithFields(logrus.Fields{
+		"serverProtocolVersion": serverProtocolVersion,
+		"backend":               backend,
+	}).Info("Created beta route mapping")
+	r.mappings[key] = mapping{backend: backend, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD}
 
 	// Trigger auto scale down when mapping is created to ensure servers are shut down if router restarts
 	if DownScaler != nil && backend != "" {

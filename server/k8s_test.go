@@ -36,6 +36,15 @@ func (m *MockedRoutesHandler) CreateMapping(serverAddress string, backend string
 	m.routes[serverAddress] = backend
 }
 
+func (m *MockedRoutesHandler) CreateBetaMapping(serverProtocolVersion int, backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string) {
+	m.MethodCalled("CreateBetaMapping", serverProtocolVersion, backend, waker, sleeper, asleepMOTD)
+	if m.routes == nil {
+		m.routes = make(map[string]string)
+	}
+	key := "beta_protocol_" + string(rune(serverProtocolVersion))
+	m.routes[key] = backend
+}
+
 func (m *MockedRoutesHandler) SetDefaultRoute(backend string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string) {
 	m.MethodCalled("SetDefaultRoute", backend, waker, sleeper, asleepMOTD)
 	if m.routes == nil {
