@@ -361,22 +361,49 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 					// Use Patch instead of Update to avoid optimistic concurrency errors
 					// This doesn't require resourceVersion and is atomic
 					patchData := fmt.Sprintf(`{"spec":{"replicas":%d}}`, to)
-					if _, err := w.clientset.AppsV1().StatefulSets(service.Namespace).Patch(
+					_, err := w.clientset.AppsV1().StatefulSets(service.Namespace).Patch(
 						ctx,
 						statefulSetName,
 						types.StrategicMergePatchType,
 						[]byte(patchData),
 						meta.PatchOptions{},
-					); err == nil {
+					)
+					if err == nil {
 						logrus.WithFields(logrus.Fields{
 							"service":     serviceName,
 							"statefulSet": statefulSetName,
 							"replicas":    replicas,
 						}).Infof("StatefulSet Replicas Autoscaled from %d to %d", from, to)
 						return nil
-					} else {
-						return errors.Wrapf(err, "Patch for Replicas=%d failed for StatefulSet: %s", to, statefulSetName)
 					}
+
+					// Fallback to UpdateScale if Patch fails due to RBAC permissions
+					// This maintains backward compatibility with existing RBAC configurations
+					if strings.Contains(err.Error(), "forbidden") {
+						logrus.WithFields(logrus.Fields{
+							"service":     serviceName,
+							"statefulSet": statefulSetName,
+						}).Warn("Patch operation forbidden - falling back to UpdateScale. Consider updating RBAC to allow 'patch' verb for better concurrency handling")
+
+						scale.Spec.Replicas = to
+						if _, updateErr := w.clientset.AppsV1().StatefulSets(service.Namespace).UpdateScale(
+							ctx,
+							statefulSetName,
+							scale,
+							meta.UpdateOptions{},
+						); updateErr == nil {
+							logrus.WithFields(logrus.Fields{
+								"service":     serviceName,
+								"statefulSet": statefulSetName,
+								"replicas":    replicas,
+							}).Infof("StatefulSet Replicas Autoscaled from %d to %d (via UpdateScale fallback)", from, to)
+							return nil
+						} else {
+							return errors.Wrapf(updateErr, "UpdateScale fallback for Replicas=%d failed for StatefulSet: %s", to, statefulSetName)
+						}
+					}
+
+					return errors.Wrapf(err, "Patch for Replicas=%d failed for StatefulSet: %s", to, statefulSetName)
 				}
 				// Replicas already at desired state
 				return nil
