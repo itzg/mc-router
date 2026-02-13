@@ -272,6 +272,7 @@ For more information on the allow/deny list configuration, see the [json schema]
 When running `mc-router` as a Kubernetes Pod and you pass the `--in-kube-cluster` command-line argument, then it will automatically watch for any services annotated with
 - `mc-router.itzg.me/externalServerName` : The value of the annotation will be registered as the external hostname Minecraft clients would used to connect to the routed service. The service is used as the routed backend. You can use more hostnames by splitting them with comma or newline. Whitespace around commas is automatically trimmed. For example: `"host1.com,host2.com"`, `"host1.com, host2.com"`, or multi-line values.
 - `mc-router.itzg.me/defaultServer` : When set to "true", the service is used as the default if no other `externalServiceName` annotations applies.
+- `mc-router.itzg.me/proxyServerName` : When using a proxy server like Velocity or BungeeCord, this annotation specifies the proxy's address to route traffic to. The Service endpoint is still used for auto-scaling operations, allowing mc-router to scale the backend StatefulSet while routing client connections to the proxy. See [Using with Velocity/BungeeCord proxies](#using-with-velocitybungeecord-proxies) for details.
 
 By default, the router will watch all namespaces for those services; however, a specific namespace can be specified using the `KUBE_NAMESPACE` environment variable. The pod's own namespace could be set using:
 
@@ -338,11 +339,13 @@ and if using StatefulSet auto-scaling additionally
 ```yaml
   - apiGroups: ["apps"]
     resources: ["statefulsets"]
-    verbs: ["watch","list","get","update"]
+    verbs: ["watch","list","patch"]
   - apiGroups: ["apps"]
     resources: ["statefulsets/scale"]
-    verbs: ["get","update"]
+    verbs: ["get"]
 ```
+
+**Note:** The `patch` verb is preferred for scaling operations as it provides atomic updates and prevents concurrency conflicts. For backward compatibility, mc-router will automatically fall back to using `get` + `update` if `patch` is not permitted, but this may result in occasional scaling conflicts in high-traffic scenarios.
 
 ### Service parsing
 
@@ -376,8 +379,8 @@ The `-auto-scale-up` flag argument makes the router "wake up" any stopped backen
 
 Both options require using `kind: StatefulSet` instead of `kind: Service` for the Minecraft backend servers.
 
-They also require the `ClusterRole` to permit `get` + `update` for `statefulsets` & `statefulsets/scale`,
-e.g. like this (or some equivalent more fine-grained one to only watch/list services+statefulsets, and only get+update scale):
+They also require the `ClusterRole` to permit `patch` for `statefulsets`,
+e.g. like this (or some equivalent more fine-grained one to only watch/list services+statefulsets, and patch statefulsets):
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -389,9 +392,14 @@ rules:
   resources: ["services"]
   verbs: ["watch","list"]
 - apiGroups: ["apps"]
-  resources: ["statefulsets", "statefulsets/scale"]
-  verbs: ["watch","list","get","update"]
+  resources: ["statefulsets"]
+  verbs: ["watch","list","patch"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets/scale"]
+  verbs: ["get"]
 ```
+
+**Note:** The `patch` verb is preferred for scaling operations as it provides atomic updates and prevents concurrency conflicts. For backward compatibility, mc-router will automatically fall back to using `get` + `update` if `patch` is not permitted, but this may result in occasional scaling conflicts in high-traffic scenarios.
 
 Make sure to set `StatefulSet.metadata.name` and `StatefulSet.spec.serviceName` to the same value;
 otherwise, autoscaling will not trigger:
@@ -440,6 +448,76 @@ metadata:
     "mc-router.itzg.me/autoScaleUp": "false"
     "mc-router.itzg.me/autoScaleDown": "false"
 ```
+
+#### Using with Velocity/BungeeCord proxies
+
+When using a proxy server like Velocity or BungeeCord, you can use the `mc-router.itzg.me/proxyServerName` annotation to route client connections to the proxy while still allowing mc-router to auto-scale the backend StatefulSet. This is useful when you want to:
+
+1. Route all client traffic through a proxy server (for cross-server features, permissions, etc.)
+2. Maintain auto-scaling capabilities for individual backend servers
+3. Separate routing (to proxy) from scaling (backend StatefulSet)
+
+Example configuration:
+
+```yaml
+# Velocity/BungeeCord proxy service (always running)
+apiVersion: v1
+kind: Service
+metadata:
+  name: velocity-proxy
+spec:
+  selector:
+    app: velocity
+  ports:
+    - name: minecraft
+      port: 25577
+---
+# Backend Minecraft server with auto-scaling
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-survival
+  annotations:
+    # External hostname that clients connect to
+    "mc-router.itzg.me/externalServerName": "survival.example.com"
+    # Route traffic to the proxy instead of directly to this service
+    "mc-router.itzg.me/proxyServerName": "velocity-proxy:25577"
+spec:
+  selector:
+    app: mc-survival
+  ports:
+    - name: minecraft
+      port: 25565
+---
+# Backend StatefulSet that can be scaled to zero
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mc-survival
+spec:
+  serviceName: mc-survival
+  replicas: 0  # Can be scaled from 0 to 1 automatically
+  selector:
+    matchLabels:
+      app: mc-survival
+  template:
+    metadata:
+      labels:
+        app: mc-survival
+    spec:
+      containers:
+        - name: mc
+          image: itzg/minecraft-server
+          # ... container configuration
+```
+
+In this configuration:
+- Clients connecting to `survival.example.com` are routed to `velocity-proxy:25577`
+- When a client connects, mc-router scales the `mc-survival` StatefulSet from 0 to 1 replicas
+- The proxy handles the actual game connections to the backend server
+- When idle, mc-router scales the StatefulSet back to 0 replicas
+
+**Note:** The proxy server must be configured to connect to the backend server at `mc-survival:25565` (the Service endpoint) and handle the case where the backend may not be available immediately during scale-up.
 
 ### Troubleshooting
 

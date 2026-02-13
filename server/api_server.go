@@ -81,7 +81,7 @@ func routesCreateHandler(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	Routes.CreateMapping(definition.ServerAddress, definition.Backend, nil, nil, "")
+	Routes.CreateMapping(definition.ServerAddress, definition.Backend, "", nil, nil, "")
 	RoutesConfigLoader.SaveRoutes()
 	writer.WriteHeader(http.StatusCreated)
 }
@@ -102,7 +102,7 @@ func routesSetDefault(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	Routes.SetDefaultRoute(body.Backend, nil, nil, "")
+	Routes.SetDefaultRoute(body.Backend, "", nil, nil, "")
 	RoutesConfigLoader.SaveRoutes()
 	writer.WriteHeader(http.StatusOK)
 }
