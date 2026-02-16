@@ -1,0 +1,22 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="run (in docker)" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="mc-router" />
+    <working_directory value="$PROJECT_DIR$" />
+    <parameters value="--debug --in-docker" />
+    <EXTENSION ID="net.ashald.envfile">
+      <option name="IS_ENABLED" value="false" />
+      <option name="IS_SUBST" value="false" />
+      <option name="IS_PATH_MACRO_SUPPORTED" value="false" />
+      <option name="IS_IGNORE_MISSING_FILES" value="false" />
+      <option name="IS_ENABLE_EXPERIMENTAL_INTEGRATIONS" value="false" />
+      <ENTRIES>
+        <ENTRY IS_ENABLED="true" PARSER="runconfig" IS_EXECUTABLE="false" />
+      </ENTRIES>
+    </EXTENSION>
+    <kind value="DIRECTORY" />
+    <package value="github.com/itzg/mc-router" />
+    <directory value="$PROJECT_DIR$/cmd/mc-router" />
+    <filePath value="$PROJECT_DIR$/cmd/mc-router/main.go" />
+    <method v="2" />
+  </configuration>
+</component>

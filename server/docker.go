@@ -29,12 +29,12 @@ const (
 )
 
 type dockerWatcherConfig struct {
-	autoScaleUp            bool
-	autoScaleDown          bool
-	socket                 string
-	timeoutSeconds         int
-	refreshIntervalSeconds int
-	apiVersion             string
+	autoScaleUp     bool
+	autoScaleDown   bool
+	socket          string
+	timeout         time.Duration
+	refreshInterval time.Duration
+	apiVersion      string
 }
 
 func (c *dockerWatcherConfig) apiVersionOpt() client.Opt {
@@ -47,15 +47,15 @@ func (c *dockerWatcherConfig) apiVersionOpt() client.Opt {
 	}
 }
 
-func NewDockerWatcher(socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool, dockerApiVersion string) IDockerWatcher {
+func NewDockerWatcher(socket string, timeout time.Duration, refreshInterval time.Duration, autoScaleUp bool, autoScaleDown bool, dockerApiVersion string) IDockerWatcher {
 	return &dockerWatcherImpl{
 		config: dockerWatcherConfig{
-			socket:                 socket,
-			timeoutSeconds:         timeoutSeconds,
-			refreshIntervalSeconds: refreshIntervalSeconds,
-			autoScaleUp:            autoScaleUp,
-			autoScaleDown:          autoScaleDown,
-			apiVersion:             dockerApiVersion,
+			socket:          socket,
+			timeout:         timeout,
+			refreshInterval: refreshInterval,
+			autoScaleUp:     autoScaleUp,
+			autoScaleDown:   autoScaleDown,
+			apiVersion:      dockerApiVersion,
 		},
 	}
 }
@@ -225,16 +225,16 @@ func (w *dockerWatcherImpl) monitorContainers(ctx context.Context) error {
 func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 	var err error
 
-	timeout := time.Duration(w.config.timeoutSeconds) * time.Second
-	refreshInterval := time.Duration(w.config.refreshIntervalSeconds) * time.Second
-
 	opts := []client.Opt{
-		client.WithHost(w.config.socket),
-		client.WithTimeout(timeout),
+		client.FromEnv,
+		client.WithTimeout(w.config.timeout),
 		client.WithHTTPHeaders(map[string]string{
 			"User-Agent": "mc-router ",
 		}),
 		w.config.apiVersionOpt(),
+	}
+	if w.config.socket != "" {
+		opts = append(opts, client.WithHost(w.config.socket))
 	}
 
 	w.client, err = client.NewClientWithOpts(opts...)
@@ -242,7 +242,8 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 		return err
 	}
 
-	ticker := time.NewTicker(refreshInterval)
+	// TODO: replace all this with events listening
+	ticker := time.NewTicker(w.config.refreshInterval)
 
 	logrus.Trace("Performing initial listing of Docker containers")
 	initialContainers, err := w.listContainers(ctx)

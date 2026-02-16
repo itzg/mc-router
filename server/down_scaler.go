@@ -56,7 +56,6 @@ func (ds *downScalerImpl) Begin(backendEndpoint string) {
 		scaleDownCancel()
 	}
 
-	logrus.WithField("backendEndpoint", backendEndpoint).Debug("Beginning scale down")
 	scaleDownContext, scaleDownContextCancellation := context.WithCancel(ds.parentContext)
 	ds.contextCancellations[backendEndpoint] = scaleDownContextCancellation
 	go ds.scaleDown(scaleDownContext, backendEndpoint)
@@ -78,12 +77,18 @@ func (ds *downScalerImpl) Cancel(backendEndpoint string) {
 }
 
 func (ds *downScalerImpl) scaleDown(ctx context.Context, backendEndpoint string) {
+	logrus.WithField("backendEndpoint", backendEndpoint).
+		WithField("delay", ds.delay).
+		Debug("Starting scale-down timer")
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(ds.delay):
 			sleepers := Routes.GetSleepers(backendEndpoint)
+			logrus.WithField("backendEndpoint", backendEndpoint).
+				WithField("sleepers", len(sleepers)).
+				Debug("Found sleepers to use")
 			if len(sleepers) == 0 {
 				return
 			}

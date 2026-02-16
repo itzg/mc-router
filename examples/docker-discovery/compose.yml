@@ -14,7 +14,7 @@ services:
     environment:
       EULA: "TRUE"
     labels:
-      mc-router.host: "localhost.itzg.me"
+      mc-router.host: "localhost"
     # To allow for routing from devcontainer
     network_mode: bridge
   paper:
