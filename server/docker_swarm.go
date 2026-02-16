@@ -19,15 +19,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func NewDockerSwarmWatcher(socket string, timeoutSeconds int, refreshIntervalSeconds int, autoScaleUp bool, autoScaleDown bool, dockerApiVersion string) IDockerWatcher {
+func NewDockerSwarmWatcher(socket string, timeout time.Duration, refreshInterval time.Duration, autoScaleUp bool, autoScaleDown bool, dockerApiVersion string) IDockerWatcher {
 	return &dockerSwarmWatcherImpl{
 		config: dockerWatcherConfig{
-			socket:                 socket,
-			timeoutSeconds:         timeoutSeconds,
-			refreshIntervalSeconds: refreshIntervalSeconds,
-			autoScaleUp:            autoScaleUp,
-			autoScaleDown:          autoScaleDown,
-			apiVersion:             dockerApiVersion,
+			socket:          socket,
+			timeout:         timeout,
+			refreshInterval: refreshInterval,
+			autoScaleUp:     autoScaleUp,
+			autoScaleDown:   autoScaleDown,
+			apiVersion:      dockerApiVersion,
 		},
 	}
 }
@@ -61,12 +61,9 @@ func (w *dockerSwarmWatcherImpl) makeSleeperFunc(_ *routableService) SleeperFunc
 func (w *dockerSwarmWatcherImpl) Start(ctx context.Context) error {
 	var err error
 
-	timeout := time.Duration(w.config.timeoutSeconds) * time.Second
-	refreshInterval := time.Duration(w.config.refreshIntervalSeconds) * time.Second
-
 	opts := []client.Opt{
 		client.WithHost(w.config.socket),
-		client.WithTimeout(timeout),
+		client.WithTimeout(w.config.timeout),
 		client.WithHTTPHeaders(map[string]string{
 			"User-Agent": "mc-router ",
 		}),
@@ -78,7 +75,7 @@ func (w *dockerSwarmWatcherImpl) Start(ctx context.Context) error {
 		return err
 	}
 
-	ticker := time.NewTicker(refreshInterval)
+	ticker := time.NewTicker(w.config.refreshInterval)
 	serviceMap := map[string]*routableService{}
 
 	logrus.Trace("Performing initial listing of Docker containers")

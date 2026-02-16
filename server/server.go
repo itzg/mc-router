@@ -7,7 +7,6 @@ import (
 	"os"
 	"runtime/pprof"
 	"strconv"
-	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -50,10 +49,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	metricsBuilder := NewMetricsBuilder(config.MetricsBackend, &config.MetricsBackendConfig)
 
 	downScalerEnabled := config.AutoScale.Down && (config.InKubeCluster || config.KubeConfig != "" || config.InDocker)
-	downScalerDelay, err := time.ParseDuration(config.AutoScale.DownAfter)
-	if err != nil {
-		return nil, fmt.Errorf("could not parse auto-scale-down-after duration: %w", err)
-	}
+	downScalerDelay := config.AutoScale.DownAfter
 	// Only one instance should be created
 	DownScaler = NewDownScaler(ctx, downScalerEnabled, downScalerDelay)
 

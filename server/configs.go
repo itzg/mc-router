@@ -8,11 +8,11 @@ type WebhookConfig struct {
 }
 
 type AutoScale struct {
-	Up         bool   `usage:"Scale from zero on access. For Kubernetes, increases StatefulSet replicas from 0 to 1. For Docker, starts or unpauses the container when accessed"`
-	Down       bool   `default:"false" usage:"Scale to zero after idle. For Kubernetes, decreases StatefulSet replicas from 1 to 0. For Docker, gracefully stops the container when there are no connections"`
-	DownAfter  string `default:"10m" usage:"Server scale down delay after there are no connections"`
-	AllowDeny  string `usage:"Path to config for server allowlists and denylists. If a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up when -auto-scale-up is enabled or cancel active down scalers when -auto-scale-down is enabled"`
-	AsleepMOTD string `usage:"MOTD to display when auto-scaled down servers are accessed; if empty, no status will be served"`
+	Up         bool          `usage:"Scale from zero on access. For Kubernetes, increases StatefulSet replicas from 0 to 1. For Docker, starts or unpauses the container when accessed"`
+	Down       bool          `default:"false" usage:"Scale to zero after idle. For Kubernetes, decreases StatefulSet replicas from 1 to 0. For Docker, gracefully stops the container when there are no connections"`
+	DownAfter  time.Duration `default:"10m" usage:"Server scale down delay after there are no connections"`
+	AllowDeny  string        `usage:"Path to config for server allowlists and denylists. If a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up when -auto-scale-up is enabled or cancel active down scalers when -auto-scale-down is enabled"`
+	AsleepMOTD string        `usage:"MOTD to display when auto-scaled down servers are accessed; if empty, no status will be served"`
 }
 
 type RoutesConfig struct {
@@ -37,9 +37,9 @@ type Config struct {
 	KubeNamespace          string            `usage:"The namespace to watch or blank for all, which is the default"`
 	InDocker               bool              `usage:"Use Docker service discovery"`
 	InDockerSwarm          bool              `usage:"Use Docker Swarm service discovery"`
-	DockerSocket           string            `default:"unix:///var/run/docker.sock" usage:"Path to Docker socket to use"`
-	DockerTimeout          int               `default:"0" usage:"Timeout configuration in seconds for the Docker integrations"`
-	DockerRefreshInterval  int               `default:"15" usage:"Refresh interval in seconds for the Docker integrations"`
+	DockerSocket           string            `usage:"Path to Docker socket to use"`
+	DockerTimeout          time.Duration     `usage:"Timeout (as duration) for the Docker integrations"`
+	DockerRefreshInterval  time.Duration     `default:"15s" usage:"Refresh interval (as duration) for the Docker integrations"`
 	DockerApiVersion       string            `usage:"Instead of auto-negotiating, use specific Docker API version"`
 	MetricsBackend         string            `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb,prometheus"`
 	MetricsBackendConfig   MetricsBackendConfig
