@@ -561,6 +561,9 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 				c.metrics.Errors.With("type", "wakeup_no_address").Add(1)
 				return
 			}
+			if scalingTarget == "" {
+				scalingTarget = newBackendHostPort
+			}
 			// Cancel again in case any routes were changed during wake up
 			DownScaler.Cancel(scalingTarget)
 			backendHostPort = newBackendHostPort
