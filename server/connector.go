@@ -572,12 +572,14 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 	}
 
 	if backendHostPort == "" {
-		logrus.
-			WithField("serverAddress", serverAddress).
-			WithField("resolvedHost", resolvedHost).
-			WithField("player", playerInfo).
-			Warn("Unable to find registered backend")
-		c.metrics.Errors.With("type", "missing_backend").Add(1)
+		if waker == nil {
+			logrus.
+				WithField("serverAddress", serverAddress).
+				WithField("resolvedHost", resolvedHost).
+				WithField("player", playerInfo).
+				Warn("Unable to find registered backend")
+			c.metrics.Errors.With("type", "missing_backend").Add(1)
+		}
 
 		if c.connectionNotifier != nil {
 			err := c.connectionNotifier.NotifyMissingBackend(c.ctx, clientAddr, serverAddress, playerInfo)
