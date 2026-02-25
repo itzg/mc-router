@@ -68,7 +68,7 @@ func Test_routesImpl_FindBackendForServerAddress(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := NewRoutes()
 
-			r.CreateMapping(tt.mapping.serverAddress, tt.mapping.backend, "", nil, nil, "")
+			r.CreateMapping(tt.mapping.serverAddress, tt.mapping.backend, "", nil, nil, "", "")
 
 			if got, server, _, _, _ := r.FindBackendForServerAddress(context.Background(), tt.args.serverAddress); got != tt.want {
 				t.Errorf("routesImpl.FindBackendForServerAddress() = %v, want %v", got, tt.want)
@@ -84,7 +84,7 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 
 	t.Run("scaleKey defaults to backend when empty", func(t *testing.T) {
 		r := NewRoutes()
-		r.CreateMapping("mc.example.com", "backend:25565", "", nil, nil, "")
+		r.CreateMapping("mc.example.com", "backend:25565", "", nil, nil, "", "")
 
 		_, _, scaleKey, _, _ := r.FindBackendForServerAddress(context.Background(), "mc.example.com")
 		assert.Equal(t, "backend:25565", scaleKey)
@@ -92,7 +92,7 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 
 	t.Run("scaleKey is set when provided", func(t *testing.T) {
 		r := NewRoutes()
-		r.CreateMapping("mc.example.com", "proxy:25577", "10.0.0.5:25565", nil, nil, "")
+		r.CreateMapping("mc.example.com", "proxy:25577", "10.0.0.5:25565", nil, nil, "", "")
 
 		backend, _, scaleKey, _, _ := r.FindBackendForServerAddress(context.Background(), "mc.example.com")
 		assert.Equal(t, "proxy:25577", backend)
@@ -108,8 +108,8 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 		}
 
 		// Two routes with same proxy backend but different scaleKeys
-		r.CreateMapping("mc1.example.com", "proxy:25577", "10.0.0.1:25565", nil, sleeper, "")
-		r.CreateMapping("mc2.example.com", "proxy:25577", "10.0.0.2:25565", nil, nil, "")
+		r.CreateMapping("mc1.example.com", "proxy:25577", "10.0.0.1:25565", nil, sleeper, "", "")
+		r.CreateMapping("mc2.example.com", "proxy:25577", "10.0.0.2:25565", nil, nil, "", "")
 
 		sleepers := r.GetSleepers("10.0.0.1:25565")
 		require.Len(t, sleepers, 1)
@@ -127,7 +127,7 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 
 	t.Run("default route scaleKey", func(t *testing.T) {
 		r := NewRoutes()
-		r.SetDefaultRoute("proxy:25577", "10.0.0.5:25565", nil, nil, "")
+		r.SetDefaultRoute("proxy:25577", "10.0.0.5:25565", nil, nil, "", "")
 
 		backend, scaleKey, _, _ := r.GetDefaultRoute()
 		assert.Equal(t, "proxy:25577", backend)
@@ -136,10 +136,21 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 
 	t.Run("default route scaleKey defaults to backend", func(t *testing.T) {
 		r := NewRoutes()
-		r.SetDefaultRoute("backend:25565", "", nil, nil, "")
+		r.SetDefaultRoute("backend:25565", "", nil, nil, "", "")
 
 		backend, scaleKey, _, _ := r.GetDefaultRoute()
 		assert.Equal(t, "backend:25565", backend)
 		assert.Equal(t, "backend:25565", scaleKey)
 	})
+}
+
+func Test_routesImpl_LoadingMOTD(t *testing.T) {
+	r := NewRoutes()
+	r.CreateMapping("mc.example.com", "backend:25565", "", nil, nil, "asleep", "loading")
+
+	assert.Equal(t, "loading", r.GetLoadingMOTD("mc.example.com"))
+	assert.Equal(t, "", r.GetLoadingMOTD("other.example.com"))
+
+	r.SetDefaultRoute("default:25565", "", nil, nil, "default asleep", "default loading")
+	assert.Equal(t, "default loading", r.GetLoadingMOTD(""))
 }

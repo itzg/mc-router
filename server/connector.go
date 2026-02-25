@@ -78,6 +78,7 @@ func NewConnector(ctx context.Context, metrics *ConnectorMetrics, sendProxyProto
 		autoScaleUpAllowDenyConfig: autoScaleUpAllowDenyConfig,
 		activeConnections:          NewActiveConnections(),
 		scaleActiveConnections:     NewActiveConnections(),
+		wakingServers:              NewActiveConnections(),
 	}
 }
 
@@ -97,12 +98,14 @@ type Connector struct {
 	totalActiveConnections     int32
 	activeConnections          *ActiveConnections
 	scaleActiveConnections     *ActiveConnections
+	wakingServers              *ActiveConnections
 	connectionsCond            *sync.Cond
 	ngrok                      NgrokConnector
 	clientFilter               *ClientFilter
 	autoScaleUpAllowDenyConfig *AllowDenyConfig
 	connectionNotifier         ConnectionNotifier
 	asleepMOTD                 string
+	loadingMOTD                string
 }
 
 func (c *Connector) UseConnectionNotifier(notifier ConnectionNotifier) {
@@ -364,9 +367,11 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 
 // serveStatus writes a predefined status JSON and optionally handles ping/pong
 func (c *Connector) serveStatus(frontendConn net.Conn, reader *bufio.Reader, serverAddress string, clientProtocol int) {
-	motd := Routes.GetAsleepMOTD(serverAddress)
-	if motd == "" {
-		motd = c.asleepMOTD
+	motd := ""
+	if c.isWakeInProgress(serverAddress) {
+		motd = c.getLoadingMOTD(serverAddress)
+	} else {
+		motd = c.getAsleepMOTD(serverAddress)
 	}
 	if motd == "" {
 		return
@@ -453,8 +458,13 @@ func (c *Connector) serveStatus(frontendConn net.Conn, reader *bufio.Reader, ser
 }
 
 // serveLegacyStatus writes a simple legacy SLP response and closes the connection
-func (c *Connector) serveLegacyStatus(frontendConn net.Conn) {
-	motd := c.asleepMOTD
+func (c *Connector) serveLegacyStatus(frontendConn net.Conn, serverAddress string) {
+	motd := ""
+	if c.isWakeInProgress(serverAddress) {
+		motd = c.getLoadingMOTD(serverAddress)
+	} else {
+		motd = c.getAsleepMOTD(serverAddress)
+	}
 	if motd == "" {
 		return
 	}
@@ -550,7 +560,9 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			}
 			cleanupCheckScaleDown = true
 			logrus.WithField("serverAddress", serverAddress).Info("Waking up backend server")
+			c.wakingServers.Increment(serverAddress)
 			newBackendHostPort, err := waker(c.ctx)
+			c.wakingServers.Decrement(serverAddress)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend")
 				c.metrics.Errors.With("type", "wakeup_failed").Add(1)
@@ -574,7 +586,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		}
 	}
 
-	if backendHostPort == "" {
+	if backendHostPort == "" || (c.isWakeInProgress(serverAddress) && nextState == mcproto.StateStatus) {
 		if waker == nil {
 			logrus.
 				WithField("serverAddress", serverAddress).
@@ -602,12 +614,24 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			// Read Status Request and Ping directly from the client connection
 			br := bufio.NewReader(frontendConn)
 			if isLegacy {
-				c.serveLegacyStatus(frontendConn)
+				c.serveLegacyStatus(frontendConn, serverAddress)
 			} else {
 				c.serveStatus(frontendConn, br, serverAddress, clientProtocol)
 			}
 		}
 		return
+	}
+
+	if c.isWakeInProgress(serverAddress) {
+		logrus.
+			WithField("serverAddress", serverAddress).
+			WithField("resolvedHost", resolvedHost).
+			WithField("player", playerInfo).
+			Debug("Waiting for backend to wake up before connecting")
+		// TODO: replace with event-based notification
+		for c.isWakeInProgress(serverAddress) {
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
 
 	logrus.
@@ -796,6 +820,39 @@ func (c *Connector) UseReceiveProxyProto(trustedProxyNets []*net.IPNet) {
 // UseAsleepMOTD configures a predefined MOTD to serve when backends are asleep
 func (c *Connector) UseAsleepMOTD(motd string) {
 	c.asleepMOTD = motd
+}
+
+// UseLoadingMOTD configures a predefined MOTD to serve when backends are waking up
+func (c *Connector) UseLoadingMOTD(motd string) {
+	c.loadingMOTD = motd
+}
+
+func (c *Connector) isWakeInProgress(serverAddress string) bool {
+	if serverAddress == "" {
+		return false
+	}
+
+	return c.wakingServers.GetCount(serverAddress) > 0
+}
+
+func (c *Connector) getAsleepMOTD(serverAddress string) string {
+	motd := Routes.GetAsleepMOTD(serverAddress)
+	if motd == "" {
+		motd = c.asleepMOTD
+	}
+	return motd
+}
+
+func (c *Connector) getLoadingMOTD(serverAddress string) string {
+	motd := Routes.GetLoadingMOTD(serverAddress)
+	if motd == "" {
+		motd = c.loadingMOTD
+	}
+	// If no specific loading MOTD, fall back to asleep MOTD
+	if motd == "" {
+		return c.getAsleepMOTD(serverAddress)
+	}
+	return motd
 }
 
 // getVersionInfo falls back to client protocol and a derived name but in future

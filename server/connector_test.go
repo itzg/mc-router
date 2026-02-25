@@ -77,3 +77,36 @@ func parseTrustedProxyNets(nets []string) []*net.IPNet {
 	}
 	return parsedNets
 }
+
+func TestConnectorWakeTracking(t *testing.T) {
+	c := &Connector{wakingServers: NewActiveConnections()}
+
+	assert.False(t, c.isWakeInProgress("scale-target"))
+	c.wakingServers.Increment("scale-target")
+	assert.True(t, c.isWakeInProgress("scale-target"))
+
+	// track concurrent wake operations for same route
+	c.wakingServers.Increment("scale-target")
+	c.wakingServers.Decrement("scale-target")
+	assert.True(t, c.isWakeInProgress("scale-target"))
+
+	c.wakingServers.Decrement("scale-target")
+	assert.False(t, c.isWakeInProgress("scale-target"))
+}
+
+func TestConnectorGetLoadingMOTD(t *testing.T) {
+	oldRoutes := Routes
+	defer func() {
+		Routes = oldRoutes
+	}()
+
+	Routes = NewRoutes()
+	Routes.CreateMapping("mc.example.com", "backend:25565", "", nil, nil, "", "route loading")
+
+	c := &Connector{loadingMOTD: "global loading"}
+	assert.Equal(t, "route loading", c.getLoadingMOTD("mc.example.com"))
+	assert.Equal(t, "global loading", c.getLoadingMOTD("other.example.com"))
+
+	Routes.SetDefaultRoute("default:25565", "", nil, nil, "", "default loading")
+	assert.Equal(t, "default loading", c.getLoadingMOTD(""))
+}
