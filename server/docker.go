@@ -163,6 +163,11 @@ func (w *dockerWatcherImpl) makeSleeperFunc(rc *routableContainer) SleeperFunc {
 				return err
 			}
 		}
+		err = w.monitorContainers(ctx)
+		if err != nil {
+			logrus.WithError(err).Error("Docker monitoring failed")
+			return err
+		}
 		return nil
 	}
 }
