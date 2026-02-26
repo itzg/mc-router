@@ -36,8 +36,8 @@ type RouteFinder interface {
 }
 
 type RoutesHandler interface {
-	CreateMapping(serverAddress string, backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string)
-	SetDefaultRoute(backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string)
+	CreateMapping(serverAddress string, backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string)
+	SetDefaultRoute(backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string)
 	// DeleteMapping requests that the serverAddress be removed from routes.
 	// Returns true if the route existed.
 	DeleteMapping(serverAddress string) bool
@@ -59,6 +59,7 @@ type IRoutes interface {
 	GetMappings() map[string]string
 	GetDefaultRoute() (string, string, WakerFunc, SleeperFunc)
 	GetAsleepMOTD(serverAddress string) string
+	GetLoadingMOTD(serverAddress string) string
 	SimplifySRV(srvEnabled bool)
 }
 
@@ -74,7 +75,7 @@ func NewRoutes() IRoutes {
 
 func (r *routesImpl) RegisterAll(mappings map[string]string) {
 	for k, v := range mappings {
-		r.CreateMapping(k, v, "", nil, nil, "")
+		r.CreateMapping(k, v, "", nil, nil, "", "")
 	}
 }
 
@@ -83,6 +84,7 @@ type mapping struct {
 	waker         WakerFunc
 	sleeper       SleeperFunc
 	asleepMOTD    string
+	loadingMOTD   string
 	scalingTarget string // The endpoint to scale (may differ from backend when using proxy)
 }
 
@@ -98,11 +100,11 @@ func (r *routesImpl) Reset() {
 	DownScaler.Reset()
 }
 
-func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string) {
+func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
 	if scalingTarget == "" {
 		scalingTarget = backend
 	}
-	r.defaultRoute = mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD}
+	r.defaultRoute = mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD, loadingMOTD: loadingMOTD}
 
 	logrus.WithFields(logrus.Fields{
 		"backend": backend,
@@ -123,6 +125,20 @@ func (r *routesImpl) GetAsleepMOTD(serverAddress string) string {
 
 	if m, ok := r.mappings[serverAddress]; ok {
 		return m.asleepMOTD
+	}
+	return ""
+}
+
+func (r *routesImpl) GetLoadingMOTD(serverAddress string) string {
+	r.RLock()
+	defer r.RUnlock()
+
+	if serverAddress == "" {
+		return r.defaultRoute.loadingMOTD
+	}
+
+	if m, ok := r.mappings[serverAddress]; ok {
+		return m.loadingMOTD
 	}
 	return ""
 }
@@ -225,7 +241,7 @@ func (r *routesImpl) DeleteMapping(serverAddress string) bool {
 	}
 }
 
-func (r *routesImpl) CreateMapping(serverAddress string, backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string) {
+func (r *routesImpl) CreateMapping(serverAddress string, backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -239,7 +255,7 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, scaling
 		"serverAddress": serverAddress,
 		"backend":       backend,
 	}).Info("Created route mapping")
-	r.mappings[serverAddress] = mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD}
+	r.mappings[serverAddress] = mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD, loadingMOTD: loadingMOTD}
 
 	// Trigger auto scale down when mapping is created to ensure servers are shut down if router restarts
 	if DownScaler != nil && scalingTarget != "" {

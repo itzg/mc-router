@@ -69,7 +69,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 
 	Routes.RegisterAll(config.Mapping)
 	if config.Default != "" {
-		Routes.SetDefaultRoute(config.Default, "", nil, nil, "")
+		Routes.SetDefaultRoute(config.Default, "", nil, nil, "", "")
 	}
 
 	if config.ConnectionRateLimit < 1 {
@@ -83,6 +83,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		autoScaleAllowDenyConfig)
 
 	connector.UseAsleepMOTD(config.AutoScale.AsleepMOTD)
+	connector.UseLoadingMOTD(config.AutoScale.LoadingMOTD)
 
 	clientFilter, err := NewClientFilter(config.ClientsToAllow, config.ClientsToDeny)
 	if err != nil {
