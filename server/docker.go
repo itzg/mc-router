@@ -19,13 +19,13 @@ type IDockerWatcher interface {
 }
 
 const (
-	DockerRouterLabelHost                = "mc-router.host"
-	DockerRouterLabelPort                = "mc-router.port"
-	DockerRouterLabelDefault             = "mc-router.default"
-	DockerRouterLabelNetwork             = "mc-router.network"
-	DockerRouterLabelAutoScaleUp         = "mc-router.auto-scale-up"
-	DockerRouterLabelAutoScaleDown       = "mc-router.auto-scale-down"
-	DockerRouterLabelAutoScaleAsleepMOTD = "mc-router.auto-scale-asleep-motd"
+	DockerRouterLabelHost                 = "mc-router.host"
+	DockerRouterLabelPort                 = "mc-router.port"
+	DockerRouterLabelDefault              = "mc-router.default"
+	DockerRouterLabelNetwork              = "mc-router.network"
+	DockerRouterLabelAutoScaleUp          = "mc-router.auto-scale-up"
+	DockerRouterLabelAutoScaleDown        = "mc-router.auto-scale-down"
+	DockerRouterLabelAutoScaleAsleepMOTD  = "mc-router.auto-scale-asleep-motd"
 	DockerRouterLabelAutoScaleLoadingMOTD = "mc-router.auto-scale-loading-motd"
 )
 
@@ -342,16 +342,16 @@ func (w *dockerWatcherImpl) listContainers(ctx context.Context) ([]*routableCont
 }
 
 type parsedDockerContainerData struct {
-	hosts               []string
-	port                uint64
-	def                 *bool
-	network             *string
-	ip                  string
-	autoScaleDown       bool
-	autoScaleUp         bool
-	autoScaleAsleepMOTD string
+	hosts                []string
+	port                 uint64
+	def                  *bool
+	network              *string
+	ip                   string
+	autoScaleDown        bool
+	autoScaleUp          bool
+	autoScaleAsleepMOTD  string
 	autoScaleLoadingMOTD string
-	notRunning          bool
+	notRunning           bool
 }
 
 func (w *dockerWatcherImpl) parseContainerData(container *container.InspectResponse) (data parsedDockerContainerData, ok bool) {
@@ -494,7 +494,7 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 	if container.State != nil && !container.State.Running {
 		if !w.config.autoScaleUp {
 			logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
-				Warnf("ignoring container, not running and auto scale up is disabled")
+				Debugf("ignoring container, not running and auto scale up is disabled")
 			return
 		}
 		data.notRunning = true
