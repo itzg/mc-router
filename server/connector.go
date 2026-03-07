@@ -659,6 +659,21 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			}
 		}
 
+		if waker != nil && nextState == mcproto.StateStatus {
+			logrus.WithFields(logrus.Fields{
+				"client":   clientAddr,
+				"server":   serverAddress,
+				"isLegacy": isLegacy,
+			}).Debug("Scalable backend unreachable: serving predefined status response")
+
+			br := bufio.NewReader(frontendConn)
+			if isLegacy {
+				c.serveLegacyStatus(frontendConn, resolvedHost)
+			} else {
+				c.serveStatus(frontendConn, br, resolvedHost, clientProtocol)
+			}
+		}
+
 		return
 	}
 

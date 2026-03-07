@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -22,11 +23,14 @@ import (
 )
 
 const (
-	AnnotationExternalServerName = "mc-router.itzg.me/externalServerName"
-	AnnotationDefaultServer      = "mc-router.itzg.me/defaultServer"
-	AnnotationAutoScaleUp        = "mc-router.itzg.me/autoScaleUp"
-	AnnotationAutoScaleDown      = "mc-router.itzg.me/autoScaleDown"
-	AnnotationProxyServerName    = "mc-router.itzg.me/proxyServerName"
+	AnnotationExternalServerName   = "mc-router.itzg.me/externalServerName"
+	AnnotationDefaultServer        = "mc-router.itzg.me/defaultServer"
+	AnnotationAutoScaleUp          = "mc-router.itzg.me/autoScaleUp"
+	AnnotationAutoScaleDown        = "mc-router.itzg.me/autoScaleDown"
+	AnnotationProxyServerName      = "mc-router.itzg.me/proxyServerName"
+	AnnotationAutoScaleAsleepMOTD  = "mc-router.itzg.me/autoScaleAsleepMOTD"
+	AnnotationAutoScaleLoadingMOTD = "mc-router.itzg.me/autoScaleLoadingMOTD"
+	AnnotationAutoScaleWaitTimeout = "mc-router.itzg.me/autoScaleWaitTimeout"
 )
 
 // K8sWatcher is a RouteFinder that can find routes from kubernetes services.
@@ -185,9 +189,9 @@ func (w *K8sWatcher) handleUpdate(oldObj interface{}, newObj interface{}) {
 			"new": newRoutableService,
 		}).Debug("UPDATE")
 		if newRoutableService.externalServiceName != "" {
-			w.routesHandler.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint, newRoutableService.scalingTarget, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown, "", "")
+			w.routesHandler.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint, newRoutableService.scalingTarget, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown, newRoutableService.autoScaleAsleepMOTD, newRoutableService.autoScaleLoadingMOTD)
 		} else {
-			w.routesHandler.SetDefaultRoute(newRoutableService.containerEndpoint, newRoutableService.scalingTarget, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown, "", "")
+			w.routesHandler.SetDefaultRoute(newRoutableService.containerEndpoint, newRoutableService.scalingTarget, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown, newRoutableService.autoScaleAsleepMOTD, newRoutableService.autoScaleLoadingMOTD)
 		}
 	}
 }
@@ -216,20 +220,22 @@ func (w *K8sWatcher) handleAdd(obj interface{}) {
 			logrus.WithField("routableService", routableService).Debug("ADD")
 
 			if routableService.externalServiceName != "" {
-				w.routesHandler.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint, routableService.scalingTarget, routableService.autoScaleUp, routableService.autoScaleDown, "", "")
+				w.routesHandler.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint, routableService.scalingTarget, routableService.autoScaleUp, routableService.autoScaleDown, routableService.autoScaleAsleepMOTD, routableService.autoScaleLoadingMOTD)
 			} else {
-				w.routesHandler.SetDefaultRoute(routableService.containerEndpoint, routableService.scalingTarget, routableService.autoScaleUp, routableService.autoScaleDown, "", "")
+				w.routesHandler.SetDefaultRoute(routableService.containerEndpoint, routableService.scalingTarget, routableService.autoScaleUp, routableService.autoScaleDown, routableService.autoScaleAsleepMOTD, routableService.autoScaleLoadingMOTD)
 			}
 		}
 	}
 }
 
 type routableService struct {
-	externalServiceName string
-	containerEndpoint   string
-	scalingTarget       string
-	autoScaleUp         WakerFunc
-	autoScaleDown       SleeperFunc
+	externalServiceName  string
+	containerEndpoint    string
+	scalingTarget        string
+	autoScaleUp          WakerFunc
+	autoScaleDown        SleeperFunc
+	autoScaleAsleepMOTD  string
+	autoScaleLoadingMOTD string
 }
 
 // obj is expected to be a *v1.Service
@@ -288,15 +294,70 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 		// scalingTarget remains the service endpoint (already set above)
 	}
 
+	autoScaleAsleepMOTD := ""
+	autoScaleLoadingMOTD := ""
+	waitTimeout := 60 * time.Second
+
+	if asleepMOTD, exists := service.Annotations[AnnotationAutoScaleAsleepMOTD]; exists && asleepMOTD != "" {
+		autoScaleAsleepMOTD = asleepMOTD
+	}
+
+	if loadingMOTD, exists := service.Annotations[AnnotationAutoScaleLoadingMOTD]; exists && loadingMOTD != "" {
+		autoScaleLoadingMOTD = loadingMOTD
+	}
+
+	if timeoutStr, exists := service.Annotations[AnnotationAutoScaleWaitTimeout]; exists && timeoutStr != "" {
+		if parsedTimeout, err := time.ParseDuration(timeoutStr); err == nil && parsedTimeout > 0 {
+			waitTimeout = parsedTimeout
+		} else {
+			logrus.WithError(err).WithField("annotation", AnnotationAutoScaleWaitTimeout).WithField("value", timeoutStr).Warn("Invalid wait timeout annotation, falling back to default 60s")
+		}
+	}
+
 	wakerFunc := w.buildScaleFunction(service, 0, 1)
 	rs := &routableService{
-		externalServiceName: externalServiceName,
-		containerEndpoint:   routingEndpoint,
-		scalingTarget:       scalingTarget,
-		autoScaleUp:         buildWakerFromSleeper(routingEndpoint, wakerFunc),
-		autoScaleDown:       w.buildScaleFunction(service, 1, 0),
+		externalServiceName:  externalServiceName,
+		containerEndpoint:    routingEndpoint,
+		scalingTarget:        scalingTarget,
+		autoScaleUp:          buildK8sWaker(routingEndpoint, wakerFunc, waitTimeout),
+		autoScaleDown:        w.buildScaleFunction(service, 1, 0),
+		autoScaleAsleepMOTD:  autoScaleAsleepMOTD,
+		autoScaleLoadingMOTD: autoScaleLoadingMOTD,
 	}
 	return rs
+}
+
+func buildK8sWaker(endpoint string, scaleUp SleeperFunc, waitTimeout time.Duration) WakerFunc {
+	if scaleUp == nil {
+		return nil
+	}
+	return func(ctx context.Context) (string, error) {
+		if err := scaleUp(ctx); err != nil {
+			return "", err
+		}
+
+		deadline := time.Now().Add(waitTimeout)
+		for {
+			conn, err := net.DialTimeout("tcp", endpoint, 1*time.Second)
+			if err == nil {
+				_ = conn.Close()
+				break
+			}
+			if ctx.Err() != nil {
+				return endpoint, ctx.Err()
+			}
+			if time.Now().After(deadline) {
+				return endpoint, fmt.Errorf("timeout waiting for K8s backend to become reachable at %s", endpoint)
+			}
+			select {
+			case <-ctx.Done():
+				return endpoint, ctx.Err()
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
+
+		return endpoint, nil
+	}
 }
 
 // buildScaleFunction generates a SleeperFunc to scale StatefulSets based on specified criteria and service annotations.
