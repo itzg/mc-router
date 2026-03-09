@@ -1,11 +1,18 @@
 package server
 
 import (
+	"bufio"
+	"bytes"
+	"context"
+	"io"
 	"net"
 	"testing"
+	"time"
 
+	"github.com/itzg/mc-router/mcproto"
 	"github.com/pires/go-proxyproto"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTrustedProxyNetworkPolicy(t *testing.T) {
@@ -109,4 +116,81 @@ func TestConnectorGetLoadingMOTD(t *testing.T) {
 
 	Routes.SetDefaultRoute("default:25565", "", nil, nil, "", "default loading")
 	assert.Equal(t, "default loading", c.getLoadingMOTD(""))
+}
+
+func writeTestPacket(w io.Writer, packetID int32, payload func(w io.Writer)) error {
+	var b bytes.Buffer
+	_ = mcproto.WriteVarInt(&b, packetID)
+	if payload != nil {
+		payload(&b)
+	}
+
+	var framed bytes.Buffer
+	_ = mcproto.WriteVarInt(&framed, int32(b.Len()))
+	framed.Write(b.Bytes())
+	_, err := w.Write(framed.Bytes())
+	return err
+}
+
+func TestConnectorMOTDFallback(t *testing.T) {
+	oldRoutes := Routes
+	defer func() {
+		Routes = oldRoutes
+	}()
+
+	Routes = NewRoutes()
+
+	backendAddress := "127.0.0.1:0"
+
+	scaleUpCalled := false
+	waker := func(ctx context.Context) (string, error) {
+		scaleUpCalled = true
+		return backendAddress, nil
+	}
+
+	Routes.CreateMapping("mc.example.com", backendAddress, "", waker, nil, "fallback asleep", "fallback loading")
+
+	metricsBuilder := discardMetricsBuilder{}
+	c := NewConnector(context.Background(), metricsBuilder.BuildConnectorMetrics(), false, false, nil)
+	c.UseAsleepMOTD("global asleep")
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+
+	go c.acceptConnections(ln, 100, 0)
+
+	clientConn, err := net.Dial("tcp", ln.Addr().String())
+	require.NoError(t, err)
+	defer clientConn.Close()
+
+	err = writeTestPacket(clientConn, 0x00, func(w io.Writer) {
+		_ = mcproto.WriteVarInt(w, 758)
+		_ = mcproto.WriteString(w, "mc.example.com")
+		w.Write([]byte{0x63, 0xdd})
+		_ = mcproto.WriteVarInt(w, 1)
+	})
+	require.NoError(t, err)
+
+	// 2. Send Status Request
+	err = writeTestPacket(clientConn, 0x00, nil)
+	require.NoError(t, err)
+
+	// 3. Read Status Response
+	_ = clientConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	reader := bufio.NewReader(clientConn)
+
+	frame, err := mcproto.ReadFrame(reader, clientConn.RemoteAddr())
+	require.NoError(t, err)
+
+	packetReader := bytes.NewReader(frame.Payload)
+	packetID, err := mcproto.ReadVarInt(packetReader)
+	require.NoError(t, err)
+	assert.Equal(t, 0x00, packetID)
+
+	jsonStr, err := mcproto.ReadString(packetReader)
+	require.NoError(t, err)
+
+	assert.Contains(t, jsonStr, "fallback asleep")
+	assert.False(t, scaleUpCalled, "Waker should NOT be called for a status request")
 }

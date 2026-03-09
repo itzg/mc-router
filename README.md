@@ -453,6 +453,26 @@ metadata:
     "mc-router.itzg.me/autoScaleDown": "false"
 ```
 
+To override the MOTD shown when the server is scaled down or scaling up, you can use the following annotations on the `Service object`:
+- `mc-router.itzg.me/autoScaleAsleepMOTD`
+- `mc-router.itzg.me/autoScaleLoadingMOTD`
+
+You can also customize how long the router will wait for a scaling backend to become reachable (default: 60s):
+- `mc-router.itzg.me/autoScaleWaitTimeout` (e.g. `2m`, `30s`)
+
+Example server with custom MOTD and timeout:
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-forge
+  annotations:
+    "mc-router.itzg.me/externalServerName": "external.host.name"
+    "mc-router.itzg.me/autoScaleAsleepMOTD": "Server is sleeping"
+    "mc-router.itzg.me/autoScaleLoadingMOTD": "Server is loading"
+    "mc-router.itzg.me/autoScaleWaitTimeout": "90s"
+```
+
 #### Using with Velocity/BungeeCord proxies
 
 When using a proxy server like Velocity or BungeeCord, you can use the `mc-router.itzg.me/proxyServerName` annotation to route client connections to the proxy while still allowing mc-router to auto-scale the backend StatefulSet. This is useful when you want to:

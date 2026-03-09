@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net"
 	"testing"
 	"time"
 
@@ -533,4 +535,82 @@ func TestK8s_autoScaleWithoutProxy(t *testing.T) {
 	// CRITICAL: Verify scaleKey is set to the service endpoint (not empty)
 	// This ensures auto-scaling targets the correct StatefulSet
 	routesHandler.AssertCalled(t, "CreateMapping", "atm-10.example.com", "10.0.0.10:25565", "10.0.0.10:25565", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestBuildK8sWaker_NilScaleUp(t *testing.T) {
+	waker := buildK8sWaker("10.0.0.1:25565", nil, 60*time.Second)
+	assert.Nil(t, waker, "buildK8sWaker should return nil when scaleUp is nil")
+}
+
+func TestBuildK8sWaker_WaitsForEndpoint(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+
+	endpoint := ln.Addr().String()
+
+	scaleUpCalled := false
+	scaleUp := func(ctx context.Context) error {
+		scaleUpCalled = true
+		return nil
+	}
+
+	waker := buildK8sWaker(endpoint, scaleUp, 60*time.Second)
+	require.NotNil(t, waker)
+
+	result, err := waker(context.Background())
+	assert.NoError(t, err)
+	assert.Equal(t, endpoint, result)
+	assert.True(t, scaleUpCalled, "scaleUp should have been called")
+}
+
+func TestBuildK8sWaker_ScaleUpError(t *testing.T) {
+	scaleUp := func(ctx context.Context) error {
+		return fmt.Errorf("scale up failed")
+	}
+
+	waker := buildK8sWaker("10.0.0.1:25565", scaleUp, 60*time.Second)
+	require.NotNil(t, waker)
+
+	_, err := waker(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "scale up failed")
+}
+
+func TestBuildK8sWaker_ContextCancellation(t *testing.T) {
+	scaleUp := func(ctx context.Context) error {
+		return nil
+	}
+
+	waker := buildK8sWaker("192.0.2.1:65534", scaleUp, 60*time.Second)
+	require.NotNil(t, waker)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err := waker(ctx)
+	assert.Error(t, err, "waker should return error when context is cancelled")
+}
+
+func TestK8s_motdAnnotations(t *testing.T) {
+	DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
+
+	routesHandler := new(MockedRoutesHandler)
+	routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+	routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+	routesHandler.On("GetAsleepMOTD", mock.Anything).Return("")
+	routesHandler.On("DeleteMapping", mock.Anything).Return(true)
+
+	watcher := &K8sWatcher{
+		autoScaleUp:   true,
+		routesHandler: routesHandler,
+	}
+
+	svc := v1.Service{}
+	err := json.Unmarshal([]byte(`{"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/autoScaleUp": "true", "mc-router.itzg.me/autoScaleAsleepMOTD": "Server is sleeping", "mc-router.itzg.me/autoScaleLoadingMOTD": "Server is starting"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &svc)
+	require.NoError(t, err)
+
+	watcher.handleAdd(&svc)
+
+	routesHandler.AssertCalled(t, "CreateMapping", "mc.example.com", "10.0.0.5:25565", "10.0.0.5:25565", mock.Anything, mock.Anything, "Server is sleeping", "Server is starting")
 }
