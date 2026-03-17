@@ -1,6 +1,6 @@
 module github.com/itzg/mc-router
 
-go 1.25
+go 1.25.8
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
