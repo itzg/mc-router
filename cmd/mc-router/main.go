@@ -24,9 +24,10 @@ func showVersion() {
 }
 
 type CliConfig struct {
-	Version bool `usage:"Output version and exit"`
-	Debug   bool `usage:"Enable debug logs"`
-	Trace   bool `usage:"Enable trace logs"`
+	Version  bool         `usage:"Output version and exit"`
+	Debug    bool         `usage:"Enable debug logs"`
+	Trace    bool         `usage:"Enable trace logs"`
+	LogLevel logrus.Level `usage:"Set a specific log filtering level, such as debug, info, warn, error\nIgnored when --debug or --trace is used" default:"info"`
 
 	ServerConfig server.Config `flatten:"true"`
 }
@@ -49,6 +50,8 @@ func main() {
 	} else if cliConfig.Debug {
 		logrus.SetLevel(logrus.DebugLevel)
 		logrus.Debug("Debug logs enabled")
+	} else {
+		logrus.SetLevel(cliConfig.LogLevel)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)

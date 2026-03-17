@@ -66,6 +66,9 @@ Some other features included:
     	The path to a Kubernetes configuration file (env KUBE_CONFIG)
   -kube-namespace string
     	The namespace to watch or blank for all, which is the default (env KUBE_NAMESPACE)
+  -log-level value
+    	Set a specific log filtering level, such as debug, info, warn, error
+    	Ignored when --debug or --trace is used (env LOG_LEVEL) (default info)
   -mapping value
     	Comma or newline delimited or repeated mappings of externalHostname=host:port (env MAPPING)
   -metrics-backend string
