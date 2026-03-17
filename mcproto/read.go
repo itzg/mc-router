@@ -85,7 +85,7 @@ func ReadPacket(reader *bufio.Reader, addr net.Addr, state State) (*Packet, erro
 	logrus.
 		WithField("client", addr).
 		WithField("packet", packet).
-		Debug("Read packet")
+		Trace("Read packet")
 	return packet, nil
 }
 
@@ -206,7 +206,7 @@ func ReadFrame(reader io.Reader, addr net.Addr) (*Frame, error) {
 	logrus.
 		WithField("client", addr).
 		WithField("length", frame.Length).
-		Debug("Read frame length")
+		Trace("Read frame length")
 
 	frame.Payload = make([]byte, frame.Length)
 	total := 0
@@ -223,7 +223,7 @@ func ReadFrame(reader io.Reader, addr net.Addr) (*Frame, error) {
 			WithField("client", addr).
 			WithField("total", total).
 			WithField("length", frame.Length).
-			Debug("Reading frame content")
+			Trace("Reading frame content")
 
 		if n == 0 {
 			logrus.

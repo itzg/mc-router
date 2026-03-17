@@ -526,6 +526,7 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 	logrus.
 		WithField("client", clientAddr).
 		WithField("backendHostPort", backendHostPort).
+		WithField("player", playerInfo).
 		WithField("connectionCount", c.activeConnections.GetCount(backendHostPort)).
 		Info("Closed connection to backend")
 	if checkScaleDown && c.scaleActiveConnections.GetCount(scalingTarget) <= 0 {
