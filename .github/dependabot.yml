@@ -17,6 +17,9 @@ updates:
     schedule:
       interval: "weekly"
     groups:
+      k8s:
+        patterns:
+          - "k8s.io/*"
       patches:
         patterns:
           - "*"

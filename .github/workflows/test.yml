@@ -9,6 +9,7 @@ on:
       - 'examples/**'
       - 'kustomize/**'
       - 'README.md'
+      - '.github/dependabot.yml'
   pull_request:
     branches:
       - main
