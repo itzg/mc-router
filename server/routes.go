@@ -222,7 +222,7 @@ func (r *routesImpl) GetMappings() map[string]string {
 
 	result := make(map[string]string, len(r.mappings))
 	for k, v := range r.mappings {
-		result[k] = v.scalingTarget
+		result[k] = v.backend
 	}
 	return result
 }
