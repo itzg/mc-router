@@ -564,6 +564,14 @@ If the client reports "Connection refused" check:
 * `GET /routes` (with `Accept: application/json`)
 
   Retrieves the currently configured routes
+  ```json
+  {
+    "serverAddress": {
+      "backend": "HOST:PORT", // The address the client is routed to
+      "scalingTarget": "HOST:PORT" // The address of the actual minecraft server (will differ from backend when a proxy is configured)
+    }
+  }
+  ```
 
 * `POST /routes` (with `Content-Type: application/json`)
 
