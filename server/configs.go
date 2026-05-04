@@ -40,7 +40,6 @@ type Config struct {
 	InDockerSwarm          bool              `usage:"Use Docker Swarm service discovery"`
 	DockerSocket           string            `usage:"Path to Docker socket to use"`
 	DockerTimeout          time.Duration     `usage:"Timeout (as duration) for the Docker integrations"`
-	DockerRefreshInterval  time.Duration     `default:"15s" usage:"Refresh interval (as duration) for the Docker integrations"`
 	DockerApiVersion       string            `usage:"Instead of auto-negotiating, use specific Docker API version"`
 	MetricsBackend         string            `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb,prometheus"`
 	MetricsBackendConfig   MetricsBackendConfig
