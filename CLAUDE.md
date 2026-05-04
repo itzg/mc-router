@@ -17,7 +17,7 @@ go test -run TestRouteLookup ./server/  # Run a single test
 docker build -t mc-router .      # Build Docker image
 ```
 
-Go version: 1.25. Testing uses `testify` (assert/require). Tests are table-driven.
+Go version: 1.26.2. Testing uses `testify` (assert/require). Tests are table-driven with subtests. Mock pattern: embed `mock.Mock` and call `m.MethodCalled()` (see `k8s_test.go`). Protocol packet tests use hex fixture files in `testdata/` (e.g., `handshake-status.hex`). Test setup for route tests calls `NewRoutes()` and restores the global `Routes` singleton with defer.
 
 ## Architecture
 
@@ -39,7 +39,8 @@ Go version: 1.25. Testing uses `testify` (assert/require). Tests are table-drive
   - `routes.go` — In-memory route table mapping server addresses to backends; supports default route fallback
   - `routes_config_loader.go` — Loads/watches JSON routes config file (with fsnotify)
   - `k8s.go` — Kubernetes service discovery via annotation `mc-router.itzg.me/externalServerName`
-  - `docker.go` / `docker_swarm.go` — Docker/Swarm container discovery via label `mc-router.host`
+  - `docker.go` — Docker container discovery via label `mc-router.host`; event-driven via Docker Events API (`client.Events`). Each event handled incrementally by `applyEvent` → `containersForID` (single `ContainerInspect`) → `applyContainerRoutesLocked` (touches only that container's routes). Full `monitorContainers` re-list runs at startup and on event-stream reconnect (exponential backoff)
+  - `docker_swarm.go` — Docker Swarm service discovery via label `mc-router.host`; event-driven, but each service event triggers a full `reconcileServices` re-list (services churn rarely, swarm has no autoscaling)
   - `down_scaler.go` — Auto-scale down after idle period
   - `api_server.go` — REST API (`GET/POST /routes`, `POST /defaultRoute`, `DELETE /routes/{serverAddress}`)
   - `metrics.go` — Pluggable metrics backends (Prometheus, InfluxDB, expvar, discard)
@@ -60,7 +61,7 @@ CLI flags are the primary config mechanism, with environment variable support vi
 Routes are populated from three sources that can be combined:
 1. Static `--mapping` flags or JSON config file
 2. Kubernetes: watches Services with `mc-router.itzg.me/externalServerName` annotation
-3. Docker/Swarm: watches containers with `mc-router.host` label
+3. Docker/Swarm: watches containers/services via the Docker Events API, filtered to lifecycle events (label `mc-router.host`)
 
 ### Key Dependencies
 
@@ -72,6 +73,21 @@ Routes are populated from three sources that can be combined:
 - `golang.ngrok.com/ngrok` — ngrok tunnel integration
 - `github.com/stretchr/testify` — Test assertions
 
+### Concurrency Model
+
+- **`routes.go`**: global singleton `var Routes = NewRoutes()`. `sync.RWMutex` protects `mappings` and `defaultRoute` — `RLock` for all reads, `Lock` for mutations.
+- **`connector.go`**: `ActiveConnections` map guarded by `sync.RWMutex`; `totalActiveConnections` counter uses `atomic.AddInt32`. Shutdown drain uses `sync.Cond` in `WaitForConnections()`.
+- **Bidirectional proxy**: two goroutines per connection (client→backend, backend→client) communicate via a buffered `chan error` (size 2) — first error triggers mutual close.
+- All goroutines respect context cancellation via `select { case <-ctx.Done() }`.
+
+### Error Handling
+
+- Wrap with context: `fmt.Errorf("message: %w", err)`
+- Check specific sentinels: `errors.Is(err, io.EOF)`
+- Log with fields: `logrus.WithError(err).WithField("key", val).Error("msg")`
+
 ### Protocol Notes
 
-The `mcproto` package handles Minecraft Java protocol quirks: Forge mod identifiers appended to server addresses (separated by `\x00`), DNS root zone trailing dots, legacy server list ping format, and VarInt encoding. Server address matching in routes strips these suffixes before lookup.
+The `mcproto` package handles Minecraft Java protocol quirks: Forge mod identifiers appended to server addresses (separated by `\x00`), DNS root zone trailing dots, legacy server list ping format, and VarInt encoding. Server address matching in routes also strips TCP Shield patterns (`///...`) and lowercases before lookup.
+
+Auto-scale MOTD fallback: waking servers display `LoadingMOTD`; sleeping servers display `AsleepMOTD`. Per-route MOTDs take precedence over global ones.
