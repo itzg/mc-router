@@ -1,11 +1,13 @@
 FROM alpine AS certs
 RUN apk add -U \
-    ca-certificates
+    ca-certificates \
+    tzdata
 
 FROM scratch
 
 ARG TARGETPLATFORM
 
 COPY --from=certs /etc/ssl/certs/ /etc/ssl/certs
+COPY --from=certs /usr/share/zoneinfo /usr/share/zoneinfo
 COPY $TARGETPLATFORM/mc-router /
 ENTRYPOINT ["/mc-router"]
