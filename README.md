@@ -121,6 +121,15 @@ Some other features included:
 
 The [multi-architecture image published at Docker Hub](https://hub.docker.com/repository/docker/itzg/mc-router) supports amd64, arm64, and arm32v6 (i.e. RaspberryPi).
 
+## Timezone
+
+The image bundles `tzdata` so log timestamps can match your local timezone. Pick one:
+
+- Set the `TZ` environment variable, e.g. `TZ=America/New_York`
+- Bind mount the host's zone file: `-v /etc/localtime:/etc/localtime:ro`
+
+If neither is set, timestamps are in UTC.
+
 ## Docker Compose Usage
 
 The diagram below shows how this `docker-compose.yml` configures two Minecraft server services named `vanilla` and `forge`, which also become the internal network aliases. _Notice those services don't need their ports exposed since the internal networking allows for the inter-container access._
