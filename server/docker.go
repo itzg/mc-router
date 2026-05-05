@@ -68,12 +68,6 @@ type dockerWatcherImpl struct {
 	client       *client.Client
 	containerMap map[string]*routableContainer
 	monitorLock  sync.Mutex
-	// ctx is the long-lived watcher context captured in Start. Used for
-	// route reconciles triggered from waker/sleeper closures so the reconcile
-	// is not canceled when the per-operation caller ctx is canceled — e.g.
-	// DownScaler.Cancel cancels the sleeper's ctx mid-stop when the
-	// event-driven reconcile clears the route's old endpoint.
-	ctx context.Context
 }
 
 func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
@@ -118,13 +112,7 @@ func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
 		}
 		endpoint := net.JoinHostPort(data.ip, strconv.Itoa(int(data.port)))
 
-		// Update the route mappings using the long-lived watcher context so
-		// it isn't canceled if the caller's ctx is canceled.
-		err = w.monitorContainers(w.ctx)
-		if err != nil {
-			logrus.WithError(err).Error("Docker monitoring failed")
-			return "", err
-		}
+		// Route table updates via Docker `start`/`network connect` events.
 
 		// Wait until the container is reachable
 		deadline := time.Now().Add(60 * time.Second)
@@ -172,14 +160,7 @@ func (w *dockerWatcherImpl) makeSleeperFunc(rc *routableContainer) SleeperFunc {
 				return err
 			}
 		}
-		// Use the long-lived watcher context — DownScaler.Cancel may cancel
-		// the caller's ctx in response to the event-driven route delete that
-		// happens as soon as the container's network detaches.
-		err = w.monitorContainers(w.ctx)
-		if err != nil {
-			logrus.WithError(err).Error("Docker monitoring failed")
-			return err
-		}
+		// Route table updates via Docker `die`/`stop`/`network disconnect` events.
 		return nil
 	}
 }
@@ -389,7 +370,6 @@ func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	w.ctx = ctx
 	w.containerMap = map[string]*routableContainer{}
 
 	logrus.Trace("Performing initial listing of Docker containers")
