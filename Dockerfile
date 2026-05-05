@@ -13,9 +13,11 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 FROM alpine AS certs
 RUN apk add -U \
-    ca-certificates
+    ca-certificates \
+    tzdata
 
 FROM scratch
 ENTRYPOINT ["/mc-router"]
 COPY --from=certs /etc/ssl/certs/ /etc/ssl/certs
+COPY --from=certs /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /build/mc-router /mc-router
