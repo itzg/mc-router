@@ -213,6 +213,7 @@ func (w *dockerWatcherImpl) applyEvent(ctx context.Context, ev events.Message) e
 		containerID = ev.Actor.Attributes["container"]
 	}
 	if containerID == "" {
+		logrus.WithField("event", ev).Warn("network event missing container attribute, skipping")
 		return nil
 	}
 
