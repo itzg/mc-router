@@ -140,9 +140,14 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		routeWatchers = append(routeWatchers, k8sWatcher)
 	}
 
+	if config.DockerRefreshInterval != 0 {
+		logrus.WithField("value", config.DockerRefreshInterval).
+			Warn("--docker-refresh-interval is deprecated and ignored; Docker discovery is now event-driven")
+	}
+
 	// TODO convert to RouteFinder
 	if config.InDocker {
-		watcher := NewDockerWatcher(config.DockerSocket, config.DockerTimeout, config.DockerRefreshInterval, config.AutoScale.Up, config.AutoScale.Down, config.DockerApiVersion)
+		watcher := NewDockerWatcher(config.DockerSocket, config.DockerTimeout, config.AutoScale.Up, config.AutoScale.Down, config.DockerApiVersion)
 		err = watcher.Start(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("could not start docker integration: %w", err)
@@ -151,7 +156,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 
 	// TODO convert to RouteFinder
 	if config.InDockerSwarm {
-		watcher := NewDockerSwarmWatcher(config.DockerSocket, config.DockerTimeout, config.DockerRefreshInterval, config.AutoScale.Up, config.AutoScale.Down, config.DockerApiVersion)
+		watcher := NewDockerSwarmWatcher(config.DockerSocket, config.DockerTimeout, config.AutoScale.Up, config.AutoScale.Down, config.DockerApiVersion)
 		err = watcher.Start(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("could not start docker swarm integration: %w", err)

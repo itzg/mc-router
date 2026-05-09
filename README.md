@@ -50,8 +50,6 @@ Some other features included:
     	host:port of a default Minecraft server to use when mapping not found (env DEFAULT)
   -docker-api-version string
     	Instead of auto-negotiating, use specific Docker API version (env DOCKER_API_VERSION)
-  -docker-refresh-interval int
-    	Refresh interval in seconds for the Docker integrations (env DOCKER_REFRESH_INTERVAL) (default 15)
   -docker-socket string
     	Path to Docker socket to use (env DOCKER_SOCKET) (default "unix:///var/run/docker.sock")
   -docker-timeout int
@@ -171,7 +169,7 @@ To test out this example, add these two entries to my "hosts" file:
 
 ### Using Docker auto-discovery
 
-When running `mc-router` in a Docker environment you can pass the `--in-docker` or `--in-docker-swarm` command-line argument or set the environment variables `IN_DOCKER` or `IN_DOCKER_SWARM` to "true". With that, it will poll the Docker API periodically to find all the running containers/services for Minecraft instances. To enable discovery, you have to set the `mc-router.host` label on the container. 
+When running `mc-router` in a Docker environment you can pass the `--in-docker` or `--in-docker-swarm` command-line argument or set the environment variables `IN_DOCKER` or `IN_DOCKER_SWARM` to "true". With that, it will subscribe to the Docker event stream to react to container/service lifecycle changes (start, stop, pause, unpause, rename, network connect/disconnect for containers; create, update, remove for swarm services) and update routes immediately. An initial listing is performed on startup, and the stream is reconnected with exponential backoff on errors (e.g. daemon restart). To enable discovery, you have to set the `mc-router.host` label on the container. 
 
 When using in Docker, make sure to volume mount the Docker socket into the container, such as
 

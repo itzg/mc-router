@@ -10,6 +10,7 @@ import (
 	"time"
 
 	dockertypes "github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/swarm"
@@ -19,23 +20,24 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func NewDockerSwarmWatcher(socket string, timeout time.Duration, refreshInterval time.Duration, autoScaleUp bool, autoScaleDown bool, dockerApiVersion string) IDockerWatcher {
+func NewDockerSwarmWatcher(socket string, timeout time.Duration, autoScaleUp bool, autoScaleDown bool, dockerApiVersion string) IDockerWatcher {
 	return &dockerSwarmWatcherImpl{
 		config: dockerWatcherConfig{
-			socket:          socket,
-			timeout:         timeout,
-			refreshInterval: refreshInterval,
-			autoScaleUp:     autoScaleUp,
-			autoScaleDown:   autoScaleDown,
-			apiVersion:      dockerApiVersion,
+			socket:        socket,
+			timeout:       timeout,
+			autoScaleUp:   autoScaleUp,
+			autoScaleDown: autoScaleDown,
+			apiVersion:    dockerApiVersion,
 		},
 	}
 }
 
 type dockerSwarmWatcherImpl struct {
 	sync.RWMutex
-	config dockerWatcherConfig
-	client *client.Client
+	config      dockerWatcherConfig
+	client      *client.Client
+	serviceMap  map[string]*routableService
+	monitorLock sync.Mutex
 }
 
 func (w *dockerSwarmWatcherImpl) makeWakerFunc(_ *routableService) WakerFunc {
@@ -75,83 +77,131 @@ func (w *dockerSwarmWatcherImpl) Start(ctx context.Context) error {
 		return err
 	}
 
-	ticker := time.NewTicker(w.config.refreshInterval)
-	serviceMap := map[string]*routableService{}
+	w.serviceMap = map[string]*routableService{}
 
-	logrus.Trace("Performing initial listing of Docker containers")
-	initialServices, err := w.listServices(ctx)
-	if err != nil {
+	logrus.Trace("Performing initial listing of Docker swarm services")
+	if err := w.reconcileServices(ctx); err != nil {
 		return err
 	}
 
-	for _, s := range initialServices {
-		serviceMap[s.externalServiceName] = s
-		wakerFunc := w.makeWakerFunc(s)
-		sleeperFunc := w.makeSleeperFunc(s)
-		if s.externalServiceName != "" {
-			Routes.CreateMapping(s.externalServiceName, s.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
-		} else {
-			Routes.SetDefaultRoute(s.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
-		}
-	}
-
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				services, err := w.listServices(ctx)
-				if err != nil {
-					logrus.WithError(err).Error("Docker failed to list services")
-					continue
-				}
-
-				visited := map[string]struct{}{}
-				for _, rs := range services {
-					if oldRs, ok := serviceMap[rs.externalServiceName]; !ok {
-						serviceMap[rs.externalServiceName] = rs
-						logrus.WithField("routableService", rs).Debug("ADD")
-						wakerFunc := w.makeWakerFunc(rs)
-						sleeperFunc := w.makeSleeperFunc(rs)
-						if rs.externalServiceName != "" {
-							Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
-						} else {
-							Routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
-						}
-					} else if oldRs.containerEndpoint != rs.containerEndpoint {
-						serviceMap[rs.externalServiceName] = rs
-						wakerFunc := w.makeWakerFunc(rs)
-						sleeperFunc := w.makeSleeperFunc(rs)
-						if rs.externalServiceName != "" {
-							Routes.DeleteMapping(rs.externalServiceName)
-							Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
-						} else {
-							Routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
-						}
-						logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
-					}
-					visited[rs.externalServiceName] = struct{}{}
-				}
-				for _, rs := range serviceMap {
-					if _, ok := visited[rs.externalServiceName]; !ok {
-						delete(serviceMap, rs.externalServiceName)
-						if rs.externalServiceName != "" {
-							Routes.DeleteMapping(rs.externalServiceName)
-						} else {
-							Routes.SetDefaultRoute("", "", nil, nil, "", "")
-						}
-						logrus.WithField("routableService", rs).Debug("DELETE")
-					}
-				}
-
-			case <-ctx.Done():
-				ticker.Stop()
-				return
-			}
-		}
-	}()
+	go w.streamEvents(ctx)
 
 	logrus.Info("Monitoring Docker Swarm for Minecraft services")
 	return nil
+}
+
+func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
+	w.monitorLock.Lock()
+	defer w.monitorLock.Unlock()
+
+	services, err := w.listServices(ctx)
+	if err != nil {
+		logrus.WithError(err).Error("Docker failed to list services")
+		return err
+	}
+
+	visited := map[string]struct{}{}
+	for _, rs := range services {
+		if oldRs, ok := w.serviceMap[rs.externalServiceName]; !ok {
+			w.serviceMap[rs.externalServiceName] = rs
+			logrus.WithField("routableService", rs).Debug("ADD")
+			wakerFunc := w.makeWakerFunc(rs)
+			sleeperFunc := w.makeSleeperFunc(rs)
+			if rs.externalServiceName != "" {
+				Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
+			} else {
+				Routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
+			}
+		} else if oldRs.containerEndpoint != rs.containerEndpoint {
+			w.serviceMap[rs.externalServiceName] = rs
+			wakerFunc := w.makeWakerFunc(rs)
+			sleeperFunc := w.makeSleeperFunc(rs)
+			if rs.externalServiceName != "" {
+				Routes.DeleteMapping(rs.externalServiceName)
+				Routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
+			} else {
+				Routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
+			}
+			logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
+		}
+		visited[rs.externalServiceName] = struct{}{}
+	}
+	for _, rs := range w.serviceMap {
+		if _, ok := visited[rs.externalServiceName]; !ok {
+			delete(w.serviceMap, rs.externalServiceName)
+			if rs.externalServiceName != "" {
+				Routes.DeleteMapping(rs.externalServiceName)
+			} else {
+				Routes.SetDefaultRoute("", "", nil, nil, "", "")
+			}
+			logrus.WithField("routableService", rs).Debug("DELETE")
+		}
+	}
+	return nil
+}
+
+func (w *dockerSwarmWatcherImpl) streamEvents(ctx context.Context) {
+	backoff := time.Second
+	const maxBackoff = 30 * time.Second
+
+	for {
+		if ctx.Err() != nil {
+			logrus.Debug("Stopping Docker Swarm monitoring")
+			return
+		}
+
+		eventFilters := filters.NewArgs(
+			filters.Arg("type", string(events.ServiceEventType)),
+			filters.Arg("event", string(events.ActionCreate)),
+			filters.Arg("event", string(events.ActionUpdate)),
+			filters.Arg("event", string(events.ActionRemove)),
+		)
+
+		eventCh, errCh := w.client.Events(ctx, events.ListOptions{Filters: eventFilters})
+
+		if err := w.reconcileServices(ctx); err != nil {
+			logrus.WithError(err).Error("Docker Swarm resync failed")
+		} else {
+			backoff = time.Second
+		}
+
+	loop:
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ev, ok := <-eventCh:
+				if !ok {
+					break loop
+				}
+				logrus.WithFields(logrus.Fields{"type": ev.Type, "action": ev.Action, "id": ev.Actor.ID}).Trace("Docker Swarm event")
+				if err := w.reconcileServices(ctx); err != nil {
+					logrus.WithError(err).Error("Docker Swarm reconciliation failed")
+				}
+			case err, ok := <-errCh:
+				if !ok {
+					break loop
+				}
+				if ctx.Err() != nil {
+					return
+				}
+				logrus.WithError(err).Warn("Docker Swarm event stream error, reconnecting")
+				break loop
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		if backoff < maxBackoff {
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
+	}
 }
 
 func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableService, error) {
