@@ -482,6 +482,9 @@ func (w *dockerWatcherImpl) listContainers(ctx context.Context) ([]*routableCont
 		if !data.notRunning {
 			endpoint = fmt.Sprintf("%s:%d", data.ip, data.port)
 		}
+		logrus.WithField("backendEndpoint", endpoint).
+			WithField("containerID", container.ID).
+			Debug("Found routable Docker container")
 
 		for _, host := range data.hosts {
 			result = append(result, &routableContainer{
