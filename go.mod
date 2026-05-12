@@ -3,6 +3,7 @@ module github.com/itzg/mc-router
 go 1.26.2
 
 require (
+	github.com/containerd/errdefs v1.0.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-kit/kit v0.13.0
 	github.com/gorilla/mux v1.8.1
@@ -15,7 +16,7 @@ require (
 	github.com/sirupsen/logrus v1.9.4
 	github.com/stretchr/testify v1.11.1
 	golang.ngrok.com/ngrok v1.12.1
-	golang.org/x/text v0.36.0
+	golang.org/x/text v0.37.0
 	k8s.io/api v0.35.4
 	k8s.io/apimachinery v0.35.4
 	k8s.io/client-go v0.35.4
@@ -31,7 +32,6 @@ exclude google.golang.org/genproto v0.0.0-20210917145530-b395a37504d4
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
