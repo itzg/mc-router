@@ -48,10 +48,32 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 
 	metricsBuilder := NewMetricsBuilder(config.MetricsBackend, &config.MetricsBackendConfig)
 
-	downScalerEnabled := config.AutoScale.Down && (config.InKubeCluster || config.KubeConfig != "" || config.InDocker)
+	webhookDownConfigured := config.AutoScale.Webhook.DownUrl != ""
+	downScalerEnabled := (config.AutoScale.Down && (config.InKubeCluster || config.KubeConfig != "" || config.InDocker)) || webhookDownConfigured
 	downScalerDelay := config.AutoScale.DownAfter
 	// Only one instance should be created
 	DownScaler = NewDownScaler(ctx, downScalerEnabled, downScalerDelay)
+
+	// Build the global webhook scaler before any static routes are registered so
+	// they pick up its waker/sleeper. Discovery-based routes (Docker/Kubernetes)
+	// supply their own and are unaffected.
+	if config.AutoScale.Webhook.UpUrl != "" || config.AutoScale.Webhook.DownUrl != "" {
+		scaler, err := NewWebhookScaler(
+			config.AutoScale.Webhook.UpUrl,
+			config.AutoScale.Webhook.DownUrl,
+			config.AutoScale.Webhook.Headers,
+			config.AutoScale.Webhook.Timeout,
+			config.AutoScale.Webhook.WakeTimeout,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("could not create webhook scaler: %w", err)
+		}
+		WebhookAutoScaler = scaler
+		logrus.WithFields(logrus.Fields{
+			"upUrl":   config.AutoScale.Webhook.UpUrl,
+			"downUrl": config.AutoScale.Webhook.DownUrl,
+		}).Info("Using webhook autoscaler for static routes")
+	}
 
 	if config.Routes.Config != "" {
 		err := RoutesConfigLoader.Load(config.Routes.Config)
@@ -69,7 +91,8 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 
 	Routes.RegisterAll(config.Mapping)
 	if config.Default != "" {
-		Routes.SetDefaultRoute(config.Default, "", nil, nil, "", "")
+		waker, sleeper := WebhookAutoScaler.routeFuncs("", config.Default)
+		Routes.SetDefaultRoute(config.Default, "", waker, sleeper, "", "")
 	}
 
 	if config.ConnectionRateLimit < 1 {
@@ -96,7 +119,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 			WithField("require-user", config.Webhook.RequireUser).
 			Info("Using webhook for connection status notifications")
 		connector.UseConnectionNotifier(
-			NewWebhookNotifier(config.Webhook.Url, config.Webhook.RequireUser))
+			NewWebhookNotifier(config.Webhook.Url, config.Webhook.RequireUser, config.Webhook.Timeout))
 	}
 
 	if config.Ngrok.Token != "" {

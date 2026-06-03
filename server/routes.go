@@ -75,7 +75,8 @@ func NewRoutes() IRoutes {
 
 func (r *routesImpl) RegisterAll(mappings map[string]string) {
 	for k, v := range mappings {
-		r.CreateMapping(k, v, "", nil, nil, "", "")
+		waker, sleeper := WebhookAutoScaler.routeFuncs(k, v)
+		r.CreateMapping(k, v, "", waker, sleeper, "", "")
 	}
 }
 

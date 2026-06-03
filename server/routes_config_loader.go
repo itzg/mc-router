@@ -44,7 +44,8 @@ func (r *routesConfigLoader) Load(routesConfigFileName string) error {
 	}
 
 	Routes.RegisterAll(config.Mappings)
-	Routes.SetDefaultRoute(config.DefaultServer, "", nil, nil, "", "")
+	waker, sleeper := WebhookAutoScaler.routeFuncs("", config.DefaultServer)
+	Routes.SetDefaultRoute(config.DefaultServer, "", waker, sleeper, "", "")
 	return nil
 }
 
@@ -62,7 +63,8 @@ func (r *routesConfigLoader) Reload() error {
 	logrus.WithField("routesConfig", r.fileName).Info("Re-loading routes config file")
 	Routes.Reset()
 	Routes.RegisterAll(config.Mappings)
-	Routes.SetDefaultRoute(config.DefaultServer, "", nil, nil, "", "")
+	waker, sleeper := WebhookAutoScaler.routeFuncs("", config.DefaultServer)
+	Routes.SetDefaultRoute(config.DefaultServer, "", waker, sleeper, "", "")
 
 	return nil
 }

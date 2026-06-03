@@ -26,7 +26,7 @@ Go version: 1.26.2. Testing uses `testify` (assert/require). Tests are table-dri
 1. **Connector** (`server/connector.go`) accepts TCP connections on port 25565
 2. **mcproto** package (`mcproto/`) reads the Minecraft handshake packet to extract the target server address
 3. **Routes** (`server/routes.go`) looks up the backend address for that hostname
-4. If auto-scale is enabled and the backend is sleeping, a **waker** function starts it (Kubernetes StatefulSet replica 0→1 or Docker container start/unpause)
+4. If auto-scale is enabled and the backend is sleeping, a **waker** function starts it (Kubernetes StatefulSet replica 0→1, Docker container start/unpause, or a POST to a configured scale-up webhook for static routes)
 5. Traffic is proxied bidirectionally between client and backend
 6. On disconnect, metrics are updated, webhooks fired, and the **DownScaler** (`server/down_scaler.go`) may schedule scale-down after idle timeout
 
@@ -62,6 +62,10 @@ Routes are populated from three sources that can be combined:
 1. Static `--mapping` flags or JSON config file
 2. Kubernetes: watches Services with `mc-router.itzg.me/externalServerName` annotation
 3. Docker/Swarm: watches containers/services via the Docker Events API, filtered to lifecycle events (label `mc-router.host`)
+
+### Autoscaling backends
+
+Wakers/sleepers (`WakerFunc`/`SleeperFunc` in `routes.go`) are attached per route. Docker (`docker.go`) and Kubernetes (`k8s.go`) watchers build them from container/StatefulSet state. For **static** routes there is no watcher, so `server/webhook_scaler.go` provides a `WebhookScaler` that POSTs `{action,serverAddress,backend}` to a configured receiver (the scaling authority lives in a separate, independently-secured process — no Docker socket/kube creds/shell needed in the router). The scale-up response may optionally return `{"backend":"host:port"}` (`WebhookScaleResponse`, parsed leniently by `parseScaleResponseBackend`) to override the configured backend for that wake — for dynamic backends whose address changes per start, sidestepping stale DNS; an empty/non-JSON body keeps the configured backend. The global instance is the `WebhookAutoScaler` package singleton (mirroring `DownScaler`); its `routeFuncs` helper is nil-safe so callers (`RegisterAll`, the default route, the REST API handlers) can build waker/sleeper pairs whether or not it's configured. The scaler is global-only: it attaches to every static route (`--mapping`, `--default`, routes config file, and API-created routes), and the requested server address in the scale payload lets the receiver distinguish routes. There is deliberately no per-route scaler config (it could not round-trip through the API's `SaveRoutes`, which rewrites the file from the in-memory route table) and no `Scaler` interface yet (only webhook is implemented); a future exec mechanism would be a sibling type.
 
 ### Key Dependencies
 

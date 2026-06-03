@@ -93,7 +93,8 @@ func routesCreateHandler(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	Routes.CreateMapping(definition.ServerAddress, definition.Backend, "", nil, nil, "", "")
+	waker, sleeper := WebhookAutoScaler.routeFuncs(definition.ServerAddress, definition.Backend)
+	Routes.CreateMapping(definition.ServerAddress, definition.Backend, "", waker, sleeper, "", "")
 	RoutesConfigLoader.SaveRoutes()
 	writer.WriteHeader(http.StatusCreated)
 }
@@ -114,7 +115,8 @@ func routesSetDefault(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	Routes.SetDefaultRoute(body.Backend, "", nil, nil, "", "")
+	waker, sleeper := WebhookAutoScaler.routeFuncs("", body.Backend)
+	Routes.SetDefaultRoute(body.Backend, "", waker, sleeper, "", "")
 	RoutesConfigLoader.SaveRoutes()
 	writer.WriteHeader(http.StatusOK)
 }

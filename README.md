@@ -36,6 +36,16 @@ Some other features included:
     	Server scale down delay after there are no connections (env AUTO_SCALE_DOWN_AFTER) (default "10m")
   -auto-scale-up
     	Scale from zero on access. For Kubernetes, increases StatefulSet replicas from 0 to 1. For Docker, starts or unpauses the container when accessed (env AUTO_SCALE_UP)
+  -auto-scale-webhook-down-url string
+    	If set, a POST request is sent to this URL to scale a statically-configured backend down after idle (env AUTO_SCALE_WEBHOOK_DOWN_URL)
+  -auto-scale-webhook-headers value
+    	Zero or more 'key=value' headers added to scaler webhook requests, e.g. for authentication tokens (env AUTO_SCALE_WEBHOOK_HEADERS)
+  -auto-scale-webhook-timeout duration
+    	Timeout for each scaler webhook request (env AUTO_SCALE_WEBHOOK_TIMEOUT) (default 30s)
+  -auto-scale-webhook-up-url string
+    	If set, a POST request is sent to this URL to scale a statically-configured backend up on access (env AUTO_SCALE_WEBHOOK_UP_URL)
+  -auto-scale-webhook-wake-timeout duration
+    	Maximum time to wait for the backend to become reachable after a scale-up webhook (env AUTO_SCALE_WEBHOOK_WAKE_TIMEOUT) (default 1m0s)
   -clients-to-allow value
     	Zero or more client IP addresses or CIDRs to allow. Takes precedence over deny. (env CLIENTS_TO_ALLOW)
   -clients-to-deny value
@@ -111,6 +121,8 @@ Some other features included:
     	Output version and exit (env VERSION)
   -webhook-require-user
     	Indicates if the webhook will only be called if a user is connecting rather than just server list/ping (env WEBHOOK_REQUIRE_USER)
+  -webhook-timeout duration
+    	Timeout for each connection status notification request (env WEBHOOK_TIMEOUT) (default 30s)
   -webhook-url string
     	If set, a POST request that contains connection status notifications will be sent to this HTTP address (env WEBHOOK_URL)
 ```
@@ -226,6 +238,65 @@ configure two different Minecraft servers and a `mc-router` instance for use wit
 Refer to [this example docker-compose.yml](docs/swarm.docker-compose.yml) to see how to
 configure two different Minecraft servers and a `mc-router` instance for use with Docker Swarm service discovery.
 
+### Webhook Auto Scale
+
+For statically-configured routes (those defined via `-mapping`, `-default`, or the [routes config file](#routing-configuration)
+rather than discovered from Docker/Kubernetes), auto scaling can be driven by a webhook instead of mc-router managing the
+backend directly. This is useful when a **separate process** owns the scaling — for example a control-plane container that
+starts/stops the backend via its own API.
+
+Compared to running a local command, the webhook approach keeps the scaling privilege outside the router process: mc-router
+needs no Docker socket, no Kubernetes credentials, and no shell, so it can run as a minimal/distroless, least-privilege
+container. The scaling authority lives in a separately-secured receiver.
+
+Configure a scale-up and/or scale-down endpoint:
+
+```shell
+mc-router \
+  -default backend:25565 \
+  -auto-scale-webhook-up-url   http://scaler:8080/up \
+  -auto-scale-webhook-down-url http://scaler:8080/down \
+  -auto-scale-down-after 10m \
+  -auto-scale-webhook-headers "Authorization=Bearer <token>"
+```
+
+- On the first connection to a route, mc-router POSTs to the up URL, then waits (up to `-auto-scale-webhook-wake-timeout`,
+  default 60s) for the backend to become reachable before proxying.
+- When no clients remain connected and the idle timer elapses (`-auto-scale-down-after`), mc-router POSTs to the down URL.
+- Providing the URL is the opt-in; the separate `-auto-scale-up`/`-auto-scale-down` flags are not required for webhook scaling.
+
+The request body is JSON. `serverAddress` is the route the client requested (empty for the default route); `backend` is the
+configured `host:port`. Both come from mc-router's own configuration — a client can only select an existing route, never
+influence the outbound request:
+
+```json
+{
+  "action": "up",
+  "serverAddress": "survival.example.com",
+  "backend": "10.0.0.5:25565"
+}
+```
+
+A non-2xx response (or a transport error) is treated as a failure: a failed scale-up aborts the connection, and a failed
+scale-down is retried the next time the idle timer elapses. The asleep/loading MOTDs (`-auto-scale-asleep-motd`,
+`-auto-scale-loading-motd`) work the same as for Docker/Kubernetes.
+
+The scale-up response may **optionally** return the backend's current address as JSON, which overrides the configured
+`backend` for that wake:
+
+```json
+{ "backend": "10.0.0.5:25565" }
+```
+
+This is useful when the backend's address is dynamic — for example a container whose IP changes on every start. The
+receiver (which just started it) knows the live address and reports it, so mc-router connects there directly instead of
+re-resolving the configured name against a possibly-stale DNS cache. The body is optional and lenient: an empty body, a
+non-JSON body, or JSON without a `backend` field all leave the configured `backend` in effect. The scale-down response
+body is ignored.
+
+For a runnable local example — a small webhook receiver that starts/stops an `itzg/minecraft-server` container via Apple's
+`container` CLI — see [docs/webhook-scaler](docs/webhook-scaler/README.md).
+
 ## Routing Configuration
 
 The routing configuration allows routing via a config file rather than a command. 
@@ -243,6 +314,8 @@ The following shows a JSON file for routes config, where `default-server` can al
 ```
 
 Sending a SIGHUP signal will cause mc-router to reload the routes config from disk. The file can also be watched for changes by setting `-routes-config-watch` or the env variable `ROUTES_CONFIG_WATCH` to "true".
+
+When a global [webhook auto scaler](#webhook-auto-scale) is configured, it is attached to every route loaded from this file; the requested server address is sent in each scale request so the receiver can tell the routes apart.
 
 ## Auto Scale Allow/Deny List
 
