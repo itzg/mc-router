@@ -11,11 +11,21 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func StartApiServer(apiBinding string) {
+// apiServer holds the dependencies the REST handlers need, injected at startup
+// rather than reached for as globals.
+type apiServer struct {
+	routes       IRoutes
+	configLoader *routesConfigLoader
+	scaler       *WebhookScaler
+}
+
+func StartApiServer(apiBinding string, routes IRoutes, configLoader *routesConfigLoader, scaler *WebhookScaler) {
 	logrus.WithField("binding", apiBinding).Info("Serving API requests")
 
+	api := &apiServer{routes: routes, configLoader: configLoader, scaler: scaler}
+
 	var apiRoutes = mux.NewRouter()
-	registerApiRoutes(apiRoutes)
+	api.registerApiRoutes(apiRoutes)
 
 	apiRoutes.Path("/vars").Handler(expvar.Handler())
 
@@ -27,26 +37,26 @@ func StartApiServer(apiBinding string) {
 	}()
 }
 
-func registerApiRoutes(apiRoutes *mux.Router) {
+func (a *apiServer) registerApiRoutes(apiRoutes *mux.Router) {
 	apiRoutes.Path("/routes").Methods("GET").
-		HandlerFunc(routesListHandler)
+		HandlerFunc(a.routesListHandler)
 	apiRoutes.Path("/routes").Methods("POST").
-		HandlerFunc(routesCreateHandler)
+		HandlerFunc(a.routesCreateHandler)
 	apiRoutes.Path("/defaultRoute").Methods("POST").
-		HandlerFunc(routesSetDefault)
-	apiRoutes.Path("/routes/{serverAddress}").Methods("DELETE").HandlerFunc(routesDeleteHandler)
+		HandlerFunc(a.routesSetDefault)
+	apiRoutes.Path("/routes/{serverAddress}").Methods("DELETE").HandlerFunc(a.routesDeleteHandler)
 }
 
-func routesListHandler(writer http.ResponseWriter, _ *http.Request) {
+func (a *apiServer) routesListHandler(writer http.ResponseWriter, _ *http.Request) {
 	type serverRoute = struct {
 		Backend       string `json:"backend"`
 		ScalingTarget string `json:"scalingTarget"`
 	}
 
-	mappings := Routes.GetMappings()
+	mappings := a.routes.GetMappings()
 	routes := make(map[string]serverRoute, len(mappings))
 	for k := range mappings {
-		backend, address, scalingTarget, _, _ := Routes.FindBackendForServerAddress(context.Background(), k)
+		backend, address, scalingTarget, _, _ := a.routes.FindBackendForServerAddress(context.Background(), k)
 		routes[address] = serverRoute{Backend: backend, ScalingTarget: scalingTarget}
 	}
 
@@ -64,19 +74,19 @@ func routesListHandler(writer http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-func routesDeleteHandler(writer http.ResponseWriter, request *http.Request) {
+func (a *apiServer) routesDeleteHandler(writer http.ResponseWriter, request *http.Request) {
 	serverAddress := mux.Vars(request)["serverAddress"]
 	if serverAddress != "" {
-		if Routes.DeleteMapping(serverAddress) {
+		if a.routes.DeleteMapping(serverAddress) {
 			writer.WriteHeader(http.StatusOK)
 		} else {
 			writer.WriteHeader(http.StatusNotFound)
 		}
-		RoutesConfigLoader.SaveRoutes()
+		a.configLoader.SaveRoutes()
 	}
 }
 
-func routesCreateHandler(writer http.ResponseWriter, request *http.Request) {
+func (a *apiServer) routesCreateHandler(writer http.ResponseWriter, request *http.Request) {
 	var definition = struct {
 		ServerAddress string
 		Backend       string
@@ -93,13 +103,13 @@ func routesCreateHandler(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	waker, sleeper := WebhookAutoScaler.routeFuncs(definition.ServerAddress, definition.Backend)
-	Routes.CreateMapping(definition.ServerAddress, definition.Backend, "", waker, sleeper, "", "")
-	RoutesConfigLoader.SaveRoutes()
+	waker, sleeper := a.scaler.routeFuncs(definition.ServerAddress, definition.Backend)
+	a.routes.CreateMapping(definition.ServerAddress, definition.Backend, "", waker, sleeper, "", "")
+	a.configLoader.SaveRoutes()
 	writer.WriteHeader(http.StatusCreated)
 }
 
-func routesSetDefault(writer http.ResponseWriter, request *http.Request) {
+func (a *apiServer) routesSetDefault(writer http.ResponseWriter, request *http.Request) {
 	var body = struct {
 		Backend string
 	}{}
@@ -115,8 +125,8 @@ func routesSetDefault(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	waker, sleeper := WebhookAutoScaler.routeFuncs("", body.Backend)
-	Routes.SetDefaultRoute(body.Backend, "", waker, sleeper, "", "")
-	RoutesConfigLoader.SaveRoutes()
+	waker, sleeper := a.scaler.routeFuncs("", body.Backend)
+	a.routes.SetDefaultRoute(body.Backend, "", waker, sleeper, "", "")
+	a.configLoader.SaveRoutes()
 	writer.WriteHeader(http.StatusOK)
 }

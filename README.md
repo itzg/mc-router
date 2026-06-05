@@ -36,14 +36,12 @@ Some other features included:
     	Server scale down delay after there are no connections (env AUTO_SCALE_DOWN_AFTER) (default "10m")
   -auto-scale-up
     	Scale from zero on access. For Kubernetes, increases StatefulSet replicas from 0 to 1. For Docker, starts or unpauses the container when accessed (env AUTO_SCALE_UP)
-  -auto-scale-webhook-down-url string
-    	If set, a POST request is sent to this URL to scale a statically-configured backend down after idle (env AUTO_SCALE_WEBHOOK_DOWN_URL)
   -auto-scale-webhook-headers value
     	Zero or more 'key=value' headers added to scaler webhook requests, e.g. for authentication tokens (env AUTO_SCALE_WEBHOOK_HEADERS)
   -auto-scale-webhook-timeout duration
     	Timeout for each scaler webhook request (env AUTO_SCALE_WEBHOOK_TIMEOUT) (default 30s)
-  -auto-scale-webhook-up-url string
-    	If set, a POST request is sent to this URL to scale a statically-configured backend up on access (env AUTO_SCALE_WEBHOOK_UP_URL)
+  -auto-scale-webhook-url string
+    	If set, statically-configured backends are scaled up on access and down after idle by POSTing to this URL (env AUTO_SCALE_WEBHOOK_URL)
   -auto-scale-webhook-wake-timeout duration
     	Maximum time to wait for the backend to become reachable after a scale-up webhook (env AUTO_SCALE_WEBHOOK_WAKE_TIMEOUT) (default 1m0s)
   -clients-to-allow value
@@ -249,20 +247,20 @@ Compared to running a local command, the webhook approach keeps the scaling priv
 needs no Docker socket, no Kubernetes credentials, and no shell, so it can run as a minimal/distroless, least-privilege
 container. The scaling authority lives in a separately-secured receiver.
 
-Configure a scale-up and/or scale-down endpoint:
+Configure a single scaler endpoint; the request body's `action` field distinguishes scale-up from scale-down:
 
 ```shell
 mc-router \
   -default backend:25565 \
-  -auto-scale-webhook-up-url   http://scaler:8080/up \
-  -auto-scale-webhook-down-url http://scaler:8080/down \
+  -auto-scale-webhook-url http://scaler:8080/scale \
   -auto-scale-down-after 10m \
   -auto-scale-webhook-headers "Authorization=Bearer <token>"
 ```
 
-- On the first connection to a route, mc-router POSTs to the up URL, then waits (up to `-auto-scale-webhook-wake-timeout`,
-  default 60s) for the backend to become reachable before proxying.
-- When no clients remain connected and the idle timer elapses (`-auto-scale-down-after`), mc-router POSTs to the down URL.
+- On the first connection to a route, mc-router POSTs an `{"action":"up"}` payload, then waits (up to
+  `-auto-scale-webhook-wake-timeout`, default 60s) for the backend to become reachable before proxying.
+- When no clients remain connected and the idle timer elapses (`-auto-scale-down-after`), mc-router POSTs an
+  `{"action":"down"}` payload.
 - Providing the URL is the opt-in; the separate `-auto-scale-up`/`-auto-scale-down` flags are not required for webhook scaling.
 
 The request body is JSON. `serverAddress` is the route the client requested (empty for the default route); `backend` is the

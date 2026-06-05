@@ -22,11 +22,10 @@ type AutoScale struct {
 // POSTing to an external HTTP receiver, which owns the start/stop of the
 // backend. This keeps the scaling privilege out of the router process.
 type AutoScaleWebhookConfig struct {
-	UpUrl       string        `usage:"If set, a POST request is sent to this URL to scale a statically-configured backend up on access"`
-	DownUrl     string        `usage:"If set, a POST request is sent to this URL to scale a statically-configured backend down after idle"`
-	Headers     []string      `usage:"Zero or more 'key=value' headers added to scaler webhook requests, e.g. for authentication tokens"`
-	Timeout     time.Duration `default:"30s" usage:"Timeout for each scaler webhook request"`
-	WakeTimeout time.Duration `default:"60s" usage:"Maximum time to wait for the backend to become reachable after a scale-up webhook"`
+	Url         string            `usage:"If set, statically-configured backends are scaled up on access and down after idle by POSTing to this URL"`
+	Headers     map[string]string `usage:"Zero or more 'key=value' headers added to scaler webhook requests, e.g. for authentication tokens"`
+	Timeout     time.Duration     `default:"30s" usage:"Timeout for each scaler webhook request"`
+	WakeTimeout time.Duration     `default:"60s" usage:"Maximum time to wait for the backend to become reachable after a scale-up webhook"`
 }
 
 type RoutesConfig struct {

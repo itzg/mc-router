@@ -19,6 +19,13 @@ var RoutesConfigLoader = &routesConfigLoader{}
 
 type routesConfigLoader struct {
 	fileName string
+	scaler   *WebhookScaler
+}
+
+// UseWebhookScaler sets the scaler whose waker/sleeper pairs are attached to the
+// static routes loaded from the config file. nil disables autoscaling for them.
+func (r *routesConfigLoader) UseWebhookScaler(scaler *WebhookScaler) {
+	r.scaler = scaler
 }
 
 // RoutesConfigSchema declares the schema of the json file that can provide routes to serve
@@ -43,8 +50,8 @@ func (r *routesConfigLoader) Load(routesConfigFileName string) error {
 		return errors.Wrap(readErr, "Could not load the routes config file")
 	}
 
-	Routes.RegisterAll(config.Mappings)
-	waker, sleeper := WebhookAutoScaler.routeFuncs("", config.DefaultServer)
+	registerStaticMappings(Routes, r.scaler, config.Mappings)
+	waker, sleeper := r.scaler.routeFuncs("", config.DefaultServer)
 	Routes.SetDefaultRoute(config.DefaultServer, "", waker, sleeper, "", "")
 	return nil
 }
@@ -62,8 +69,8 @@ func (r *routesConfigLoader) Reload() error {
 
 	logrus.WithField("routesConfig", r.fileName).Info("Re-loading routes config file")
 	Routes.Reset()
-	Routes.RegisterAll(config.Mappings)
-	waker, sleeper := WebhookAutoScaler.routeFuncs("", config.DefaultServer)
+	registerStaticMappings(Routes, r.scaler, config.Mappings)
+	waker, sleeper := r.scaler.routeFuncs("", config.DefaultServer)
 	Routes.SetDefaultRoute(config.DefaultServer, "", waker, sleeper, "", "")
 
 	return nil

@@ -67,14 +67,13 @@ go run ./cmd/mc-router/ \
   -port 25565 \
   -mapping mc.localhost=mc.test:25565 \
   -auto-scale-down-after 2m \
-  -auto-scale-webhook-up-url   http://localhost:8080/up \
-  -auto-scale-webhook-down-url http://localhost:8080/down \
+  -auto-scale-webhook-url http://localhost:8080/scale \
   -auto-scale-asleep-motd  "Asleep — connect to wake me up" \
   -auto-scale-loading-motd "Starting up, hang on…"
 ```
 
 Notes:
-- Providing the webhook URLs is the opt-in — you do **not** also need
+- Providing the webhook URL is the opt-in — you do **not** also need
   `-auto-scale-up` / `-auto-scale-down` (those gate the Docker/Kubernetes paths).
 - The `mc.test:25565` backend is only a fallback label; the address mc-router
   actually dials is the live IP returned by `scaler.py` on each scale-up.

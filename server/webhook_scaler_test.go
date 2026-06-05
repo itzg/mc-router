@@ -35,8 +35,7 @@ func TestWebhookScaler_Waker(t *testing.T) {
 	}))
 	defer server.Close()
 
-	scaler, err := NewWebhookScaler(server.URL, "", []string{"Authorization=Bearer secret"}, 0, 5*time.Second)
-	require.NoError(t, err)
+	scaler := NewWebhookScaler(server.URL, map[string]string{"Authorization": "Bearer secret"}, 0, 5*time.Second)
 
 	waker := scaler.makeWakerFunc("mc.example.com", backend.Addr().String())
 	require.NotNil(t, waker)
@@ -65,8 +64,7 @@ func TestWebhookScaler_WakerUsesResponseBackend(t *testing.T) {
 	}))
 	defer server.Close()
 
-	scaler, err := NewWebhookScaler(server.URL, "", nil, 0, 5*time.Second)
-	require.NoError(t, err)
+	scaler := NewWebhookScaler(server.URL, nil, 0, 5*time.Second)
 
 	// Configured backend is a dead address; the response override must win.
 	waker := scaler.makeWakerFunc("mc.example.com", "10.255.255.1:25565")
@@ -90,8 +88,7 @@ func TestWebhookScaler_WakerFallsBackWhenResponseEmpty(t *testing.T) {
 	}))
 	defer server.Close()
 
-	scaler, err := NewWebhookScaler(server.URL, "", nil, 0, 5*time.Second)
-	require.NoError(t, err)
+	scaler := NewWebhookScaler(server.URL, nil, 0, 5*time.Second)
 
 	waker := scaler.makeWakerFunc("mc.example.com", backend.Addr().String())
 	require.NotNil(t, waker)
@@ -112,7 +109,7 @@ func TestParseScaleResponseBackend(t *testing.T) {
 		`OK`:                              "",
 	}
 	for body, want := range cases {
-		assert.Equalf(t, want, parseScaleResponseBackend(strings.NewReader(body)), "body=%q", body)
+		assert.Equalf(t, want, (&WebhookScaler{}).parseScaleResponseBackend(strings.NewReader(body)), "body=%q", body)
 	}
 }
 
@@ -128,8 +125,7 @@ func TestWebhookScaler_Sleeper(t *testing.T) {
 	}))
 	defer server.Close()
 
-	scaler, err := NewWebhookScaler("", server.URL, nil, 0, 0)
-	require.NoError(t, err)
+	scaler := NewWebhookScaler(server.URL, nil, 0, 0)
 
 	sleeper := scaler.makeSleeperFunc("mc.example.com", "10.0.0.5:25565")
 	require.NotNil(t, sleeper)
@@ -143,8 +139,7 @@ func TestWebhookScaler_Sleeper(t *testing.T) {
 }
 
 func TestWebhookScaler_NilFuncsWhenURLUnset(t *testing.T) {
-	scaler, err := NewWebhookScaler("", "", nil, 0, 0)
-	require.NoError(t, err)
+	scaler := NewWebhookScaler("", nil, 0, 0)
 
 	assert.Nil(t, scaler.makeWakerFunc("mc.example.com", "10.0.0.5:25565"))
 	assert.Nil(t, scaler.makeSleeperFunc("mc.example.com", "10.0.0.5:25565"))
@@ -156,16 +151,10 @@ func TestWebhookScaler_ErrorOnNon2xx(t *testing.T) {
 	}))
 	defer server.Close()
 
-	scaler, err := NewWebhookScaler("", server.URL, nil, 0, 0)
-	require.NoError(t, err)
+	scaler := NewWebhookScaler(server.URL, nil, 0, 0)
 
 	sleeper := scaler.makeSleeperFunc("mc.example.com", "10.0.0.5:25565")
-	err = sleeper(context.Background())
-	require.Error(t, err)
-}
-
-func TestWebhookScaler_InvalidHeader(t *testing.T) {
-	_, err := NewWebhookScaler("http://example", "", []string{"no-equals-sign"}, 0, 0)
+	err := sleeper(context.Background())
 	require.Error(t, err)
 }
 

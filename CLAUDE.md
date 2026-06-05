@@ -65,7 +65,7 @@ Routes are populated from three sources that can be combined:
 
 ### Autoscaling backends
 
-Wakers/sleepers (`WakerFunc`/`SleeperFunc` in `routes.go`) are attached per route. Docker (`docker.go`) and Kubernetes (`k8s.go`) watchers build them from container/StatefulSet state. For **static** routes there is no watcher, so `server/webhook_scaler.go` provides a `WebhookScaler` that POSTs `{action,serverAddress,backend}` to a configured receiver (the scaling authority lives in a separate, independently-secured process — no Docker socket/kube creds/shell needed in the router). The scale-up response may optionally return `{"backend":"host:port"}` (`WebhookScaleResponse`, parsed leniently by `parseScaleResponseBackend`) to override the configured backend for that wake — for dynamic backends whose address changes per start, sidestepping stale DNS; an empty/non-JSON body keeps the configured backend. The global instance is the `WebhookAutoScaler` package singleton (mirroring `DownScaler`); its `routeFuncs` helper is nil-safe so callers (`RegisterAll`, the default route, the REST API handlers) can build waker/sleeper pairs whether or not it's configured. The scaler is global-only: it attaches to every static route (`--mapping`, `--default`, routes config file, and API-created routes), and the requested server address in the scale payload lets the receiver distinguish routes. There is deliberately no per-route scaler config (it could not round-trip through the API's `SaveRoutes`, which rewrites the file from the in-memory route table) and no `Scaler` interface yet (only webhook is implemented); a future exec mechanism would be a sibling type.
+Wakers/sleepers (`WakerFunc`/`SleeperFunc` in `routes.go`) are attached per route. Docker and Kubernetes watchers build them from container/StatefulSet state. **Static** routes have no watcher, so `server/webhook_scaler.go`'s `WebhookScaler` POSTs `{action,serverAddress,backend}` to an external receiver that owns the start/stop — keeping that privilege out of the router. The scaler is built in `server.go` and passed to the objects that register static routes (not a global — see Coding Conventions); `scaler.routeFuncs` is nil-receiver-safe. A scale-up reply may optionally return `{"backend":"host:port"}` to override the configured backend for that wake (dynamic addresses). It's deliberately global-only (no per-route config, since it couldn't round-trip through the API's `SaveRoutes`) and webhook-only (no `Scaler` interface yet).
 
 ### Key Dependencies
 
@@ -83,6 +83,15 @@ Wakers/sleepers (`WakerFunc`/`SleeperFunc` in `routes.go`) are attached per rout
 - **`connector.go`**: `ActiveConnections` map guarded by `sync.RWMutex`; `totalActiveConnections` counter uses `atomic.AddInt32`. Shutdown drain uses `sync.Cond` in `WaitForConnections()`.
 - **Bidirectional proxy**: two goroutines per connection (client→backend, backend→client) communicate via a buffered `chan error` (size 2) — first error triggers mutual close.
 - All goroutines respect context cancellation via `select { case <-ctx.Done() }`.
+
+### Coding Conventions
+
+The maintainer is gradually moving the codebase **away from package-level global singletons** (`Routes`, `DownScaler`, etc.). Do not introduce new globals in new code — construct the dependency once in `server.go` and pass the instance to the objects that need it (connector, API server, route registration). Existing globals are legacy, not a pattern to copy.
+
+- **Reuse shared infrastructure instead of parallel subsystems.** The webhook notifier and webhook scaler share one HTTP transport helper; only their call semantics differ (notifier = async fire-and-forget, scaler = synchronous control-flow with a typed response). Their timeouts stay separately configurable (notifier short, scaler long for slow infra).
+- **`key=value` config uses flagsfiller maps.** For headers and similar maps, declare a `map[string]string` field — go-flagsfiller parses it natively. Don't take `[]string` and hand-parse.
+- **Scope helpers to their type.** Package-level functions that operate on or return a type's data should be methods on that type (or live in a nested package), not free functions in `server/`.
+- **Prefer a single config surface.** Where an `action` field can discriminate behavior (e.g. one webhook URL for both up/down), favor that over two parallel flags, matching the notifier webhook.
 
 ### Error Handling
 
