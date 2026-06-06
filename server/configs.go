@@ -3,8 +3,9 @@ package server
 import "time"
 
 type WebhookConfig struct {
-	Url         string `usage:"If set, a POST request that contains connection status notifications will be sent to this HTTP address"`
-	RequireUser bool   `default:"false" usage:"Indicates if the webhook will only be called if a user is connecting rather than just server list/ping"`
+	Url         string        `usage:"If set, a POST request that contains connection status notifications will be sent to this HTTP address"`
+	RequireUser bool          `default:"false" usage:"Indicates if the webhook will only be called if a user is connecting rather than just server list/ping"`
+	Timeout     time.Duration `default:"30s" usage:"Timeout for each connection status notification request"`
 }
 
 type AutoScale struct {
@@ -14,6 +15,17 @@ type AutoScale struct {
 	AllowDeny   string        `usage:"Path to config for server allowlists and denylists. If a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up when -auto-scale-up is enabled or cancel active down scalers when -auto-scale-down is enabled"`
 	AsleepMOTD  string        `usage:"MOTD to display when auto-scaled down servers are accessed; if empty, no status will be served"`
 	LoadingMOTD string        `usage:"MOTD to display while auto-scaled Docker servers are waking up; if empty, asleep status will be served"`
+	Webhook     AutoScaleWebhookConfig
+}
+
+// AutoScaleWebhookConfig enables scaling of statically-configured routes by
+// POSTing to an external HTTP receiver, which owns the start/stop of the
+// backend. This keeps the scaling privilege out of the router process.
+type AutoScaleWebhookConfig struct {
+	Url         string            `usage:"If set, statically-configured backends are scaled up on access and down after idle by POSTing to this URL"`
+	Headers     map[string]string `usage:"Zero or more 'key=value' headers added to scaler webhook requests, e.g. for authentication tokens"`
+	Timeout     time.Duration     `default:"30s" usage:"Timeout for each scaler webhook request"`
+	WakeTimeout time.Duration     `default:"60s" usage:"Maximum time to wait for the backend to become reachable after a scale-up webhook"`
 }
 
 type RoutesConfig struct {

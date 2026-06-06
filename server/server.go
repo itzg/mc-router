@@ -48,12 +48,30 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 
 	metricsBuilder := NewMetricsBuilder(config.MetricsBackend, &config.MetricsBackendConfig)
 
-	downScalerEnabled := config.AutoScale.Down && (config.InKubeCluster || config.KubeConfig != "" || config.InDocker)
+	webhookScalerConfigured := config.AutoScale.Webhook.Url != ""
+	downScalerEnabled := (config.AutoScale.Down && (config.InKubeCluster || config.KubeConfig != "" || config.InDocker)) || webhookScalerConfigured
 	downScalerDelay := config.AutoScale.DownAfter
 	// Only one instance should be created
 	DownScaler = NewDownScaler(ctx, downScalerEnabled, downScalerDelay)
 
+	// Build the webhook scaler and hand it to the objects that register static
+	// routes so they pick up its waker/sleeper. Discovery-based routes
+	// (Docker/Kubernetes) supply their own and are unaffected. A nil scaler
+	// (unconfigured) is fine: routeFuncs is nil-safe.
+	var webhookScaler *WebhookScaler
+	if webhookScalerConfigured {
+		webhookScaler = NewWebhookScaler(
+			config.AutoScale.Webhook.Url,
+			config.AutoScale.Webhook.Headers,
+			config.AutoScale.Webhook.Timeout,
+			config.AutoScale.Webhook.WakeTimeout,
+		)
+		logrus.WithField("url", config.AutoScale.Webhook.Url).
+			Info("Using webhook autoscaler for static routes")
+	}
+
 	if config.Routes.Config != "" {
+		RoutesConfigLoader.UseWebhookScaler(webhookScaler)
 		err := RoutesConfigLoader.Load(config.Routes.Config)
 		if err != nil {
 			return nil, fmt.Errorf("could not load routes config file: %w", err)
@@ -67,9 +85,10 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		}
 	}
 
-	Routes.RegisterAll(config.Mapping)
+	registerStaticMappings(Routes, webhookScaler, config.Mapping)
 	if config.Default != "" {
-		Routes.SetDefaultRoute(config.Default, "", nil, nil, "", "")
+		waker, sleeper := webhookScaler.routeFuncs("", config.Default)
+		Routes.SetDefaultRoute(config.Default, "", waker, sleeper, "", "")
 	}
 
 	if config.ConnectionRateLimit < 1 {
@@ -96,7 +115,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 			WithField("require-user", config.Webhook.RequireUser).
 			Info("Using webhook for connection status notifications")
 		connector.UseConnectionNotifier(
-			NewWebhookNotifier(config.Webhook.Url, config.Webhook.RequireUser))
+			NewWebhookNotifier(config.Webhook.Url, config.Webhook.RequireUser, config.Webhook.Timeout))
 	}
 
 	if config.Ngrok.Token != "" {
@@ -117,7 +136,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	}
 
 	if config.ApiBinding != "" {
-		StartApiServer(config.ApiBinding)
+		StartApiServer(config.ApiBinding, Routes, RoutesConfigLoader, webhookScaler)
 	}
 
 	routeWatchers := make([]RouteFinder, 0)

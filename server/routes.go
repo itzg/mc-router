@@ -47,7 +47,6 @@ type IRoutes interface {
 	RoutesHandler
 
 	Reset()
-	RegisterAll(mappings map[string]string)
 	// FindBackendForServerAddress returns the host:port for the external server address, if registered.
 	// Otherwise, an empty string is returned. Also returns the normalized version of the given serverAddress.
 	// The 3rd value returned is the scalingTarget which indicates what endpoint to scale (may differ from backend when using proxy).
@@ -73,9 +72,12 @@ func NewRoutes() IRoutes {
 	return r
 }
 
-func (r *routesImpl) RegisterAll(mappings map[string]string) {
+// registerStaticMappings registers each static mapping, attaching the scaler's
+// waker/sleeper pair. nil-safe: a nil scaler registers without autoscaling.
+func registerStaticMappings(routes RoutesHandler, scaler *WebhookScaler, mappings map[string]string) {
 	for k, v := range mappings {
-		r.CreateMapping(k, v, "", nil, nil, "", "")
+		waker, sleeper := scaler.routeFuncs(k, v)
+		routes.CreateMapping(k, v, "", waker, sleeper, "", "")
 	}
 }
 

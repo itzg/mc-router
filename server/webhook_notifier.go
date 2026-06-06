@@ -1,14 +1,8 @@
 package server
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
-	"github.com/sirupsen/logrus"
-	"log"
 	"net"
-	"net/http"
 	"time"
 )
 
@@ -18,7 +12,7 @@ type WebhookNotifier struct {
 	url         string
 	requireUser bool
 
-	client *http.Client
+	client *webhookClient
 }
 
 const (
@@ -43,14 +37,11 @@ type WebhookNotifierPayload struct {
 	Error           string      `json:"error,omitempty"`
 }
 
-func NewWebhookNotifier(url string, requireUser bool) *WebhookNotifier {
-
+func NewWebhookNotifier(url string, requireUser bool, timeout time.Duration) *WebhookNotifier {
 	return &WebhookNotifier{
 		url:         url,
 		requireUser: requireUser,
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		client:      newWebhookClient(timeout, nil),
 	}
 }
 
@@ -129,39 +120,5 @@ func (w *WebhookNotifier) NotifyDisconnected(ctx context.Context, clientAddr net
 }
 
 func (w *WebhookNotifier) send(ctx context.Context, payload *WebhookNotifierPayload) error {
-	jsonPayload, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal webhook payload: %v", err)
-	}
-
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		w.url,
-		bytes.NewBuffer(jsonPayload),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create webhook request: %v", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	go func() {
-		resp, err := w.client.Do(req)
-		if err != nil {
-			// Handle error
-			log.Printf("Failed to send webhook notification: %v", err)
-			return
-		}
-		_ = resp.Body.Close()
-
-		if resp.StatusCode >= 400 {
-			logrus.
-				WithField("status", resp.StatusCode).
-				Warn("webhook receiver responded with an error")
-		}
-
-	}()
-
-	return nil
+	return w.client.postAsync(ctx, w.url, payload)
 }

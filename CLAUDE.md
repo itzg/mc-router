@@ -26,7 +26,7 @@ Go version: 1.26.2. Testing uses `testify` (assert/require). Tests are table-dri
 1. **Connector** (`server/connector.go`) accepts TCP connections on port 25565
 2. **mcproto** package (`mcproto/`) reads the Minecraft handshake packet to extract the target server address
 3. **Routes** (`server/routes.go`) looks up the backend address for that hostname
-4. If auto-scale is enabled and the backend is sleeping, a **waker** function starts it (Kubernetes StatefulSet replica 0→1 or Docker container start/unpause)
+4. If auto-scale is enabled and the backend is sleeping, a **waker** function starts it (Kubernetes StatefulSet replica 0→1, Docker container start/unpause, or a POST to a configured scale-up webhook for static routes)
 5. Traffic is proxied bidirectionally between client and backend
 6. On disconnect, metrics are updated, webhooks fired, and the **DownScaler** (`server/down_scaler.go`) may schedule scale-down after idle timeout
 
@@ -63,6 +63,10 @@ Routes are populated from three sources that can be combined:
 2. Kubernetes: watches Services with `mc-router.itzg.me/externalServerName` annotation
 3. Docker/Swarm: watches containers/services via the Docker Events API, filtered to lifecycle events (label `mc-router.host`)
 
+### Autoscaling backends
+
+Wakers/sleepers (`WakerFunc`/`SleeperFunc` in `routes.go`) are attached per route. Docker and Kubernetes watchers build them from container/StatefulSet state. **Static** routes have no watcher, so `server/webhook_scaler.go`'s `WebhookScaler` POSTs `{action,serverAddress,backend}` to an external receiver that owns the start/stop — keeping that privilege out of the router. The scaler is built in `server.go` and passed to the objects that register static routes (not a global — see Coding Conventions); `scaler.routeFuncs` is nil-receiver-safe. A scale-up reply may optionally return `{"backend":"host:port"}` to override the configured backend for that wake (dynamic addresses). It's deliberately global-only (no per-route config, since it couldn't round-trip through the API's `SaveRoutes`) and webhook-only (no `Scaler` interface yet).
+
 ### Key Dependencies
 
 - `sirupsen/logrus` — Logging
@@ -79,6 +83,15 @@ Routes are populated from three sources that can be combined:
 - **`connector.go`**: `ActiveConnections` map guarded by `sync.RWMutex`; `totalActiveConnections` counter uses `atomic.AddInt32`. Shutdown drain uses `sync.Cond` in `WaitForConnections()`.
 - **Bidirectional proxy**: two goroutines per connection (client→backend, backend→client) communicate via a buffered `chan error` (size 2) — first error triggers mutual close.
 - All goroutines respect context cancellation via `select { case <-ctx.Done() }`.
+
+### Coding Conventions
+
+The maintainer is gradually moving the codebase **away from package-level global singletons** (`Routes`, `DownScaler`, etc.). Do not introduce new globals in new code — construct the dependency once in `server.go` and pass the instance to the objects that need it (connector, API server, route registration). Existing globals are legacy, not a pattern to copy.
+
+- **Reuse shared infrastructure instead of parallel subsystems.** The webhook notifier and webhook scaler share one HTTP transport helper; only their call semantics differ (notifier = async fire-and-forget, scaler = synchronous control-flow with a typed response). Their timeouts stay separately configurable (notifier short, scaler long for slow infra).
+- **`key=value` config uses flagsfiller maps.** For headers and similar maps, declare a `map[string]string` field — go-flagsfiller parses it natively. Don't take `[]string` and hand-parse.
+- **Scope helpers to their type.** Package-level functions that operate on or return a type's data should be methods on that type (or live in a nested package), not free functions in `server/`.
+- **Prefer a single config surface.** Where an `action` field can discriminate behavior (e.g. one webhook URL for both up/down), favor that over two parallel flags, matching the notifier webhook.
 
 ### Error Handling
 
