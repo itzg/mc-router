@@ -17,7 +17,7 @@ go test -run TestRouteLookup ./server/  # Run a single test
 docker build -t mc-router .      # Build Docker image
 ```
 
-Go version: 1.26.2. Testing uses `testify` (assert/require). Tests are table-driven with subtests. Mock pattern: embed `mock.Mock` and call `m.MethodCalled()` (see `k8s_test.go`). Protocol packet tests use hex fixture files in `testdata/` (e.g., `handshake-status.hex`). Test setup for route tests calls `NewRoutes()` and restores the global `Routes` singleton with defer.
+Go version: 1.26.4. Testing uses `testify` (assert/require). Tests are table-driven with subtests. Mock pattern: embed `mock.Mock` and call `m.MethodCalled()` (see `k8s_test.go`). Protocol packet tests use hex fixture files in `testdata/` (e.g., `handshake-status.hex`). Test setup for route tests calls `NewRoutes()` and restores the global `Routes` singleton with defer.
 
 ## Architecture
 
