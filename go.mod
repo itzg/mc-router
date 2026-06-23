@@ -8,7 +8,7 @@ require (
 	github.com/go-kit/kit v0.13.0
 	github.com/gorilla/mux v1.8.1
 	github.com/influxdata/influxdb1-client v0.0.0-20220302092344-a9ab5670611c
-	github.com/itzg/go-flagsfiller v1.17.0
+	github.com/itzg/go-flagsfiller v1.18.0
 	github.com/juju/ratelimit v1.0.2
 	github.com/pires/go-proxyproto v0.12.0
 	github.com/pkg/errors v0.9.1
