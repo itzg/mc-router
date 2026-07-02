@@ -15,17 +15,19 @@ import (
 
 const debounceConfigRereadDuration = time.Second * 5
 
-var RoutesConfigLoader = &routesConfigLoader{}
-
-type routesConfigLoader struct {
-	fileName string
-	scaler   *WebhookScaler
+func NewRoutesConfigLoader(scaler *WebhookScaler,
+	routes IRoutes,
+) *RoutesConfigLoader {
+	return &RoutesConfigLoader{
+		scaler: scaler,
+		routes: routes,
+	}
 }
 
-// UseWebhookScaler sets the scaler whose waker/sleeper pairs are attached to the
-// static routes loaded from the config file. nil disables autoscaling for them.
-func (r *routesConfigLoader) UseWebhookScaler(scaler *WebhookScaler) {
-	r.scaler = scaler
+type RoutesConfigLoader struct {
+	fileName string
+	scaler   *WebhookScaler
+	routes   IRoutes
 }
 
 // RoutesConfigSchema declares the schema of the json file that can provide routes to serve
@@ -34,7 +36,7 @@ type RoutesConfigSchema struct {
 	Mappings      map[string]string `json:"mappings"`
 }
 
-func (r *routesConfigLoader) Load(routesConfigFileName string) error {
+func (r *RoutesConfigLoader) Load(routesConfigFileName string) error {
 	r.fileName = routesConfigFileName
 
 	logrus.WithField("routesConfigFileName", r.fileName).Info("Loading routes config file")
@@ -50,13 +52,13 @@ func (r *routesConfigLoader) Load(routesConfigFileName string) error {
 		return errors.Wrap(readErr, "Could not load the routes config file")
 	}
 
-	registerStaticMappings(Routes, r.scaler, config.Mappings)
+	registerStaticMappings(r.routes, r.scaler, config.Mappings)
 	waker, sleeper := r.scaler.routeFuncs("", config.DefaultServer)
-	Routes.SetDefaultRoute(config.DefaultServer, "", waker, sleeper, "", "")
+	r.routes.SetDefaultRoute(config.DefaultServer, "", waker, sleeper, "", "")
 	return nil
 }
 
-func (r *routesConfigLoader) Reload() error {
+func (r *RoutesConfigLoader) Reload() error {
 	if !r.isEnabled() {
 		return nil
 	}
@@ -68,15 +70,15 @@ func (r *routesConfigLoader) Reload() error {
 	}
 
 	logrus.WithField("routesConfig", r.fileName).Info("Re-loading routes config file")
-	Routes.Reset()
-	registerStaticMappings(Routes, r.scaler, config.Mappings)
+	r.routes.Reset()
+	registerStaticMappings(r.routes, r.scaler, config.Mappings)
 	waker, sleeper := r.scaler.routeFuncs("", config.DefaultServer)
-	Routes.SetDefaultRoute(config.DefaultServer, "", waker, sleeper, "", "")
+	r.routes.SetDefaultRoute(config.DefaultServer, "", waker, sleeper, "", "")
 
 	return nil
 }
 
-func (r *routesConfigLoader) WatchForChanges(ctx context.Context) error {
+func (r *RoutesConfigLoader) WatchForChanges(ctx context.Context) error {
 	if r.fileName == "" {
 		return errors.New("routes config file needs to be specified first")
 	}
@@ -139,15 +141,15 @@ func (r *routesConfigLoader) WatchForChanges(ctx context.Context) error {
 	return nil
 }
 
-func (r *routesConfigLoader) SaveRoutes() {
+func (r *RoutesConfigLoader) SaveRoutes() {
 	if !r.isEnabled() {
 		return
 	}
 
-	server, _, _, _ := Routes.GetDefaultRoute()
+	server, _, _, _ := r.routes.GetDefaultRoute()
 	err := r.writeFile(&RoutesConfigSchema{
 		DefaultServer: server,
-		Mappings:      Routes.GetMappings(),
+		Mappings:      r.routes.GetMappings(),
 	})
 	if err != nil {
 		logrus.WithError(err).Error("Could not save the routes config file")
@@ -156,11 +158,11 @@ func (r *routesConfigLoader) SaveRoutes() {
 	logrus.Info("Saved routes config")
 }
 
-func (r *routesConfigLoader) isEnabled() bool {
+func (r *RoutesConfigLoader) isEnabled() bool {
 	return r.fileName != ""
 }
 
-func (r *routesConfigLoader) readFile() (*RoutesConfigSchema, error) {
+func (r *RoutesConfigLoader) readFile() (*RoutesConfigSchema, error) {
 	var config RoutesConfigSchema
 
 	content, err := os.ReadFile(r.fileName)
@@ -176,7 +178,7 @@ func (r *routesConfigLoader) readFile() (*RoutesConfigSchema, error) {
 	return &config, nil
 }
 
-func (r *routesConfigLoader) writeFile(config *RoutesConfigSchema) error {
+func (r *RoutesConfigLoader) writeFile(config *RoutesConfigSchema) error {
 	newFileContent, err := json.Marshal(config)
 	if err != nil {
 		return errors.Wrap(err, "Could not parse the routes to json")

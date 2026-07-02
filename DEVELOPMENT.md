@@ -6,3 +6,10 @@ On Windows, can create the devcontainer using:
 
 ![image.png](docs/create-dev-container.png)
 
+Within the devcontainer, start the vanilla example server with:
+
+```shell
+docker compose -f examples/docker-discovery/compose.yml run vanilla
+```
+
+Start mc-router directly in the devcontainer.

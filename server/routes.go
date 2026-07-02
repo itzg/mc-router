@@ -52,24 +52,28 @@ type IRoutes interface {
 	// The 3rd value returned is the scalingTarget which indicates what endpoint to scale (may differ from backend when using proxy).
 	// The 4th value returned is an (optional) "waker" function which a caller must invoke to wake up serverAddress.
 	// The 5th value returned is an (optional) "sleeper" function which a caller must invoke to shut down serverAddress.
-	HasRoute(serverAddress string) bool
 	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, string, WakerFunc, SleeperFunc)
+	HasRoute(serverAddress string) bool
 	GetSleepers(scalingTarget string) []SleeperFunc
 	GetMappings() map[string]string
 	GetDefaultRoute() (string, string, WakerFunc, SleeperFunc)
 	GetAsleepMOTD(serverAddress string) string
 	GetLoadingMOTD(serverAddress string) string
 	SimplifySRV(srvEnabled bool)
+	SetDownScaler(downScaler IDownScaler)
 }
 
-var Routes = NewRoutes()
-
-func NewRoutes() IRoutes {
+func NewRoutes(ctx context.Context) IRoutes {
 	r := &routesImpl{
+		ctx:      ctx,
 		mappings: make(map[string]mapping),
 	}
 
 	return r
+}
+
+func (r *routesImpl) SetDownScaler(downScaler IDownScaler) {
+	r.downScaler = downScaler
 }
 
 // registerStaticMappings registers each static mapping, attaching the scaler's
@@ -92,14 +96,18 @@ type mapping struct {
 
 type routesImpl struct {
 	sync.RWMutex
+	ctx          context.Context
 	mappings     map[string]mapping
 	defaultRoute mapping
 	simplifySRV  bool
+	downScaler   IDownScaler
 }
 
 func (r *routesImpl) Reset() {
 	r.mappings = make(map[string]mapping)
-	DownScaler.Reset()
+	if r.downScaler != nil {
+		r.downScaler.Reset()
+	}
 }
 
 func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
@@ -235,7 +243,7 @@ func (r *routesImpl) DeleteMapping(serverAddress string) bool {
 	logrus.WithField("serverAddress", serverAddress).Info("Deleting route")
 
 	if m, ok := r.mappings[serverAddress]; ok {
-		DownScaler.Cancel(m.scalingTarget)
+		r.downScaler.Cancel(m.scalingTarget)
 		delete(r.mappings, serverAddress)
 		return true
 	} else {
@@ -260,7 +268,7 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, scaling
 	r.mappings[serverAddress] = mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD, loadingMOTD: loadingMOTD}
 
 	// Trigger auto scale down when mapping is created to ensure servers are shut down if router restarts
-	if DownScaler != nil && scalingTarget != "" {
-		DownScaler.Begin(scalingTarget)
+	if r.downScaler != nil && scalingTarget != "" {
+		r.downScaler.Start(r.ctx, scalingTarget, r)
 	}
 }

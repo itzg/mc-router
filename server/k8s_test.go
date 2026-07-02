@@ -181,9 +181,6 @@ func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			// DownScaler needs to be instantiated
-			DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
-
 			routesHandler := new(MockedRoutesHandler)
 			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
 			routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
@@ -262,9 +259,6 @@ func TestK8sWatcherImpl_handleAddThenDelete(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			// DownScaler needs to be instantiated
-			DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
-
 			routesHandler := new(MockedRoutesHandler)
 			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
 			routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
@@ -361,9 +355,6 @@ func TestK8s_externalName(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			// DownScaler needs to be instantiated
-			DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
-
 			routesHandler := new(MockedRoutesHandler)
 			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
 			routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
@@ -430,8 +421,6 @@ func TestK8s_proxyServerName(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
-
 			routesHandler := new(MockedRoutesHandler)
 			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
 			routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
@@ -455,8 +444,6 @@ func TestK8s_proxyServerName(t *testing.T) {
 }
 
 func TestK8s_proxyServerNameScaleEndpoint(t *testing.T) {
-	DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
-
 	routesHandler := new(MockedRoutesHandler)
 	routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
 	routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
@@ -478,8 +465,6 @@ func TestK8s_proxyServerNameScaleEndpoint(t *testing.T) {
 }
 
 func TestK8s_proxyServerNameUpdate(t *testing.T) {
-	DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
-
 	routesHandler := new(MockedRoutesHandler)
 	routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
 	routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
@@ -508,8 +493,6 @@ func TestK8s_proxyServerNameUpdate(t *testing.T) {
 }
 
 func TestK8s_autoScaleWithoutProxy(t *testing.T) {
-	DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
-
 	routesHandler := new(MockedRoutesHandler)
 	routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
 	routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
@@ -593,8 +576,6 @@ func TestBuildK8sWaker_ContextCancellation(t *testing.T) {
 }
 
 func TestK8s_motdAnnotations(t *testing.T) {
-	DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
-
 	routesHandler := new(MockedRoutesHandler)
 	routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
 	routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
