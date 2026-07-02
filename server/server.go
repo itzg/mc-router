@@ -212,8 +212,13 @@ func (s *Server) ReloadConfig() {
 }
 
 // AcceptConnection provides a way to externally supply a connection to consume
-// Note that this will skip rate limiting.
+// Notes:
+// - this will bypass rate limiting
+// - this function returns immediately by starting its own go routine to handle the connection
 func (s *Server) AcceptConnection(conn net.Conn) {
+	logrus.
+		WithField("remoteAddr", conn.RemoteAddr()).
+		Debug("Accepting connection from external source")
 	s.connector.AcceptConnection(conn)
 }
 
