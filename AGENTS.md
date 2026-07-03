@@ -75,7 +75,7 @@ Wakers/sleepers (`WakerFunc`/`SleeperFunc` in `routes.go`) are attached per rout
 - `github.com/gorilla/mux` — HTTP routing (API server)
 - `github.com/prometheus/client_golang` — Prometheus metrics
 - `golang.ngrok.com/ngrok` — ngrok tunnel integration
-- `github.com/stretchr/testify` — Test assertions
+- `github.com/stretchr/testify` — Test assertions and mocking
 
 ### Concurrency Model
 
@@ -92,6 +92,11 @@ The maintainer is gradually moving the codebase **away from package-level global
 - **`key=value` config uses flagsfiller maps.** For headers and similar maps, declare a `map[string]string` field — go-flagsfiller parses it natively. Don't take `[]string` and hand-parse.
 - **Scope helpers to their type.** Package-level functions that operate on or return a type's data should be methods on that type (or live in a nested package), not free functions in `server/`.
 - **Prefer a single config surface.** Where an `action` field can discriminate behavior (e.g. one webhook URL for both up/down), favor that over two parallel flags, matching the notifier webhook.
+
+### Testing Conventions
+
+- Use `testify` for assertions and mocking
+- Table-driven tests with subtests (`t.Run()`) for multiple scenarios
 
 ### Error Handling
 

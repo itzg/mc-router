@@ -821,6 +821,54 @@ In this case the `status` is `"failed-backend-connection"` indicating that a bac
 }
 ```
 
+#### Route added
+
+> [!NOTE] This event type is disabled by default
+
+```json
+{
+  "event": "route-added",
+  "timestamp": "2025-04-20T22:26:30.2568775-05:00",
+  "server": "localhost",
+  "backend": "localhost:25566"
+}
+```
+
+#### Route removed
+
+> [!NOTE] This event type is disabled by default
+
+```json
+{
+  "event": "route-removed",
+  "timestamp": "2025-04-20T22:26:30.2568775-05:00",
+  "server": "localhost"
+}
+```
+
+#### Default route set
+
+> [!NOTE] This event type is disabled by default
+
+```json
+{
+  "event": "default-route-set",
+  "timestamp": "2025-04-20T22:26:30.2568775-05:00",
+  "backend": "localhost:25566"
+}
+```
+
+#### Default route removed
+
+> [!NOTE] This event type is disabled by default
+
+```json
+{
+  "event": "default-route-removed",
+  "timestamp": "2025-04-20T22:26:30.2568775-05:00"
+}
+```
+
 ## Community Solutions
 
 - **[MC Router Discovery](https://github.com/Seedloaf/mc-router-discovery):** A lightweight sidecar to ensure mc-router is in sync with your list of running servers.

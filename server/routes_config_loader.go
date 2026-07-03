@@ -52,7 +52,7 @@ func (r *RoutesConfigLoader) Load(routesConfigFileName string) error {
 		return errors.Wrap(readErr, "Could not load the routes config file")
 	}
 
-	registerStaticMappings(r.routes, r.scaler, config.Mappings)
+	r.routes.BulkRegister(r.scaler, config.Mappings)
 	waker, sleeper := r.scaler.routeFuncs("", config.DefaultServer)
 	r.routes.SetDefaultRoute(config.DefaultServer, "", waker, sleeper, "", "")
 	return nil
@@ -71,7 +71,7 @@ func (r *RoutesConfigLoader) Reload() error {
 
 	logrus.WithField("routesConfig", r.fileName).Info("Re-loading routes config file")
 	r.routes.Reset()
-	registerStaticMappings(r.routes, r.scaler, config.Mappings)
+	r.routes.BulkRegister(r.scaler, config.Mappings)
 	waker, sleeper := r.scaler.routeFuncs("", config.DefaultServer)
 	r.routes.SetDefaultRoute(config.DefaultServer, "", waker, sleeper, "", "")
 

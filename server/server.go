@@ -58,7 +58,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	// Only one instance should be created
 	// TODO why create it if not enabled? nil checks needed if optional
 	downscaler := NewDownScaler(downScalerEnabled, downScalerDelay)
-	routes.SetDownScaler(downscaler)
+	routes.WithDownScaler(downscaler)
 
 	// Build the webhook scaler and hand it to the objects that register static
 	// routes so they pick up its waker/sleeper. Discovery-based routes
@@ -92,7 +92,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		}
 	}
 
-	registerStaticMappings(routes, webhookScaler, config.Mapping)
+	routes.BulkRegister(webhookScaler, config.Mapping)
 	if config.Default != "" {
 		waker, sleeper := webhookScaler.routeFuncs("", config.Default)
 		routes.SetDefaultRoute(config.Default, "", waker, sleeper, "", "")
@@ -117,8 +117,9 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		logrus.WithField("url", config.Webhook.Url).
 			WithField("require-user", config.Webhook.RequireUser).
 			Info("Using webhook for connection status notifications")
-		connector.UseConnectionNotifier(
-			NewWebhookNotifier(config.Webhook.Url, config.Webhook.RequireUser, config.Webhook.Timeout))
+		notifier := NewWebhookNotifier(config.Webhook.Url, config.Webhook.RequireUser, config.Webhook.Timeout, config.Webhook.Events)
+		connector.UseConnectionNotifier(notifier)
+		routes.WithListener(notifier)
 	}
 
 	if config.Ngrok.Token != "" {

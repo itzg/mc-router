@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -84,7 +85,7 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 
 	t.Run("scaleKey defaults to backend when empty", func(t *testing.T) {
 		r := NewRoutes(t.Context())
-		r.SetDownScaler(downScaler)
+		r.WithDownScaler(downScaler)
 		r.CreateMapping("mc.example.com", "backend:25565", "", nil, nil, "", "")
 
 		_, _, scaleKey, _, _ := r.FindBackendForServerAddress(context.Background(), "mc.example.com")
@@ -93,7 +94,7 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 
 	t.Run("scaleKey is set when provided", func(t *testing.T) {
 		r := NewRoutes(t.Context())
-		r.SetDownScaler(downScaler)
+		r.WithDownScaler(downScaler)
 		r.CreateMapping("mc.example.com", "proxy:25577", "10.0.0.5:25565", nil, nil, "", "")
 
 		backend, _, scaleKey, _, _ := r.FindBackendForServerAddress(context.Background(), "mc.example.com")
@@ -103,7 +104,7 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 
 	t.Run("GetSleepers matches on scaleKey not backend", func(t *testing.T) {
 		r := NewRoutes(t.Context())
-		r.SetDownScaler(downScaler)
+		r.WithDownScaler(downScaler)
 		called := false
 		sleeper := func(ctx context.Context) error {
 			called = true
@@ -130,7 +131,7 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 
 	t.Run("default route scaleKey", func(t *testing.T) {
 		r := NewRoutes(t.Context())
-		r.SetDownScaler(downScaler)
+		r.WithDownScaler(downScaler)
 		r.SetDefaultRoute("proxy:25577", "10.0.0.5:25565", nil, nil, "", "")
 
 		backend, scaleKey, _, _ := r.GetDefaultRoute()
@@ -140,7 +141,7 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 
 	t.Run("default route scaleKey defaults to backend", func(t *testing.T) {
 		r := NewRoutes(t.Context())
-		r.SetDownScaler(downScaler)
+		r.WithDownScaler(downScaler)
 		r.SetDefaultRoute("backend:25565", "", nil, nil, "", "")
 
 		backend, scaleKey, _, _ := r.GetDefaultRoute()
@@ -158,4 +159,138 @@ func Test_routesImpl_LoadingMOTD(t *testing.T) {
 
 	r.SetDefaultRoute("default:25565", "", nil, nil, "default asleep", "default loading")
 	assert.Equal(t, "default loading", r.GetLoadingMOTD(""))
+}
+
+type mockRoutesListener struct {
+	mock.Mock
+}
+
+func (m *mockRoutesListener) OnRouteAdded(serverAddress string, backend string) {
+	m.Called(serverAddress, backend)
+}
+
+func (m *mockRoutesListener) OnDefaultRouteSet(backend string) {
+	m.Called(backend)
+}
+
+func (m *mockRoutesListener) OnRouteRemoved(serverAddress string) {
+	m.Called(serverAddress)
+}
+
+func (m *mockRoutesListener) OnDefaultRouteRemoved() {
+	m.Called()
+}
+
+func TestRoutesListener_OnRouteAdded(t *testing.T) {
+	listener := &mockRoutesListener{}
+	listener.On("OnRouteAdded", "mc.example.com", "backend:25565").Return()
+	r := NewRoutes(t.Context()).
+		WithListener(listener)
+
+	r.CreateMapping("mc.example.com", "backend:25565", "", nil, nil, "", "")
+
+	listener.AssertCalled(t, "OnRouteAdded", "mc.example.com", "backend:25565")
+}
+
+func TestRoutesListener_OnRouteRemoved(t *testing.T) {
+	listener := &mockRoutesListener{}
+	listener.On("OnRouteAdded", "mc.example.com", "backend:25565").Return()
+	listener.On("OnRouteRemoved", "mc.example.com").Return()
+	r := NewRoutes(t.Context()).
+		WithListener(listener)
+	r.WithDownScaler(NewDownScaler(false, 5*time.Second))
+
+	r.CreateMapping("mc.example.com", "backend:25565", "", nil, nil, "", "")
+	listener.AssertCalled(t, "OnRouteAdded", "mc.example.com", "backend:25565")
+
+	r.DeleteMapping("mc.example.com")
+	listener.AssertCalled(t, "OnRouteRemoved", "mc.example.com")
+}
+
+func TestRoutesListener_OnDefaultRouteAdded(t *testing.T) {
+	listener := &mockRoutesListener{}
+	listener.On("OnDefaultRouteSet", "default:25565").Return()
+	r := NewRoutes(t.Context()).
+		WithListener(listener)
+
+	r.SetDefaultRoute("default:25565", "", nil, nil, "", "")
+
+	listener.AssertCalled(t, "OnDefaultRouteSet", "default:25565")
+}
+
+func TestRoutesListener_OnDefaultRouteRemoved_dueToReset(t *testing.T) {
+	listener := &mockRoutesListener{}
+	listener.On("OnDefaultRouteSet", "default:25565").Return()
+	listener.On("OnDefaultRouteRemoved").Return()
+	r := NewRoutes(t.Context()).
+		WithListener(listener)
+	r.WithDownScaler(NewDownScaler(false, 5*time.Second))
+
+	r.SetDefaultRoute("default:25565", "", nil, nil, "", "")
+	listener.AssertCalled(t, "OnDefaultRouteSet", "default:25565")
+
+	r.Reset()
+	listener.AssertCalled(t, "OnDefaultRouteRemoved")
+}
+
+func TestRoutesListener_MultipleListeners(t *testing.T) {
+	listener1 := &mockRoutesListener{}
+	listener2 := &mockRoutesListener{}
+	listener1.On("OnRouteAdded", "mc.example.com", "backend:25565").Return()
+	listener2.On("OnRouteAdded", "mc.example.com", "backend:25565").Return()
+	r := NewRoutes(t.Context()).
+		WithListener(listener1).
+		WithListener(listener2)
+
+	r.CreateMapping("mc.example.com", "backend:25565", "", nil, nil, "", "")
+
+	listener1.AssertCalled(t, "OnRouteAdded", "mc.example.com", "backend:25565")
+	listener2.AssertCalled(t, "OnRouteAdded", "mc.example.com", "backend:25565")
+}
+
+func TestRoutesListener_ResetCallsOnRouteRemovedForAllRoutes(t *testing.T) {
+	listener := &mockRoutesListener{}
+	listener.On("OnRouteAdded", mock.Anything, mock.Anything).Return()
+	listener.On("OnRouteRemoved", mock.Anything).Return()
+	listener.On("OnDefaultRouteRemoved").Return()
+	r := NewRoutes(t.Context()).
+		WithListener(listener)
+	r.WithDownScaler(NewDownScaler(false, 5*time.Second))
+
+	r.CreateMapping("mc1.example.com", "backend:25565", "", nil, nil, "", "")
+	r.CreateMapping("mc2.example.com", "backend:25566", "", nil, nil, "", "")
+	r.CreateMapping("mc3.example.com", "backend:25567", "", nil, nil, "", "")
+
+	listener.AssertCalled(t, "OnRouteAdded", "mc1.example.com", "backend:25565")
+	listener.AssertCalled(t, "OnRouteAdded", "mc2.example.com", "backend:25566")
+	listener.AssertCalled(t, "OnRouteAdded", "mc3.example.com", "backend:25567")
+
+	r.Reset()
+
+	listener.AssertCalled(t, "OnRouteRemoved", "mc1.example.com")
+	listener.AssertCalled(t, "OnRouteRemoved", "mc2.example.com")
+	listener.AssertCalled(t, "OnRouteRemoved", "mc3.example.com")
+}
+
+func TestRoutesListener_DeleteNonExistentRouteDoesNotNotifyListener(t *testing.T) {
+	listener := &mockRoutesListener{}
+	listener.On("OnRouteRemoved", mock.Anything).Return()
+	r := NewRoutes(t.Context()).
+		WithListener(listener)
+	r.WithDownScaler(NewDownScaler(false, 5*time.Second))
+
+	deleted := r.DeleteMapping("nonexistent.example.com")
+	assert.False(t, deleted)
+
+	listener.AssertNotCalled(t, "OnRouteRemoved", "nonexistent.example.com")
+}
+
+func TestRoutesListener_NilListenersHandled(t *testing.T) {
+	r := NewRoutes(t.Context())
+	r.WithDownScaler(NewDownScaler(false, 5*time.Second))
+
+	r.CreateMapping("mc.example.com", "backend:25565", "", nil, nil, "", "")
+	r.SetDefaultRoute("default:25565", "", nil, nil, "", "")
+	r.DeleteMapping("mc.example.com")
+	r.Reset()
 }

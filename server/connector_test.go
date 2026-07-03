@@ -132,7 +132,7 @@ func writeTestPacket(w io.Writer, packetID int32, payload func(w io.Writer)) err
 func TestConnectorMOTDFallback(t *testing.T) {
 	routes := NewRoutes(t.Context())
 	downScaler := NewDownScaler(false, 5*time.Second)
-	routes.SetDownScaler(downScaler)
+	routes.WithDownScaler(downScaler)
 
 	backendAddress := "127.0.0.1:0"
 
