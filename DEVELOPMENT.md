@@ -13,3 +13,13 @@ docker compose -f examples/docker-discovery/compose.yml run vanilla
 ```
 
 Start mc-router directly in the devcontainer.
+
+## Using skaffold
+
+Verified with skaffold v2.23.0
+
+```
+skaffold dev --kube-context=docker-desktop --default-repo=gcr.io/YOURS
+```
+
+- `YOURS` with your github username or the repo entirely

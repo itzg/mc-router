@@ -1,5 +1,5 @@
 # nonk8s
-apiVersion: skaffold/v4beta11
+apiVersion: skaffold/v4beta13
 kind: Config
 metadata:
   name: mc-router-dev
@@ -14,4 +14,10 @@ manifests:
   rawYaml:
   - docs/k8s-deployment.yaml
 deploy:
-  kubectl:
+  kubectl: {}
+portForward:
+  - resourceType: service
+    resourceName: mc-router
+    namespace: default
+    port: 25565
+    localPort: 25565
