@@ -100,7 +100,7 @@ type routesImpl struct {
 	sync.RWMutex
 	ctx             context.Context
 	mappings        map[string]mapping
-	defaultRoute    *mapping
+	defaultRoute    mapping
 	simplifySRV     bool
 	downScaler      IDownScaler
 	routesListeners []RoutesListener
@@ -123,7 +123,7 @@ func (r *routesImpl) WithListener(listener RoutesListener) IRoutes {
 	for server, backend := range r.mappings {
 		listener.OnRouteAdded(server, backend.backend)
 	}
-	if r.defaultRoute != nil {
+	if r.defaultRoute.backend != "" {
 		listener.OnDefaultRouteSet(r.defaultRoute.backend)
 	}
 	return r
@@ -157,7 +157,7 @@ func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget string, waker
 	if scalingTarget == "" {
 		scalingTarget = backend
 	}
-	r.defaultRoute = &mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD, loadingMOTD: loadingMOTD}
+	r.defaultRoute = mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD, loadingMOTD: loadingMOTD}
 
 	logrus.WithFields(logrus.Fields{
 		"backend": backend,
