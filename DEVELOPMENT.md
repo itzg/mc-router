@@ -23,3 +23,5 @@ skaffold dev --kube-context=docker-desktop --default-repo=gcr.io/YOURS
 ```
 
 - `YOURS` with your github username or the repo entirely
+
+Also be sure to kubectl apply the minecraft deployment such as `docs/k8s-mc-with-default.yaml`
