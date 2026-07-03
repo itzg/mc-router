@@ -8,8 +8,9 @@ on:
       - 'docs/**'
       - 'examples/**'
       - 'kustomize/**'
-      - 'README.md'
       - '.github/dependabot.yml'
+      - 'skaffold.yaml'
+      - '*.md'
   pull_request:
     branches:
       - main
