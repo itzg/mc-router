@@ -43,6 +43,17 @@ type RoutesHandler interface {
 	DeleteMapping(serverAddress string) bool
 }
 
+type RoutesListener interface {
+	// OnRouteAdded is called when a new route is added.
+	OnRouteAdded(serverAddress string, backend string)
+	// OnDefaultRouteSet is called when a default route is set.
+	OnDefaultRouteSet(backend string)
+	// OnRouteRemoved is called when a route is removed.
+	OnRouteRemoved(serverAddress string)
+	// OnDefaultRouteRemoved is called when a default route is removed (or un-set).
+	OnDefaultRouteRemoved()
+}
+
 type IRoutes interface {
 	RoutesHandler
 
@@ -60,7 +71,12 @@ type IRoutes interface {
 	GetAsleepMOTD(serverAddress string) string
 	GetLoadingMOTD(serverAddress string) string
 	SimplifySRV(srvEnabled bool)
-	SetDownScaler(downScaler IDownScaler)
+	// BulkRegister registers a set of static mappings, attaching the scaler's waker/sleeper pair. nil-safe: a nil scaler registers without autoscaling.
+	// Reset must be called separately and previous to this if you want to clear existing mappings.
+	BulkRegister(scaler *WebhookScaler, mappings map[string]string)
+
+	WithDownScaler(downScaler IDownScaler) IRoutes
+	WithListener(listener RoutesListener) IRoutes
 }
 
 func NewRoutes(ctx context.Context) IRoutes {
@@ -68,21 +84,7 @@ func NewRoutes(ctx context.Context) IRoutes {
 		ctx:      ctx,
 		mappings: make(map[string]mapping),
 	}
-
 	return r
-}
-
-func (r *routesImpl) SetDownScaler(downScaler IDownScaler) {
-	r.downScaler = downScaler
-}
-
-// registerStaticMappings registers each static mapping, attaching the scaler's
-// waker/sleeper pair. nil-safe: a nil scaler registers without autoscaling.
-func registerStaticMappings(routes RoutesHandler, scaler *WebhookScaler, mappings map[string]string) {
-	for k, v := range mappings {
-		waker, sleeper := scaler.routeFuncs(k, v)
-		routes.CreateMapping(k, v, "", waker, sleeper, "", "")
-	}
 }
 
 type mapping struct {
@@ -96,21 +98,62 @@ type mapping struct {
 
 type routesImpl struct {
 	sync.RWMutex
-	ctx          context.Context
-	mappings     map[string]mapping
-	defaultRoute mapping
-	simplifySRV  bool
-	downScaler   IDownScaler
+	ctx             context.Context
+	mappings        map[string]mapping
+	defaultRoute    mapping
+	simplifySRV     bool
+	downScaler      IDownScaler
+	routesListeners []RoutesListener
+}
+
+// WithDownScaler sets the optional down scaler for the routes. The down scaler is used to scale down servers when they are no longer needed.
+// TODO this is a code smell because it creates a circular dependency between routes and down scaler. The down scaler needs to know about the routes to scale down servers, but the routes also need to know about the down scaler to start scaling down servers when they are no longer needed. This should be refactored in the future.
+func (r *routesImpl) WithDownScaler(downScaler IDownScaler) IRoutes {
+	r.downScaler = downScaler
+	return r
+}
+
+// WithListener adds a listener to the routes. The listener will be notified of route changes.
+// It will also be notified of existing routes when added. This ensures listeners get a consistent and complete view of routes.
+func (r *routesImpl) WithListener(listener RoutesListener) IRoutes {
+	r.Lock()
+	defer r.Unlock()
+
+	r.routesListeners = append(r.routesListeners, listener)
+	for server, backend := range r.mappings {
+		listener.OnRouteAdded(server, backend.backend)
+	}
+	if r.defaultRoute.backend != "" {
+		listener.OnDefaultRouteSet(r.defaultRoute.backend)
+	}
+	return r
 }
 
 func (r *routesImpl) Reset() {
+	r.Lock()
+	defer r.Unlock()
+
+	for serverAddress := range r.mappings {
+		for _, listener := range r.routesListeners {
+			listener.OnRouteRemoved(serverAddress)
+		}
+	}
+
 	r.mappings = make(map[string]mapping)
+
+	for _, listener := range r.routesListeners {
+		listener.OnDefaultRouteRemoved()
+	}
+
 	if r.downScaler != nil {
 		r.downScaler.Reset()
 	}
 }
 
 func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
+	r.Lock()
+	defer r.Unlock()
+
 	if scalingTarget == "" {
 		scalingTarget = backend
 	}
@@ -119,6 +162,10 @@ func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget string, waker
 	logrus.WithFields(logrus.Fields{
 		"backend": backend,
 	}).Info("Using default route")
+
+	for _, listener := range r.routesListeners {
+		listener.OnDefaultRouteSet(backend)
+	}
 }
 
 func (r *routesImpl) GetDefaultRoute() (string, string, WakerFunc, SleeperFunc) {
@@ -245,6 +292,11 @@ func (r *routesImpl) DeleteMapping(serverAddress string) bool {
 	if m, ok := r.mappings[serverAddress]; ok {
 		r.downScaler.Cancel(m.scalingTarget)
 		delete(r.mappings, serverAddress)
+
+		for _, listener := range r.routesListeners {
+			listener.OnRouteRemoved(serverAddress)
+		}
+
 		return true
 	} else {
 		return false
@@ -267,8 +319,19 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, scaling
 	}).Info("Created route mapping")
 	r.mappings[serverAddress] = mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD, loadingMOTD: loadingMOTD}
 
+	for _, listener := range r.routesListeners {
+		listener.OnRouteAdded(serverAddress, backend)
+	}
+
 	// Trigger auto scale down when mapping is created to ensure servers are shut down if router restarts
 	if r.downScaler != nil && scalingTarget != "" {
 		r.downScaler.Start(r.ctx, scalingTarget, r)
+	}
+}
+
+func (r *routesImpl) BulkRegister(scaler *WebhookScaler, mappings map[string]string) {
+	for k, v := range mappings {
+		waker, sleeper := scaler.routeFuncs(k, v)
+		r.CreateMapping(k, v, "", waker, sleeper, "", "")
 	}
 }
