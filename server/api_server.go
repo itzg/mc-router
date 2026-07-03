@@ -15,11 +15,11 @@ import (
 // rather than reached for as globals.
 type apiServer struct {
 	routes       IRoutes
-	configLoader *routesConfigLoader
+	configLoader *RoutesConfigLoader
 	scaler       *WebhookScaler
 }
 
-func StartApiServer(apiBinding string, routes IRoutes, configLoader *routesConfigLoader, scaler *WebhookScaler) {
+func StartApiServer(apiBinding string, routes IRoutes, configLoader *RoutesConfigLoader, scaler *WebhookScaler) {
 	logrus.WithField("binding", apiBinding).Info("Serving API requests")
 
 	api := &apiServer{routes: routes, configLoader: configLoader, scaler: scaler}

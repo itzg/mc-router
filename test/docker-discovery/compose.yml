@@ -1,0 +1,32 @@
+services:
+  router:
+    build:
+        context: ../..
+        dockerfile: Dockerfile
+    environment:
+      IN_DOCKER: true
+    ports:
+      - "25565:25565"
+    volumes:
+      # NOTE: this also works fine when developing on Windows since it will mount from the docker VMs filesystem
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    # Matches MCs below
+    network_mode: bridge
+  vanilla:
+    image: itzg/minecraft-server
+    environment:
+      EULA: "TRUE"
+    labels:
+      mc-router.host: "localhost"
+    # To allow for routing from devcontainer
+    network_mode: bridge
+  paper:
+    image: itzg/minecraft-server
+    environment:
+      EULA: "TRUE"
+      TYPE: PAPER
+    labels:
+      mc-router.host: "paper.example.com"
+    # To allow for routing from devcontainer
+    network_mode: bridge
+

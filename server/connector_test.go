@@ -102,19 +102,16 @@ func TestConnectorWakeTracking(t *testing.T) {
 }
 
 func TestConnectorGetLoadingMOTD(t *testing.T) {
-	oldRoutes := Routes
-	defer func() {
-		Routes = oldRoutes
-	}()
+	routes := NewRoutes(t.Context())
+	routes.CreateMapping("mc.example.com", "backend:25565", "", nil, nil, "",
+		"route loading")
 
-	Routes = NewRoutes()
-	Routes.CreateMapping("mc.example.com", "backend:25565", "", nil, nil, "", "route loading")
-
-	c := &Connector{loadingMOTD: "global loading"}
+	c := NewConnector(t.Context(), routes, NewDownScaler(false, 5*time.Second), discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil)
+	c.UseLoadingMOTD("global loading")
 	assert.Equal(t, "route loading", c.getLoadingMOTD("mc.example.com"))
 	assert.Equal(t, "global loading", c.getLoadingMOTD("other.example.com"))
 
-	Routes.SetDefaultRoute("default:25565", "", nil, nil, "", "default loading")
+	routes.SetDefaultRoute("default:25565", "", nil, nil, "", "default loading")
 	assert.Equal(t, "default loading", c.getLoadingMOTD(""))
 }
 
@@ -133,12 +130,9 @@ func writeTestPacket(w io.Writer, packetID int32, payload func(w io.Writer)) err
 }
 
 func TestConnectorMOTDFallback(t *testing.T) {
-	oldRoutes := Routes
-	defer func() {
-		Routes = oldRoutes
-	}()
-
-	Routes = NewRoutes()
+	routes := NewRoutes(t.Context())
+	downScaler := NewDownScaler(false, 5*time.Second)
+	routes.SetDownScaler(downScaler)
 
 	backendAddress := "127.0.0.1:0"
 
@@ -148,10 +142,10 @@ func TestConnectorMOTDFallback(t *testing.T) {
 		return backendAddress, nil
 	}
 
-	Routes.CreateMapping("mc.example.com", backendAddress, "", waker, nil, "fallback asleep", "fallback loading")
+	routes.CreateMapping("mc.example.com", backendAddress, "", waker, nil, "fallback asleep", "fallback loading")
 
 	metricsBuilder := discardMetricsBuilder{}
-	c := NewConnector(context.Background(), metricsBuilder.BuildConnectorMetrics(), false, false, nil)
+	c := NewConnector(t.Context(), routes, downScaler, metricsBuilder.BuildConnectorMetrics(), false, false, nil)
 	c.UseAsleepMOTD("global asleep")
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

@@ -12,11 +12,13 @@ import (
 )
 
 type Server struct {
-	ctx              context.Context
-	config           *Config
-	connector        *Connector
-	reloadConfigChan chan struct{}
-	doneChan         chan struct{}
+	ctx                context.Context
+	config             *Config
+	connector          *Connector
+	reloadConfigChan   chan struct{}
+	doneChan           chan struct{}
+	routesConfigLoader *RoutesConfigLoader
+	routes             IRoutes
 }
 
 func NewServer(ctx context.Context, config *Config) (*Server, error) {
@@ -48,11 +50,15 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 
 	metricsBuilder := NewMetricsBuilder(config.MetricsBackend, &config.MetricsBackendConfig)
 
+	routes := NewRoutes(ctx)
+
 	webhookScalerConfigured := config.AutoScale.Webhook.Url != ""
 	downScalerEnabled := (config.AutoScale.Down && (config.InKubeCluster || config.KubeConfig != "" || config.InDocker)) || webhookScalerConfigured
 	downScalerDelay := config.AutoScale.DownAfter
 	// Only one instance should be created
-	DownScaler = NewDownScaler(ctx, downScalerEnabled, downScalerDelay)
+	// TODO why create it if not enabled? nil checks needed if optional
+	downscaler := NewDownScaler(downScalerEnabled, downScalerDelay)
+	routes.SetDownScaler(downscaler)
 
 	// Build the webhook scaler and hand it to the objects that register static
 	// routes so they pick up its waker/sleeper. Discovery-based routes
@@ -70,36 +76,33 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 			Info("Using webhook autoscaler for static routes")
 	}
 
+	var routesConfigLoader *RoutesConfigLoader
 	if config.Routes.Config != "" {
-		RoutesConfigLoader.UseWebhookScaler(webhookScaler)
-		err := RoutesConfigLoader.Load(config.Routes.Config)
+		routesConfigLoader = NewRoutesConfigLoader(webhookScaler, routes)
+		err := routesConfigLoader.Load(config.Routes.Config)
 		if err != nil {
 			return nil, fmt.Errorf("could not load routes config file: %w", err)
 		}
 
 		if config.Routes.ConfigWatch {
-			err := RoutesConfigLoader.WatchForChanges(ctx)
+			err := routesConfigLoader.WatchForChanges(ctx)
 			if err != nil {
 				return nil, fmt.Errorf("could not watch for changes to routes config file: %w", err)
 			}
 		}
 	}
 
-	registerStaticMappings(Routes, webhookScaler, config.Mapping)
+	registerStaticMappings(routes, webhookScaler, config.Mapping)
 	if config.Default != "" {
 		waker, sleeper := webhookScaler.routeFuncs("", config.Default)
-		Routes.SetDefaultRoute(config.Default, "", waker, sleeper, "", "")
+		routes.SetDefaultRoute(config.Default, "", waker, sleeper, "", "")
 	}
 
 	if config.ConnectionRateLimit < 1 {
 		config.ConnectionRateLimit = 1
 	}
 
-	connector := NewConnector(ctx,
-		metricsBuilder.BuildConnectorMetrics(),
-		config.UseProxyProtocol,
-		config.RecordLogins,
-		autoScaleAllowDenyConfig)
+	connector := NewConnector(ctx, routes, downscaler, metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.RecordLogins, autoScaleAllowDenyConfig)
 
 	connector.UseAsleepMOTD(config.AutoScale.AsleepMOTD)
 	connector.UseLoadingMOTD(config.AutoScale.LoadingMOTD)
@@ -136,7 +139,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	}
 
 	if config.ApiBinding != "" {
-		StartApiServer(config.ApiBinding, Routes, RoutesConfigLoader, webhookScaler)
+		StartApiServer(config.ApiBinding, routes, routesConfigLoader, webhookScaler)
 	}
 
 	routeWatchers := make([]RouteFinder, 0)
@@ -166,7 +169,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 
 	// TODO convert to RouteFinder
 	if config.InDocker {
-		watcher := NewDockerWatcher(config.DockerSocket, config.DockerTimeout, config.AutoScale.Up, config.AutoScale.Down, config.DockerApiVersion)
+		watcher := NewDockerWatcher(config.DockerSocket, config.DockerTimeout, config.AutoScale.Up, config.AutoScale.Down, config.DockerApiVersion, routes)
 		err = watcher.Start(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("could not start docker integration: %w", err)
@@ -175,7 +178,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 
 	// TODO convert to RouteFinder
 	if config.InDockerSwarm {
-		watcher := NewDockerSwarmWatcher(config.DockerSocket, config.DockerTimeout, config.AutoScale.Up, config.AutoScale.Down, config.DockerApiVersion)
+		watcher := NewDockerSwarmWatcher(config.DockerSocket, config.DockerTimeout, config.AutoScale.Up, config.AutoScale.Down, config.DockerApiVersion, routes)
 		err = watcher.Start(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("could not start docker swarm integration: %w", err)
@@ -183,13 +186,13 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	}
 
 	for _, watcher := range routeWatchers {
-		err := watcher.Start(ctx, Routes)
+		err := watcher.Start(ctx, routes)
 		if err != nil {
 			return nil, fmt.Errorf("could not start route watcher %s: %w", watcher, err)
 		}
 	}
 
-	Routes.SimplifySRV(config.SimplifySRV)
+	routes.SimplifySRV(config.SimplifySRV)
 
 	err = metricsBuilder.Start(ctx)
 	if err != nil {
@@ -197,11 +200,13 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	}
 
 	return &Server{
-		ctx:              ctx,
-		config:           config,
-		connector:        connector,
-		reloadConfigChan: make(chan struct{}),
-		doneChan:         make(chan struct{}),
+		ctx:                ctx,
+		config:             config,
+		connector:          connector,
+		routes:             routes,
+		routesConfigLoader: routesConfigLoader,
+		reloadConfigChan:   make(chan struct{}),
+		doneChan:           make(chan struct{}),
 	}, nil
 }
 
@@ -238,7 +243,7 @@ func (s *Server) Run() {
 	for {
 		select {
 		case <-s.reloadConfigChan:
-			if err := RoutesConfigLoader.Reload(); err != nil {
+			if err := s.routesConfigLoader.Reload(); err != nil {
 				logrus.WithError(err).
 					Error("Could not re-read the routes config file")
 			}

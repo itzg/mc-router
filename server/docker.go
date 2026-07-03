@@ -35,9 +35,10 @@ const (
 type dockerWatcherConfig struct {
 	autoScaleUp   bool
 	autoScaleDown bool
-	socket        string
-	timeout       time.Duration
-	apiVersion    string
+
+	socket     string
+	timeout    time.Duration
+	apiVersion string
 }
 
 func (c *dockerWatcherConfig) apiVersionOpt() client.Opt {
@@ -50,7 +51,7 @@ func (c *dockerWatcherConfig) apiVersionOpt() client.Opt {
 	}
 }
 
-func NewDockerWatcher(socket string, timeout time.Duration, autoScaleUp bool, autoScaleDown bool, dockerApiVersion string) IDockerWatcher {
+func NewDockerWatcher(socket string, timeout time.Duration, autoScaleUp bool, autoScaleDown bool, dockerApiVersion string, routes IRoutes) IDockerWatcher {
 	return &dockerWatcherImpl{
 		config: dockerWatcherConfig{
 			socket:        socket,
@@ -59,6 +60,7 @@ func NewDockerWatcher(socket string, timeout time.Duration, autoScaleUp bool, au
 			autoScaleDown: autoScaleDown,
 			apiVersion:    dockerApiVersion,
 		},
+		routes: routes,
 	}
 }
 
@@ -68,6 +70,7 @@ type dockerWatcherImpl struct {
 	client       *client.Client
 	containerMap map[string]*routableContainer
 	monitorLock  sync.Mutex
+	routes       IRoutes
 }
 
 func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
@@ -196,9 +199,9 @@ func (w *dockerWatcherImpl) monitorContainers(ctx context.Context) error {
 		}
 		delete(w.containerMap, name)
 		if name != "" {
-			Routes.DeleteMapping(name)
+			w.routes.DeleteMapping(name)
 		} else {
-			Routes.SetDefaultRoute("", "", nil, nil, "", "")
+			w.routes.SetDefaultRoute("", "", nil, nil, "", "")
 		}
 		logrus.WithField("routableContainer", rc).Debug("DELETE")
 	}
@@ -310,9 +313,9 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerID string, desir
 		}
 		delete(w.containerMap, name)
 		if name != "" {
-			Routes.DeleteMapping(name)
+			w.routes.DeleteMapping(name)
 		} else {
-			Routes.SetDefaultRoute("", "", nil, nil, "", "")
+			w.routes.SetDefaultRoute("", "", nil, nil, "", "")
 		}
 		logrus.WithField("routableContainer", rc).Debug("DELETE")
 	}
@@ -324,9 +327,9 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerID string, desir
 			wakerFunc := w.makeWakerFunc(rs)
 			sleeperFunc := w.makeSleeperFunc(rs)
 			if rs.externalContainerName != "" {
-				Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			} else {
-				Routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			}
 			logrus.WithField("routableContainer", rs).Debug("ADD")
 			continue
@@ -343,10 +346,10 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerID string, desir
 		wakerFunc := w.makeWakerFunc(rs)
 		sleeperFunc := w.makeSleeperFunc(rs)
 		if rs.externalContainerName != "" {
-			Routes.DeleteMapping(rs.externalContainerName)
-			Routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+			w.routes.DeleteMapping(rs.externalContainerName)
+			w.routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 		} else {
-			Routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+			w.routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 		}
 		logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
 	}

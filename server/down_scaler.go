@@ -8,19 +8,20 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// TODO need to re-evalute the awkwardness of DownScaler in the overall whole flow.
+// For example, I'm not sure where waker/sleeper fits and it's part of a Routes<->DownScaler cycle.
+// It also has an "enabled" flag, but why not just have this whole thing be optional/nil-able as the caller end.
+
 type IDownScaler interface {
 	Reset()
-	Begin(backendEndpoint string)
+	Start(ctx context.Context, backendEndpoint string, routes IRoutes)
 	Cancel(backendEndpoint string)
 }
 
-var DownScaler IDownScaler
-
-func NewDownScaler(ctx context.Context, enabled bool, delay time.Duration) IDownScaler {
+func NewDownScaler(enabled bool, delay time.Duration) IDownScaler {
 	ds := &downScalerImpl{
 		enabled:              enabled,
 		delay:                delay,
-		parentContext:        ctx,
 		contextCancellations: make(map[string]context.CancelFunc),
 	}
 
@@ -31,7 +32,6 @@ type downScalerImpl struct {
 	sync.RWMutex
 	enabled              bool
 	delay                time.Duration
-	parentContext        context.Context
 	contextCancellations map[string]context.CancelFunc
 }
 
@@ -43,7 +43,7 @@ func (ds *downScalerImpl) Reset() {
 	ds.contextCancellations = make(map[string]context.CancelFunc)
 }
 
-func (ds *downScalerImpl) Begin(backendEndpoint string) {
+func (ds *downScalerImpl) Start(ctx context.Context, backendEndpoint string, routes IRoutes) {
 	ds.Lock()
 	defer ds.Unlock()
 
@@ -56,9 +56,9 @@ func (ds *downScalerImpl) Begin(backendEndpoint string) {
 		scaleDownCancel()
 	}
 
-	scaleDownContext, scaleDownContextCancellation := context.WithCancel(ds.parentContext)
+	scaleDownContext, scaleDownContextCancellation := context.WithCancel(ctx)
 	ds.contextCancellations[backendEndpoint] = scaleDownContextCancellation
-	go ds.scaleDown(scaleDownContext, backendEndpoint)
+	go ds.scaleDown(scaleDownContext, backendEndpoint, routes)
 }
 
 func (ds *downScalerImpl) Cancel(backendEndpoint string) {
@@ -76,7 +76,7 @@ func (ds *downScalerImpl) Cancel(backendEndpoint string) {
 	}
 }
 
-func (ds *downScalerImpl) scaleDown(ctx context.Context, backendEndpoint string) {
+func (ds *downScalerImpl) scaleDown(ctx context.Context, backendEndpoint string, routes IRoutes) {
 	logrus.WithField("backendEndpoint", backendEndpoint).
 		WithField("delay", ds.delay).
 		Debug("Starting scale-down timer")
@@ -85,7 +85,7 @@ func (ds *downScalerImpl) scaleDown(ctx context.Context, backendEndpoint string)
 		case <-ctx.Done():
 			return
 		case <-time.After(ds.delay):
-			sleepers := Routes.GetSleepers(backendEndpoint)
+			sleepers := routes.GetSleepers(backendEndpoint)
 			logrus.WithField("backendEndpoint", backendEndpoint).
 				WithField("sleepers", len(sleepers)).
 				Debug("Found sleepers to use")

@@ -67,10 +67,12 @@ func (sm *ActiveConnections) GetCount(backendAddress string) int {
 	return 0
 }
 
-func NewConnector(ctx context.Context, metrics *ConnectorMetrics, sendProxyProto bool, recordLogins bool, autoScaleUpAllowDenyConfig *AllowDenyConfig) *Connector {
+func NewConnector(ctx context.Context, routes IRoutes, downScaler IDownScaler, metrics *ConnectorMetrics, sendProxyProto bool, recordLogins bool, autoScaleUpAllowDenyConfig *AllowDenyConfig) *Connector {
 
 	return &Connector{
 		ctx:                        ctx,
+		routes:                     routes,
+		downScaler:                 downScaler,
 		metrics:                    metrics,
 		sendProxyProto:             sendProxyProto,
 		connectionsCond:            sync.NewCond(&sync.Mutex{}),
@@ -90,6 +92,8 @@ type NgrokConnector struct {
 type Connector struct {
 	ctx                        context.Context
 	state                      mcproto.State
+	routes                     IRoutes
+	downScaler                 IDownScaler
 	metrics                    *ConnectorMetrics
 	sendProxyProto             bool
 	receiveProxyProto          bool
@@ -530,7 +534,7 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 		WithField("connectionCount", c.activeConnections.GetCount(backendHostPort)).
 		Info("Closed connection to backend")
 	if checkScaleDown && c.scaleActiveConnections.GetCount(scalingTarget) <= 0 {
-		DownScaler.Begin(scalingTarget)
+		c.downScaler.Start(c.ctx, scalingTarget, c.routes)
 	}
 	c.connectionsCond.Signal()
 }
@@ -538,7 +542,7 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, playerInfo *PlayerInfo, nextState mcproto.State, isLegacy bool, clientProtocol int) {
 
-	backendHostPort, resolvedHost, scalingTarget, waker, _ := Routes.FindBackendForServerAddress(c.ctx, serverAddress)
+	backendHostPort, resolvedHost, scalingTarget, waker, _ := c.routes.FindBackendForServerAddress(c.ctx, serverAddress)
 	cleanupMetrics := false
 	cleanupCheckScaleDown := false
 
@@ -557,7 +561,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		if serverAllowsPlayer {
 			// Cancel down scaler if active before scale up
 			if scalingTarget != "" {
-				DownScaler.Cancel(scalingTarget)
+				c.downScaler.Cancel(scalingTarget)
 			}
 			cleanupCheckScaleDown = true
 			logrus.WithField("serverAddress", serverAddress).Info("Waking up backend server")
@@ -578,7 +582,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 				scalingTarget = newBackendHostPort
 			}
 			// Cancel again in case any routes were changed during wake up
-			DownScaler.Cancel(scalingTarget)
+			c.downScaler.Cancel(scalingTarget)
 			backendHostPort = newBackendHostPort
 			logrus.WithFields(logrus.Fields{
 				"serverAddress":   serverAddress,
@@ -605,7 +609,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		}
 
 		// If status request and configured, serve predefined response
-		if nextState == mcproto.StateStatus && Routes.HasRoute(serverAddress) {
+		if nextState == mcproto.StateStatus && c.routes.HasRoute(serverAddress) {
 			logrus.WithFields(logrus.Fields{
 				"client":   clientAddr,
 				"server":   serverAddress,
@@ -642,6 +646,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		WithField("player", playerInfo).
 		Info("Connecting to backend")
 
+	//goland:noinspection GoResourceLeak ownership transferred to pumpConnections and closed with return statements below
 	backendConn, err := net.Dial("tcp", backendHostPort)
 	if err != nil {
 		logrus.
@@ -762,6 +767,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 	if err != nil {
 		logrus.WithError(err).Error("Failed to write handshake to backend connection")
 		c.metrics.Errors.With("type", "backend_failed").Add(1)
+		_ = backendConn.Close()
 		return
 	}
 
@@ -772,6 +778,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			WithField("client", clientAddr).
 			Error("Failed to clear read deadline")
 		c.metrics.Errors.With("type", "read_deadline").Add(1)
+		_ = backendConn.Close()
 		return
 	}
 
@@ -852,7 +859,7 @@ func (c *Connector) isWakeInProgress(serverAddress string) bool {
 }
 
 func (c *Connector) getAsleepMOTD(serverAddress string) string {
-	motd := Routes.GetAsleepMOTD(serverAddress)
+	motd := c.routes.GetAsleepMOTD(serverAddress)
 	if motd == "" {
 		motd = c.asleepMOTD
 	}
@@ -860,7 +867,7 @@ func (c *Connector) getAsleepMOTD(serverAddress string) string {
 }
 
 func (c *Connector) getLoadingMOTD(serverAddress string) string {
-	motd := Routes.GetLoadingMOTD(serverAddress)
+	motd := c.routes.GetLoadingMOTD(serverAddress)
 	if motd == "" {
 		motd = c.loadingMOTD
 	}

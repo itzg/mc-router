@@ -66,7 +66,7 @@ func Test_routesImpl_FindBackendForServerAddress(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRoutes()
+			r := NewRoutes(t.Context())
 
 			r.CreateMapping(tt.mapping.serverAddress, tt.mapping.backend, "", nil, nil, "", "")
 
@@ -80,10 +80,11 @@ func Test_routesImpl_FindBackendForServerAddress(t *testing.T) {
 }
 
 func Test_routesImpl_ScaleKey(t *testing.T) {
-	DownScaler = NewDownScaler(context.Background(), false, 1*time.Second)
+	downScaler := NewDownScaler(false, 1*time.Second)
 
 	t.Run("scaleKey defaults to backend when empty", func(t *testing.T) {
-		r := NewRoutes()
+		r := NewRoutes(t.Context())
+		r.SetDownScaler(downScaler)
 		r.CreateMapping("mc.example.com", "backend:25565", "", nil, nil, "", "")
 
 		_, _, scaleKey, _, _ := r.FindBackendForServerAddress(context.Background(), "mc.example.com")
@@ -91,7 +92,8 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 	})
 
 	t.Run("scaleKey is set when provided", func(t *testing.T) {
-		r := NewRoutes()
+		r := NewRoutes(t.Context())
+		r.SetDownScaler(downScaler)
 		r.CreateMapping("mc.example.com", "proxy:25577", "10.0.0.5:25565", nil, nil, "", "")
 
 		backend, _, scaleKey, _, _ := r.FindBackendForServerAddress(context.Background(), "mc.example.com")
@@ -100,7 +102,8 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 	})
 
 	t.Run("GetSleepers matches on scaleKey not backend", func(t *testing.T) {
-		r := NewRoutes()
+		r := NewRoutes(t.Context())
+		r.SetDownScaler(downScaler)
 		called := false
 		sleeper := func(ctx context.Context) error {
 			called = true
@@ -126,7 +129,8 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 	})
 
 	t.Run("default route scaleKey", func(t *testing.T) {
-		r := NewRoutes()
+		r := NewRoutes(t.Context())
+		r.SetDownScaler(downScaler)
 		r.SetDefaultRoute("proxy:25577", "10.0.0.5:25565", nil, nil, "", "")
 
 		backend, scaleKey, _, _ := r.GetDefaultRoute()
@@ -135,7 +139,8 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 	})
 
 	t.Run("default route scaleKey defaults to backend", func(t *testing.T) {
-		r := NewRoutes()
+		r := NewRoutes(t.Context())
+		r.SetDownScaler(downScaler)
 		r.SetDefaultRoute("backend:25565", "", nil, nil, "", "")
 
 		backend, scaleKey, _, _ := r.GetDefaultRoute()
@@ -145,7 +150,7 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 }
 
 func Test_routesImpl_LoadingMOTD(t *testing.T) {
-	r := NewRoutes()
+	r := NewRoutes(t.Context())
 	r.CreateMapping("mc.example.com", "backend:25565", "", nil, nil, "asleep", "loading")
 
 	assert.Equal(t, "loading", r.GetLoadingMOTD("mc.example.com"))
