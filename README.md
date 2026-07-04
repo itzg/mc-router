@@ -224,7 +224,7 @@ Behavior:
 - While that wake-up is in progress and status pings are received, mc-router can return a loading MOTD (per-container override or `-auto-scale-loading-motd`).
 - When no clients remain connected and the idle timer elapses (`-auto-scale-down-after`), mc-router gracefully stops the container.
 
-Note: Docker Swarm discovery is supported; however, auto scale up/down is not yet supported for Swarm services.
+Note: Docker Swarm deployments can use auto scaling via the [Webhook Auto Scale](#webhook-auto-scale) integration. Native Swarm service scaling via `-auto-scale-up`/`-auto-scale-down` is not supported.
 
 #### Example Docker deployment
 
