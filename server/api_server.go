@@ -104,7 +104,7 @@ func (a *apiServer) routesCreateHandler(writer http.ResponseWriter, request *htt
 	}
 
 	waker, sleeper := a.scaler.routeFuncs(definition.ServerAddress, definition.Backend)
-	a.routes.CreateMapping(definition.ServerAddress, definition.Backend, "", waker, sleeper, "", "")
+	a.routes.CreateMapping(definition.ServerAddress, definition.Backend, "", waker, sleeper, "", "", 0)
 	a.configLoader.SaveRoutes()
 	writer.WriteHeader(http.StatusCreated)
 }
@@ -126,7 +126,7 @@ func (a *apiServer) routesSetDefault(writer http.ResponseWriter, request *http.R
 	}
 
 	waker, sleeper := a.scaler.routeFuncs("", body.Backend)
-	a.routes.SetDefaultRoute(body.Backend, "", waker, sleeper, "", "")
+	a.routes.SetDefaultRoute(body.Backend, "", waker, sleeper, "", "", 0)
 	a.configLoader.SaveRoutes()
 	writer.WriteHeader(http.StatusOK)
 }

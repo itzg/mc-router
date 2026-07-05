@@ -104,14 +104,14 @@ func TestConnectorWakeTracking(t *testing.T) {
 func TestConnectorGetLoadingMOTD(t *testing.T) {
 	routes := NewRoutes(t.Context())
 	routes.CreateMapping("mc.example.com", "backend:25565", "", nil, nil, "",
-		"route loading")
+		"route loading", 0)
 
 	c := NewConnector(t.Context(), routes, NewDownScaler(false, 5*time.Second), discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil)
 	c.UseLoadingMOTD("global loading")
 	assert.Equal(t, "route loading", c.getLoadingMOTD("mc.example.com"))
 	assert.Equal(t, "global loading", c.getLoadingMOTD("other.example.com"))
 
-	routes.SetDefaultRoute("default:25565", "", nil, nil, "", "default loading")
+	routes.SetDefaultRoute("default:25565", "", nil, nil, "", "default loading", 0)
 	assert.Equal(t, "default loading", c.getLoadingMOTD(""))
 }
 
@@ -142,7 +142,7 @@ func TestConnectorMOTDFallback(t *testing.T) {
 		return backendAddress, nil
 	}
 
-	routes.CreateMapping("mc.example.com", backendAddress, "", waker, nil, "fallback asleep", "fallback loading")
+	routes.CreateMapping("mc.example.com", backendAddress, "", waker, nil, "fallback asleep", "fallback loading", 0)
 
 	metricsBuilder := discardMetricsBuilder{}
 	c := NewConnector(t.Context(), routes, downScaler, metricsBuilder.BuildConnectorMetrics(), false, false, nil)

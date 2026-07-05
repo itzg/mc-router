@@ -95,7 +95,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	routes.BulkRegister(webhookScaler, config.Mapping)
 	if config.Default != "" {
 		waker, sleeper := webhookScaler.routeFuncs("", config.Default)
-		routes.SetDefaultRoute(config.Default, "", waker, sleeper, "", "")
+		routes.SetDefaultRoute(config.Default, "", waker, sleeper, "", "", 0)
 	}
 
 	if config.ConnectionRateLimit < 1 {

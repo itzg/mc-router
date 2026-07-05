@@ -54,7 +54,7 @@ func (r *RoutesConfigLoader) Load(routesConfigFileName string) error {
 
 	r.routes.BulkRegister(r.scaler, config.Mappings)
 	waker, sleeper := r.scaler.routeFuncs("", config.DefaultServer)
-	r.routes.SetDefaultRoute(config.DefaultServer, "", waker, sleeper, "", "")
+	r.routes.SetDefaultRoute(config.DefaultServer, "", waker, sleeper, "", "", 0)
 	return nil
 }
 
@@ -73,7 +73,7 @@ func (r *RoutesConfigLoader) Reload() error {
 	r.routes.Reset()
 	r.routes.BulkRegister(r.scaler, config.Mappings)
 	waker, sleeper := r.scaler.routeFuncs("", config.DefaultServer)
-	r.routes.SetDefaultRoute(config.DefaultServer, "", waker, sleeper, "", "")
+	r.routes.SetDefaultRoute(config.DefaultServer, "", waker, sleeper, "", "", 0)
 
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -36,8 +37,8 @@ type RouteFinder interface {
 }
 
 type RoutesHandler interface {
-	CreateMapping(serverAddress string, backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string)
-	SetDefaultRoute(backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string)
+	CreateMapping(serverAddress string, backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string, idleTimeout time.Duration)
+	SetDefaultRoute(backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string, idleTimeout time.Duration)
 	// DeleteMapping requests that the serverAddress be removed from routes.
 	// Returns true if the route existed.
 	DeleteMapping(serverAddress string) bool
@@ -70,6 +71,9 @@ type IRoutes interface {
 	GetDefaultRoute() (string, string, WakerFunc, SleeperFunc)
 	GetAsleepMOTD(serverAddress string) string
 	GetLoadingMOTD(serverAddress string) string
+	// GetIdleTimeout returns the per-route idle timeout for the given scalingTarget.
+	// Returns 0 if not set (caller should use the global default).
+	GetIdleTimeout(scalingTarget string) time.Duration
 	SimplifySRV(srvEnabled bool)
 	// BulkRegister registers a set of static mappings, attaching the scaler's waker/sleeper pair. nil-safe: a nil scaler registers without autoscaling.
 	// Reset must be called separately and previous to this if you want to clear existing mappings.
@@ -94,6 +98,7 @@ type mapping struct {
 	asleepMOTD    string
 	loadingMOTD   string
 	scalingTarget string // The endpoint to scale (may differ from backend when using proxy)
+	idleTimeout   time.Duration // Per-route idle timeout override; 0 means use global default
 }
 
 type routesImpl struct {
@@ -150,14 +155,14 @@ func (r *routesImpl) Reset() {
 	}
 }
 
-func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
+func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string, idleTimeout time.Duration) {
 	r.Lock()
 	defer r.Unlock()
 
 	if scalingTarget == "" {
 		scalingTarget = backend
 	}
-	r.defaultRoute = mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD, loadingMOTD: loadingMOTD}
+	r.defaultRoute = mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD, loadingMOTD: loadingMOTD, idleTimeout: idleTimeout}
 
 	logrus.WithFields(logrus.Fields{
 		"backend": backend,
@@ -198,6 +203,21 @@ func (r *routesImpl) GetLoadingMOTD(serverAddress string) string {
 		return m.loadingMOTD
 	}
 	return ""
+}
+
+func (r *routesImpl) GetIdleTimeout(scalingTarget string) time.Duration {
+	r.RLock()
+	defer r.RUnlock()
+
+	for _, m := range r.mappings {
+		if m.scalingTarget == scalingTarget {
+			return m.idleTimeout
+		}
+	}
+	if r.defaultRoute.scalingTarget == scalingTarget {
+		return r.defaultRoute.idleTimeout
+	}
+	return 0
 }
 
 func (r *routesImpl) SimplifySRV(srvEnabled bool) {
@@ -303,7 +323,7 @@ func (r *routesImpl) DeleteMapping(serverAddress string) bool {
 	}
 }
 
-func (r *routesImpl) CreateMapping(serverAddress string, backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
+func (r *routesImpl) CreateMapping(serverAddress string, backend string, scalingTarget string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string, idleTimeout time.Duration) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -317,7 +337,7 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, scaling
 		"serverAddress": serverAddress,
 		"backend":       backend,
 	}).Info("Created route mapping")
-	r.mappings[serverAddress] = mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD, loadingMOTD: loadingMOTD}
+	r.mappings[serverAddress] = mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD, loadingMOTD: loadingMOTD, idleTimeout: idleTimeout}
 
 	for _, listener := range r.routesListeners {
 		listener.OnRouteAdded(serverAddress, backend)
@@ -332,6 +352,6 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, scaling
 func (r *routesImpl) BulkRegister(scaler *WebhookScaler, mappings map[string]string) {
 	for k, v := range mappings {
 		waker, sleeper := scaler.routeFuncs(k, v)
-		r.CreateMapping(k, v, "", waker, sleeper, "", "")
+		r.CreateMapping(k, v, "", waker, sleeper, "", "", 0)
 	}
 }

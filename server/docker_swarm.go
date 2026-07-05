@@ -110,9 +110,9 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			wakerFunc := w.makeWakerFunc(rs)
 			sleeperFunc := w.makeSleeperFunc(rs)
 			if rs.externalServiceName != "" {
-				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
+				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "", 0)
 			} else {
-				w.routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
+				w.routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "", 0)
 			}
 		} else if oldRs.containerEndpoint != rs.containerEndpoint {
 			w.serviceMap[rs.externalServiceName] = rs
@@ -120,9 +120,9 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			sleeperFunc := w.makeSleeperFunc(rs)
 			if rs.externalServiceName != "" {
 				w.routes.DeleteMapping(rs.externalServiceName)
-				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
+				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "", 0)
 			} else {
-				w.routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
+				w.routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "", 0)
 			}
 			logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
 		}
@@ -134,7 +134,7 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			if rs.externalServiceName != "" {
 				w.routes.DeleteMapping(rs.externalServiceName)
 			} else {
-				w.routes.SetDefaultRoute("", "", nil, nil, "", "")
+				w.routes.SetDefaultRoute("", "", nil, nil, "", "", 0)
 			}
 			logrus.WithField("routableService", rs).Debug("DELETE")
 		}

@@ -195,7 +195,8 @@ These are the labels scanned:
 - `mc-router.default`: Set this to a truthy value to make this server the default backend. Please note that `mc-router.host` is still required to be set.
 - `mc-router.network`: Specify the network you are using for the router if multiple are present in the container/service. You can either use the network ID, it's full name or an alias.
 - `mc-router.auto-scale-up`: Per-container override to enable/disable auto scale up for Docker. When true (or left unspecified and the global `-auto-scale-up` flag is enabled), mc-router will start or unpause this container when a client connects to the declared hostname(s).
-- `mc-router.auto-scale-down`: Per-container override to enable/disable auto scale down for Docker. When true (or left unspecified and the global `-auto-scale-down` flag is enabled), mc-router will stop this container after it has been idle for the configured `-auto-scale-down-after` duration.
+- `mc-router.auto-scale-down`: Per-container override to enable/disable auto scale down for Docker. When true (or left unspecified and the global `-auto-scale-down` flag is enabled), mc-router will stop this container after it has been idle for the configured idle duration.
+- `mc-router.auto-scale-down-after`: Per-container override for the idle duration after which auto scale down triggers (e.g. `5m`, `1h30m`). Overrides the global `-auto-scale-down-after` value for this specific container. Requires `mc-router.auto-scale-down` to be enabled (globally or per-container).
 - `mc-router.auto-scale-asleep-motd`: Per-container override for MOTD to show when container is scaled to zero. If empty or not set the host will
 appear unresponsive.
 - `mc-router.auto-scale-loading-motd`: Per-container override for MOTD to show while the container is waking and not yet reachable. If empty or not set, the global `-auto-scale-loading-motd` value is used.
@@ -222,7 +223,7 @@ Behavior:
 
 - When a client connects to a labeled hostname and the container is stopped or paused, mc-router will start/unpause it and wait until it becomes reachable (up to ~60s).
 - While that wake-up is in progress and status pings are received, mc-router can return a loading MOTD (per-container override or `-auto-scale-loading-motd`).
-- When no clients remain connected and the idle timer elapses (`-auto-scale-down-after`), mc-router gracefully stops the container.
+- When no clients remain connected and the idle timer elapses (`-auto-scale-down-after` or the per-container `mc-router.auto-scale-down-after` override), mc-router gracefully stops the container.
 
 Note: Docker Swarm deployments can use auto scaling via the [Webhook Auto Scale](#webhook-auto-scale) integration. Native Swarm service scaling via `-auto-scale-up`/`-auto-scale-down` is not supported.
 
