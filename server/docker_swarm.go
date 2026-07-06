@@ -249,10 +249,12 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 
 	var result []*routableSwarmService
 	for _, service := range services {
-		if service.Spec.EndpointSpec == nil || service.Spec.EndpointSpec.Mode != swarmtypes.ResolutionModeVIP {
+		if service.Spec.EndpointSpec == nil ||
+			(service.Spec.EndpointSpec.Mode != swarmtypes.ResolutionModeVIP &&
+				service.Spec.EndpointSpec.Mode != swarmtypes.ResolutionModeDNSRR) {
 			continue
 		}
-		if len(service.Endpoint.VirtualIPs) == 0 {
+		if service.Spec.EndpointSpec.Mode == swarmtypes.ResolutionModeVIP && len(service.Endpoint.VirtualIPs) == 0 {
 			continue
 		}
 
@@ -300,18 +302,25 @@ func dockerCheckNetworkName(id string, name string, networkMap map[string]*netwo
 }
 
 type parsedDockerServiceData struct {
-	hosts   []string
-	port    uint64
-	def     *bool
-	network *string
-	ip      string
+	hosts                []string
+	port                 uint64
+	def                  *bool
+	network              *string
+	ip                   string
+	serviceID            string
+	serviceName          string
+	autoScaleUp          bool
+	autoScaleDown        bool
+	autoScaleAsleepMOTD  string
+	autoScaleLoadingMOTD string
+	isDNSRR              bool
 }
 
 func (w *dockerSwarmWatcherImpl) parseServiceData(service *swarm.Service, networkMap map[string]*network.Inspect) (data parsedDockerServiceData, ok bool) {
-	networkAliases := map[string][]string{}
-	for _, network := range service.Spec.TaskTemplate.Networks {
-		networkAliases[network.Target] = network.Aliases
-	}
+	data.autoScaleUp = w.config.autoScaleUp
+	data.autoScaleDown = w.config.autoScaleDown
+	data.serviceID = service.ID
+	data.serviceName = service.Spec.Name
 
 	for key, value := range service.Spec.Labels {
 		if key == DockerRouterLabelHost {
@@ -357,6 +366,32 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(service *swarm.Service, networ
 			data.network = new(string)
 			*data.network = value
 		}
+		if key == DockerRouterLabelAutoScaleUp {
+			autoScaleUp, err := strconv.ParseBool(strings.TrimSpace(value))
+			if err != nil {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					WithError(err).
+					Warnf("ignoring service with invalid value for %s", DockerRouterLabelAutoScaleUp)
+				return
+			}
+			data.autoScaleUp = autoScaleUp
+		}
+		if key == DockerRouterLabelAutoScaleDown {
+			autoScaleDown, err := strconv.ParseBool(strings.TrimSpace(value))
+			if err != nil {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					WithError(err).
+					Warnf("ignoring service with invalid value for %s", DockerRouterLabelAutoScaleDown)
+				return
+			}
+			data.autoScaleDown = autoScaleDown
+		}
+		if key == DockerRouterLabelAutoScaleAsleepMOTD {
+			data.autoScaleAsleepMOTD = value
+		}
+		if key == DockerRouterLabelAutoScaleLoadingMOTD {
+			data.autoScaleLoadingMOTD = value
+		}
 	}
 
 	// probably not minecraft related
@@ -364,7 +399,17 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(service *swarm.Service, networ
 		return
 	}
 
-	if len(service.Endpoint.VirtualIPs) == 0 {
+	isVIP := service.Spec.EndpointSpec != nil && service.Spec.EndpointSpec.Mode == swarmtypes.ResolutionModeVIP
+	isDNSRR := service.Spec.EndpointSpec != nil && service.Spec.EndpointSpec.Mode == swarmtypes.ResolutionModeDNSRR
+	data.isDNSRR = isDNSRR
+
+	if !isVIP && !isDNSRR {
+		logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+			Warnf("ignoring service with unsupported endpoint resolution mode")
+		return
+	}
+
+	if isVIP && len(service.Endpoint.VirtualIPs) == 0 {
 		logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
 			Warnf("ignoring service, no VirtualIPs found")
 		return
@@ -374,31 +419,48 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(service *swarm.Service, networ
 		data.port = 25565
 	}
 
-	vipIndex := -1
-	if data.network != nil {
-		for i, vip := range service.Endpoint.VirtualIPs {
-			if ok, err := dockerCheckNetworkName(vip.NetworkID, *data.network, networkMap, networkAliases); ok {
-				vipIndex = i
-				break
-			} else if err != nil {
-				// we intentionally ignore name check errors
-				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-					Debugf("%v", err)
-			}
-		}
-		if vipIndex == -1 {
-			logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-				Warnf("ignoring service, network %s not found", *data.network)
-			return
-		}
-	} else {
-		// if network isn't specified assume it's the first one
-		vipIndex = 0
+	replicas := uint64(0)
+	if service.Spec.Mode.Replicated != nil && service.Spec.Mode.Replicated.Replicas != nil {
+		replicas = *service.Spec.Mode.Replicated.Replicas
 	}
 
-	virtualIP := service.Endpoint.VirtualIPs[vipIndex]
-	ip, _, _ := net.ParseCIDR(virtualIP.Addr)
-	data.ip = ip.String()
+	if replicas == 0 {
+		data.ip = ""
+	} else if isVIP {
+		vipIndex := -1
+		networkAliases := map[string][]string{}
+		for _, network := range service.Spec.TaskTemplate.Networks {
+			networkAliases[network.Target] = network.Aliases
+		}
+
+		if data.network != nil {
+			for i, vip := range service.Endpoint.VirtualIPs {
+				if ok, err := dockerCheckNetworkName(vip.NetworkID, *data.network, networkMap, networkAliases); ok {
+					vipIndex = i
+					break
+				} else if err != nil {
+				// we intentionally ignore name check errors
+					logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+						Debugf("%v", err)
+				}
+			}
+			if vipIndex == -1 {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					Warnf("ignoring service, network %s not found", *data.network)
+				return
+			}
+		} else {
+		// if network isn't specified assume it's the first one
+			vipIndex = 0
+		}
+
+		virtualIP := service.Endpoint.VirtualIPs[vipIndex]
+		ip, _, _ := net.ParseCIDR(virtualIP.Addr)
+		data.ip = ip.String()
+	} else if isDNSRR {
+		data.ip = service.Spec.Name
+	}
+
 	ok = true
 	return
 }
