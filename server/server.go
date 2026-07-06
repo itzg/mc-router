@@ -53,7 +53,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	routes := NewRoutes(ctx)
 
 	webhookScalerConfigured := config.AutoScale.Webhook.Url != ""
-	downScalerEnabled := (config.AutoScale.Down && (config.InKubeCluster || config.KubeConfig != "" || config.InDocker)) || webhookScalerConfigured
+	downScalerEnabled := (config.AutoScale.Down && (config.InKubeCluster || config.KubeConfig != "" || config.InDocker || config.InDockerSwarm)) || webhookScalerConfigured
 	downScalerDelay := config.AutoScale.DownAfter
 	// Only one instance should be created
 	// TODO why create it if not enabled? nil checks needed if optional
