@@ -63,12 +63,40 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(_ *routableSwarmService) WakerFun
 	}
 }
 
-func (w *dockerSwarmWatcherImpl) makeSleeperFunc(_ *routableSwarmService) SleeperFunc {
-	if !w.config.autoScaleDown {
+func (w *dockerSwarmWatcherImpl) makeSleeperFunc(rs *routableSwarmService) SleeperFunc {
+	if rs == nil || !rs.autoScaleDown {
 		return nil
 	}
 	return func(ctx context.Context) error {
-		logrus.Fatal("Auto scale down is not yet supported for docker swarm")
+		serviceID := rs.serviceID
+		if serviceID == "" {
+			return fmt.Errorf("missing service id for sleep")
+		}
+
+		service, _, err := w.client.ServiceInspectWithRaw(ctx, serviceID, dockertypes.ServiceInspectOptions{})
+		if err != nil {
+			return err
+		}
+
+		if service.Spec.Mode.Replicated == nil {
+			return fmt.Errorf("service %s is not replicated and cannot be scaled", serviceID)
+		}
+
+		replicas := service.Spec.Mode.Replicated.Replicas
+		if replicas != nil && *replicas > 0 {
+			logrus.WithFields(logrus.Fields{
+				"serviceID":   serviceID,
+				"serviceName": rs.serviceName,
+			}).Debug("Scaling down Swarm service to 0 replicas")
+			zero := uint64(0)
+			service.Spec.Mode.Replicated.Replicas = &zero
+
+			_, err = w.client.ServiceUpdate(ctx, serviceID, service.Version, service.Spec, dockertypes.ServiceUpdateOptions{})
+			if err != nil {
+				return err
+			}
+		}
+
 		return nil
 	}
 }
