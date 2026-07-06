@@ -33,16 +33,27 @@ func NewDockerSwarmWatcher(socket string, timeout time.Duration, autoScaleUp boo
 	}
 }
 
+type routableSwarmService struct {
+	externalServiceName  string
+	containerEndpoint    string
+	serviceID            string
+	serviceName          string
+	autoScaleUp          bool
+	autoScaleDown        bool
+	autoScaleAsleepMOTD  string
+	autoScaleLoadingMOTD string
+}
+
 type dockerSwarmWatcherImpl struct {
 	sync.RWMutex
 	config      dockerWatcherConfig
 	client      *client.Client
-	serviceMap  map[string]*routableService
+	serviceMap  map[string]*routableSwarmService
 	monitorLock sync.Mutex
 	routes      IRoutes
 }
 
-func (w *dockerSwarmWatcherImpl) makeWakerFunc(_ *routableService) WakerFunc {
+func (w *dockerSwarmWatcherImpl) makeWakerFunc(_ *routableSwarmService) WakerFunc {
 	if !w.config.autoScaleUp {
 		return nil
 	}
@@ -52,7 +63,7 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(_ *routableService) WakerFunc {
 	}
 }
 
-func (w *dockerSwarmWatcherImpl) makeSleeperFunc(_ *routableService) SleeperFunc {
+func (w *dockerSwarmWatcherImpl) makeSleeperFunc(_ *routableSwarmService) SleeperFunc {
 	if !w.config.autoScaleDown {
 		return nil
 	}
@@ -79,7 +90,7 @@ func (w *dockerSwarmWatcherImpl) Start(ctx context.Context) error {
 		return err
 	}
 
-	w.serviceMap = map[string]*routableService{}
+	w.serviceMap = map[string]*routableSwarmService{}
 
 	logrus.Trace("Performing initial listing of Docker swarm services")
 	if err := w.reconcileServices(ctx); err != nil {
@@ -206,7 +217,7 @@ func (w *dockerSwarmWatcherImpl) streamEvents(ctx context.Context) {
 	}
 }
 
-func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableService, error) {
+func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableSwarmService, error) {
 	services, err := w.client.ServiceList(ctx, dockertypes.ServiceListOptions{})
 	if err != nil {
 		return nil, err
@@ -236,7 +247,7 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 		networkMap[network.ID] = &networkToAdd
 	}
 
-	var result []*routableService
+	var result []*routableSwarmService
 	for _, service := range services {
 		if service.Spec.EndpointSpec == nil || service.Spec.EndpointSpec.Mode != swarmtypes.ResolutionModeVIP {
 			continue
@@ -251,13 +262,13 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 		}
 
 		for _, host := range data.hosts {
-			result = append(result, &routableService{
+			result = append(result, &routableSwarmService{
 				containerEndpoint:   fmt.Sprintf("%s:%d", data.ip, data.port),
 				externalServiceName: host,
 			})
 		}
 		if data.def != nil && *data.def {
-			result = append(result, &routableService{
+			result = append(result, &routableSwarmService{
 				containerEndpoint:   fmt.Sprintf("%s:%d", data.ip, data.port),
 				externalServiceName: "",
 			})
