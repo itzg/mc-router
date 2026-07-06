@@ -53,13 +53,111 @@ type dockerSwarmWatcherImpl struct {
 	routes      IRoutes
 }
 
-func (w *dockerSwarmWatcherImpl) makeWakerFunc(_ *routableSwarmService) WakerFunc {
-	if !w.config.autoScaleUp {
+func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFunc {
+	if rs == nil || !rs.autoScaleUp {
 		return nil
 	}
 	return func(ctx context.Context) (string, error) {
-		logrus.Fatal("Auto scale up is not yet supported for docker swarm")
-		return "", nil
+		serviceID := rs.serviceID
+		if serviceID == "" {
+			return "", fmt.Errorf("missing service id for wake")
+		}
+
+		service, _, err := w.client.ServiceInspectWithRaw(ctx, serviceID, dockertypes.ServiceInspectOptions{})
+		if err != nil {
+			return "", err
+		}
+
+		if service.Spec.Mode.Replicated == nil {
+			return "", fmt.Errorf("service %s is not replicated and cannot be scaled", serviceID)
+		}
+
+		replicas := service.Spec.Mode.Replicated.Replicas
+		if replicas == nil || *replicas == 0 {
+			logrus.WithFields(logrus.Fields{
+				"serviceID":   serviceID,
+				"serviceName": rs.serviceName,
+			}).Debug("Scaling up Swarm service to 1 replica")
+			one := uint64(1)
+			service.Spec.Mode.Replicated.Replicas = &one
+
+			_, err = w.client.ServiceUpdate(ctx, serviceID, service.Version, service.Spec, dockertypes.ServiceUpdateOptions{})
+			if err != nil {
+				return "", err
+			}
+		}
+
+		// Wait until a task is running and has an IP address
+		var taskIP string
+		deadline := time.Now().Add(60 * time.Second)
+		for {
+			tasks, err := w.client.TaskList(ctx, dockertypes.TaskListOptions{
+				Filters: filters.NewArgs(
+					filters.Arg("service", serviceID),
+					filters.Arg("desired-state", "running"),
+				),
+			})
+			if err == nil && len(tasks) > 0 {
+				for _, task := range tasks {
+					if task.Status.State == swarm.TaskStateRunning {
+						for _, attachment := range task.NetworksAttachments {
+							if len(attachment.Addresses) > 0 {
+								parts := strings.Split(attachment.Addresses[0], "/")
+								if ip := net.ParseIP(parts[0]); ip != nil {
+									taskIP = parts[0]
+									break
+								}
+							}
+						}
+					}
+					if taskIP != "" {
+						break
+					}
+				}
+			}
+			if taskIP != "" {
+				break
+			}
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
+			if time.Now().After(deadline) {
+				return "", fmt.Errorf("timeout waiting for running task for service %s", serviceID)
+			}
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
+
+		_, portStr, err := net.SplitHostPort(rs.containerEndpoint)
+		if err != nil {
+			portStr = "25565"
+		}
+		endpoint := net.JoinHostPort(taskIP, portStr)
+
+		// Wait for the task endpoint to be reachable
+		for {
+			conn, err := net.DialTimeout("tcp", endpoint, 1*time.Second)
+			if err == nil {
+				_ = conn.Close()
+				break
+			}
+			if ctx.Err() != nil {
+				return endpoint, ctx.Err()
+			}
+			if time.Now().After(deadline) {
+				return endpoint, fmt.Errorf("timeout waiting for Swarm service task to become reachable at %s", endpoint)
+			}
+			select {
+			case <-ctx.Done():
+				return endpoint, ctx.Err()
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
+
+		return endpoint, nil
 	}
 }
 
