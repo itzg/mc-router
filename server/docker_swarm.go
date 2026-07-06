@@ -247,19 +247,25 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			wakerFunc := w.makeWakerFunc(rs)
 			sleeperFunc := w.makeSleeperFunc(rs)
 			if rs.externalServiceName != "" {
-				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
+				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, rs.serviceID, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			} else {
-				w.routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
+				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.serviceID, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			}
-		} else if oldRs.containerEndpoint != rs.containerEndpoint {
+		} else if oldRs.containerEndpoint != rs.containerEndpoint ||
+			oldRs.serviceID != rs.serviceID ||
+			oldRs.autoScaleUp != rs.autoScaleUp ||
+			oldRs.autoScaleDown != rs.autoScaleDown ||
+			oldRs.autoScaleAsleepMOTD != rs.autoScaleAsleepMOTD ||
+			oldRs.autoScaleLoadingMOTD != rs.autoScaleLoadingMOTD {
+
 			w.serviceMap[rs.externalServiceName] = rs
 			wakerFunc := w.makeWakerFunc(rs)
 			sleeperFunc := w.makeSleeperFunc(rs)
 			if rs.externalServiceName != "" {
 				w.routes.DeleteMapping(rs.externalServiceName)
-				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
+				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, rs.serviceID, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			} else {
-				w.routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, "", "")
+				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.serviceID, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			}
 			logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
 		}
@@ -393,12 +399,24 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 			result = append(result, &routableSwarmService{
 				containerEndpoint:   fmt.Sprintf("%s:%d", data.ip, data.port),
 				externalServiceName: host,
+				serviceID:            data.serviceID,
+				serviceName:          data.serviceName,
+				autoScaleUp:          data.autoScaleUp,
+				autoScaleDown:        data.autoScaleDown,
+				autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
+				autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
 			})
 		}
 		if data.def != nil && *data.def {
 			result = append(result, &routableSwarmService{
 				containerEndpoint:   fmt.Sprintf("%s:%d", data.ip, data.port),
 				externalServiceName: "",
+				serviceID:            data.serviceID,
+				serviceName:          data.serviceName,
+				autoScaleUp:          data.autoScaleUp,
+				autoScaleDown:        data.autoScaleDown,
+				autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
+				autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
 			})
 		}
 	}
