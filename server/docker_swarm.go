@@ -263,7 +263,9 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			oldRs.autoScaleUp != rs.autoScaleUp ||
 			oldRs.autoScaleDown != rs.autoScaleDown ||
 			oldRs.autoScaleAsleepMOTD != rs.autoScaleAsleepMOTD ||
-			oldRs.autoScaleLoadingMOTD != rs.autoScaleLoadingMOTD {
+			oldRs.autoScaleLoadingMOTD != rs.autoScaleLoadingMOTD ||
+			oldRs.autoScaleWaitTimeout != rs.autoScaleWaitTimeout ||
+			oldRs.autoScaleFailedMOTD != rs.autoScaleFailedMOTD {
 
 			w.serviceMap[rs.externalServiceName] = rs
 			wakerFunc := w.makeWakerFunc(rs)
@@ -397,7 +399,7 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 			continue
 		}
 
-		data, ok := w.parseServiceData(&service, networkMap)
+		data, ok := w.parseServiceData(ctx, &service, networkMap)
 		if !ok {
 			continue
 		}
@@ -418,6 +420,8 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 				autoScaleDown:        data.autoScaleDown,
 				autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
 				autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
+				autoScaleWaitTimeout: data.autoScaleWaitTimeout,
+				autoScaleFailedMOTD:  data.autoScaleFailedMOTD,
 			})
 		}
 		if data.def != nil && *data.def {
@@ -431,6 +435,8 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 				autoScaleDown:        data.autoScaleDown,
 				autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
 				autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
+				autoScaleWaitTimeout: data.autoScaleWaitTimeout,
+				autoScaleFailedMOTD:  data.autoScaleFailedMOTD,
 			})
 		}
 	}
@@ -477,7 +483,7 @@ type parsedDockerServiceData struct {
 	isDNSRR              bool
 }
 
-func (w *dockerSwarmWatcherImpl) parseServiceData(service *swarm.Service, networkMap map[string]*network.Inspect) (data parsedDockerServiceData, ok bool) {
+func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *swarm.Service, networkMap map[string]*network.Inspect) (data parsedDockerServiceData, ok bool) {
 	data.autoScaleUp = w.config.autoScaleUp
 	data.autoScaleDown = w.config.autoScaleDown
 	data.autoScaleWaitTimeout = 60 * time.Second
@@ -628,8 +634,88 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(service *swarm.Service, networ
 		}
 	}
 
-	if replicas == 0 {
+	var hasActiveTask bool
+	var terminalFailureCount int
+	var lastFailedTime time.Time
+	var delay time.Duration
+	var maxAttempts uint64
+
+	if replicas > 0 {
+		tasks, err := w.client.TaskList(ctx, dockertypes.TaskListOptions{
+			Filters: filters.NewArgs(filters.Arg("service", service.ID)),
+		})
+		if err == nil && len(tasks) > 0 {
+			if service.Spec.TaskTemplate.RestartPolicy != nil {
+				if service.Spec.TaskTemplate.RestartPolicy.Delay != nil {
+					delay = *service.Spec.TaskTemplate.RestartPolicy.Delay
+				}
+				if service.Spec.TaskTemplate.RestartPolicy.MaxAttempts != nil {
+					maxAttempts = *service.Spec.TaskTemplate.RestartPolicy.MaxAttempts
+				}
+			}
+
+			for _, task := range tasks {
+				state := task.Status.State
+				if state == swarm.TaskStateNew ||
+					state == swarm.TaskStatePending ||
+					state == swarm.TaskStateAssigned ||
+					state == swarm.TaskStateAccepted ||
+					state == swarm.TaskStatePreparing ||
+					state == swarm.TaskStateStarting ||
+					state == swarm.TaskStateRunning {
+					hasActiveTask = true
+				} else if state == swarm.TaskStateFailed || state == swarm.TaskStateShutdown || state == swarm.TaskStateRejected {
+					terminalFailureCount++
+					if task.Status.Timestamp.After(lastFailedTime) {
+						lastFailedTime = task.Status.Timestamp
+					}
+				}
+			}
+		}
+	}
+
+	swarmGaveUp := false
+	inRestartDelay := false
+	var remainingDelay time.Duration
+
+	if replicas > 0 && !hasActiveTask {
+		if delay > 0 && !lastFailedTime.IsZero() {
+			timeSinceFailed := time.Since(lastFailedTime)
+			if timeSinceFailed < delay {
+				inRestartDelay = true
+				remainingDelay = delay - timeSinceFailed
+			} else {
+				swarmGaveUp = true
+			}
+		} else if maxAttempts > 0 && uint64(terminalFailureCount) >= maxAttempts {
+			swarmGaveUp = true
+		} else {
+			// Fallback: if no active tasks and no delay or max attempts, assume Swarm gave up
+			swarmGaveUp = true
+		}
+	}
+
+	if replicas == 0 || swarmGaveUp || inRestartDelay {
 		data.ip = ""
+
+		// Format dynamic countdown or failed message
+		if inRestartDelay {
+			durationStr := remainingDelay.Round(time.Second).String()
+			if data.autoScaleFailedMOTD != "" {
+				data.autoScaleAsleepMOTD = strings.ReplaceAll(data.autoScaleFailedMOTD, "{duration}", durationStr)
+			} else {
+				data.autoScaleAsleepMOTD = strings.ReplaceAll(data.autoScaleAsleepMOTD, "{duration}", durationStr)
+			}
+			if data.autoScaleLoadingMOTD != "" {
+				data.autoScaleLoadingMOTD = strings.ReplaceAll(data.autoScaleLoadingMOTD, "{duration}", durationStr)
+			}
+		} else if swarmGaveUp {
+			if data.autoScaleFailedMOTD != "" {
+				data.autoScaleAsleepMOTD = strings.ReplaceAll(data.autoScaleFailedMOTD, "{duration}", "failed")
+			} else {
+				data.autoScaleAsleepMOTD = strings.ReplaceAll(data.autoScaleAsleepMOTD, "{duration}", "failed")
+			}
+		}
 	} else if isVIP {
 		vipIndex := -1
 		if data.networkID != "" {
