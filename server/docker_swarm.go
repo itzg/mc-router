@@ -140,6 +140,7 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 						state == swarm.TaskStateAssigned ||
 						state == swarm.TaskStateAccepted ||
 						state == swarm.TaskStatePreparing ||
+						state == swarm.TaskStateReady ||
 						state == swarm.TaskStateStarting ||
 						state == swarm.TaskStateRunning {
 						hasActiveTask = true
@@ -156,10 +157,12 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 				}
 
 				// Check if Swarm gave up or is in restart delay
-				if !hasActiveTask {
-					swarmGaveUp := false
-					var remainingDelay time.Duration
+				swarmGaveUp := false
+				var remainingDelay time.Duration
 
+				if !hasActiveTask && len(tasks) > 0 {
+					swarmGaveUp = true
+				} else if hasActiveTask && taskIP == "" {
 					if delay > 0 && !lastFailedTime.IsZero() {
 						timeSinceFailed := time.Since(lastFailedTime)
 						if timeSinceFailed < delay {
@@ -171,21 +174,14 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 									"service":      serviceID,
 									"remaining":    remainingDelay,
 									"extendedWait": time.Until(deadline),
-								}).Info("Swarm task entered restart delay. Dynamically extending waker deadline.")
+								}).Info("Swarm task is in restart delay. Dynamically extending waker deadline.")
 							}
-						} else {
-							swarmGaveUp = true
 						}
-					} else if maxAttempts > 0 && uint64(terminalFailureCount) >= maxAttempts {
-						swarmGaveUp = true
-					} else {
-						// Fallback: if no active tasks and no restart delay/max attempts configured, assume Swarm gave up
-						swarmGaveUp = true
 					}
+				}
 
-					if swarmGaveUp {
-						return "", fmt.Errorf("Swarm has stopped attempting to start service %s: all tasks have terminated", serviceID)
-					}
+				if swarmGaveUp {
+					return "", fmt.Errorf("Swarm has stopped attempting to start service %s: all tasks have terminated", serviceID)
 				}
 			}
 			if taskIP != "" {
@@ -701,14 +697,17 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 		}
 	}
 
+	var hasRunningTask bool
 	var hasActiveTask bool
 	var terminalFailureCount int
 	var lastFailedTime time.Time
 	var delay time.Duration
 	var maxAttempts uint64
 
+	var tasks []swarm.Task
+	var err error
 	if replicas > 0 {
-		tasks, err := w.client.TaskList(ctx, dockertypes.TaskListOptions{
+		tasks, err = w.client.TaskList(ctx, dockertypes.TaskListOptions{
 			Filters: filters.NewArgs(filters.Arg("service", service.ID)),
 		})
 		if err == nil && len(tasks) > 0 {
@@ -723,11 +722,16 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 
 			for _, task := range tasks {
 				state := task.Status.State
+				if state == swarm.TaskStateRunning {
+					hasRunningTask = true
+				}
+
 				if state == swarm.TaskStateNew ||
 					state == swarm.TaskStatePending ||
 					state == swarm.TaskStateAssigned ||
 					state == swarm.TaskStateAccepted ||
 					state == swarm.TaskStatePreparing ||
+					state == swarm.TaskStateReady ||
 					state == swarm.TaskStateStarting ||
 					state == swarm.TaskStateRunning {
 					hasActiveTask = true
@@ -745,20 +749,17 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 	inRestartDelay := false
 	var remainingDelay time.Duration
 
-	if replicas > 0 && !hasActiveTask {
-		if delay > 0 && !lastFailedTime.IsZero() {
-			timeSinceFailed := time.Since(lastFailedTime)
-			if timeSinceFailed < delay {
-				inRestartDelay = true
-				remainingDelay = delay - timeSinceFailed
-			} else {
-				swarmGaveUp = true
+	if replicas > 0 && !hasRunningTask {
+		if !hasActiveTask && len(tasks) > 0 {
+			swarmGaveUp = true
+		} else if hasActiveTask {
+			if delay > 0 && !lastFailedTime.IsZero() {
+				timeSinceFailed := time.Since(lastFailedTime)
+				if timeSinceFailed < delay {
+					inRestartDelay = true
+					remainingDelay = delay - timeSinceFailed
+				}
 			}
-		} else if maxAttempts > 0 && uint64(terminalFailureCount) >= maxAttempts {
-			swarmGaveUp = true
-		} else {
-			// Fallback: if no active tasks and no delay or max attempts, assume Swarm gave up
-			swarmGaveUp = true
 		}
 	}
 
