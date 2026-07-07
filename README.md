@@ -194,11 +194,12 @@ These are the labels scanned:
 - `mc-router.port`: This value must be set to the port the Minecraft server is listening on. The default value is 25565.
 - `mc-router.default`: Set this to a truthy value to make this server the default backend. Please note that `mc-router.host` is still required to be set.
 - `mc-router.network`: Specify the network you are using for the router if multiple are present in the container/service. You can either use the network ID, it's full name or an alias.
-- `mc-router.auto-scale-up`: Per-container override to enable/disable auto scale up for Docker. When true (or left unspecified and the global `-auto-scale-up` flag is enabled), mc-router will start or unpause this container when a client connects to the declared hostname(s).
-- `mc-router.auto-scale-down`: Per-container override to enable/disable auto scale down for Docker. When true (or left unspecified and the global `-auto-scale-down` flag is enabled), mc-router will stop this container after it has been idle for the configured `-auto-scale-down-after` duration.
-- `mc-router.auto-scale-asleep-motd`: Per-container override for MOTD to show when container is scaled to zero. If empty or not set the host will
-appear unresponsive.
-- `mc-router.auto-scale-loading-motd`: Per-container override for MOTD to show while the container is waking and not yet reachable. If empty or not set, the global `-auto-scale-loading-motd` value is used.
+- `mc-router.auto-scale-up`: Per-container/service override to enable/disable auto scale up for Docker/Swarm. When true (or left unspecified and the global `-auto-scale-up` flag is enabled), mc-router will start the container or scale up the Swarm service when a client connects.
+- `mc-router.auto-scale-down`: Per-container/service override to enable/disable auto scale down for Docker/Swarm. When true (or left unspecified and the global `-auto-scale-down` flag is enabled), mc-router will stop the container or scale down the Swarm service to 0 after it has been idle.
+- `mc-router.auto-scale-asleep-motd`: Per-container/service override for MOTD to show when scaled to zero. If empty or not set the host will appear unresponsive.
+- `mc-router.auto-scale-loading-motd`: Per-container/service override for MOTD to show while waking up. Supports replacing the `{duration}` token with the remaining Swarm restart delay if the task is waiting to retry. If empty or not set, the global `-auto-scale-loading-motd` value is used.
+- `mc-router.auto-scale-wait-timeout`: Configure the maximum duration the router waits for the container or Swarm task to become reachable after scaling up (e.g. `"5m"` or `"300s"`). Defaults to 60s.
+- `mc-router.auto-scale-failed-motd`: MOTD to show if the container/service fails to start or Swarm exhausts its restart policy (e.g. `"Server failed to start. Retrying in {duration}."`). Supports the `{duration}` countdown token, which dynamically updates during Swarm restart delays.
 
 #### Docker Auto Scale Up/Down
 
