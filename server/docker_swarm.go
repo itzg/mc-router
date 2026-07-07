@@ -38,6 +38,7 @@ type routableSwarmService struct {
 	containerEndpoint    string
 	serviceID            string
 	serviceName          string
+	networkID            string
 	autoScaleUp          bool
 	autoScaleDown        bool
 	autoScaleAsleepMOTD  string
@@ -101,7 +102,10 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 				for _, task := range tasks {
 					if task.Status.State == swarm.TaskStateRunning {
 						for _, attachment := range task.NetworksAttachments {
-							if len(attachment.Addresses) > 0 {
+							matchesNetwork := rs.networkID != "" && attachment.Network.ID == rs.networkID
+							isIngress := attachment.Network.Spec.Name == "ingress"
+
+							if (matchesNetwork || (rs.networkID == "" && !isIngress)) && len(attachment.Addresses) > 0 {
 								parts := strings.Split(attachment.Addresses[0], "/")
 								if ip := net.ParseIP(parts[0]); ip != nil {
 									taskIP = parts[0]
@@ -253,6 +257,7 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			}
 		} else if oldRs.containerEndpoint != rs.containerEndpoint ||
 			oldRs.serviceID != rs.serviceID ||
+			oldRs.networkID != rs.networkID ||
 			oldRs.autoScaleUp != rs.autoScaleUp ||
 			oldRs.autoScaleDown != rs.autoScaleDown ||
 			oldRs.autoScaleAsleepMOTD != rs.autoScaleAsleepMOTD ||
@@ -401,6 +406,7 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 				externalServiceName: host,
 				serviceID:            data.serviceID,
 				serviceName:          data.serviceName,
+				networkID:            data.networkID,
 				autoScaleUp:          data.autoScaleUp,
 				autoScaleDown:        data.autoScaleDown,
 				autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
@@ -413,6 +419,7 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 				externalServiceName: "",
 				serviceID:            data.serviceID,
 				serviceName:          data.serviceName,
+				networkID:            data.networkID,
 				autoScaleUp:          data.autoScaleUp,
 				autoScaleDown:        data.autoScaleDown,
 				autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
@@ -450,6 +457,7 @@ type parsedDockerServiceData struct {
 	port                 uint64
 	def                  *bool
 	network              *string
+	networkID            string
 	ip                   string
 	serviceID            string
 	serviceName          string
@@ -568,39 +576,74 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(service *swarm.Service, networ
 		replicas = *service.Spec.Mode.Replicated.Replicas
 	}
 
+	// Resolve target networkID based on label or task template networks
+	networkAliases := map[string][]string{}
+	for _, network := range service.Spec.TaskTemplate.Networks {
+		networkAliases[network.Target] = network.Aliases
+	}
+
+	if data.network != nil {
+		for _, netSpec := range service.Spec.TaskTemplate.Networks {
+			if ok, _ := dockerCheckNetworkName(netSpec.Target, *data.network, networkMap, networkAliases); ok {
+				data.networkID = netSpec.Target
+				break
+			}
+		}
+	} else {
+		// Default: Find the first non-ingress network in the task template
+		for _, netSpec := range service.Spec.TaskTemplate.Networks {
+			if network := networkMap[netSpec.Target]; network != nil {
+				if network.Name != "ingress" {
+					data.networkID = netSpec.Target
+					break
+				}
+			}
+		}
+		// Fallback to first network if all are ingress or not found in networkMap
+		if data.networkID == "" && len(service.Spec.TaskTemplate.Networks) > 0 {
+			data.networkID = service.Spec.TaskTemplate.Networks[0].Target
+		}
+	}
+
 	if replicas == 0 {
 		data.ip = ""
 	} else if isVIP {
 		vipIndex := -1
-		networkAliases := map[string][]string{}
-		for _, network := range service.Spec.TaskTemplate.Networks {
-			networkAliases[network.Target] = network.Aliases
-		}
-
-		if data.network != nil {
+		if data.networkID != "" {
 			for i, vip := range service.Endpoint.VirtualIPs {
-				if ok, err := dockerCheckNetworkName(vip.NetworkID, *data.network, networkMap, networkAliases); ok {
+				if vip.NetworkID == data.networkID {
 					vipIndex = i
 					break
-				} else if err != nil {
-				// we intentionally ignore name check errors
-					logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-						Debugf("%v", err)
 				}
 			}
-			if vipIndex == -1 {
-				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-					Warnf("ignoring service, network %s not found", *data.network)
-				return
-			}
-		} else {
-		// if network isn't specified assume it's the first one
-			vipIndex = 0
 		}
-
-		virtualIP := service.Endpoint.VirtualIPs[vipIndex]
-		ip, _, _ := net.ParseCIDR(virtualIP.Addr)
-		data.ip = ip.String()
+		if vipIndex == -1 {
+			if data.network != nil {
+				for i, vip := range service.Endpoint.VirtualIPs {
+					if ok, err := dockerCheckNetworkName(vip.NetworkID, *data.network, networkMap, networkAliases); ok {
+						vipIndex = i
+						break
+					} else if err != nil {
+						// we intentionally ignore name check errors
+						logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+							Debugf("%v", err)
+					}
+				}
+			} else {
+				// if network isn't specified assume it's the first one
+				vipIndex = 0
+			}
+		}
+		if vipIndex != -1 && vipIndex < len(service.Endpoint.VirtualIPs) {
+			virtualIP := service.Endpoint.VirtualIPs[vipIndex]
+			ip, _, _ := net.ParseCIDR(virtualIP.Addr)
+			data.ip = ip.String()
+			data.networkID = virtualIP.NetworkID
+		} else {
+			logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+				Warnf("ignoring service, unable to find match in VirtualIPs")
+			return
+		}
 	} else if isDNSRR {
 		data.ip = service.Spec.Name
 	}
