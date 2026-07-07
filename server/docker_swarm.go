@@ -369,9 +369,6 @@ func (w *dockerSwarmWatcherImpl) streamEvents(ctx context.Context) {
 
 		eventFilters := filters.NewArgs(
 			filters.Arg("type", string(events.ServiceEventType)),
-			filters.Arg("event", string(events.ActionCreate)),
-			filters.Arg("event", string(events.ActionUpdate)),
-			filters.Arg("event", string(events.ActionRemove)),
 			filters.Arg("type", DockerRouterEventTypeTask),
 		)
 
@@ -747,7 +744,6 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 
 	swarmGaveUp := false
 	inRestartDelay := false
-	var remainingDelay time.Duration
 
 	if replicas > 0 && !hasRunningTask {
 		if !hasActiveTask && len(tasks) > 0 {
@@ -757,7 +753,6 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 				timeSinceFailed := time.Since(lastFailedTime)
 				if timeSinceFailed < delay {
 					inRestartDelay = true
-					remainingDelay = delay - timeSinceFailed
 					data.countdownDeadline = lastFailedTime.Add(delay)
 				}
 			}
@@ -767,22 +762,9 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 	if replicas == 0 || swarmGaveUp || inRestartDelay {
 		data.ip = ""
 
-		// Format dynamic countdown or failed message
-		if inRestartDelay {
-			durationStr := remainingDelay.Round(time.Second).String()
+		if inRestartDelay || swarmGaveUp {
 			if data.autoScaleFailedMOTD != "" {
-				data.autoScaleAsleepMOTD = strings.ReplaceAll(data.autoScaleFailedMOTD, "{duration}", durationStr)
-			} else {
-				data.autoScaleAsleepMOTD = strings.ReplaceAll(data.autoScaleAsleepMOTD, "{duration}", durationStr)
-			}
-			if data.autoScaleLoadingMOTD != "" {
-				data.autoScaleLoadingMOTD = strings.ReplaceAll(data.autoScaleLoadingMOTD, "{duration}", durationStr)
-			}
-		} else if swarmGaveUp {
-			if data.autoScaleFailedMOTD != "" {
-				data.autoScaleAsleepMOTD = strings.ReplaceAll(data.autoScaleFailedMOTD, "{duration}", "failed")
-			} else {
-				data.autoScaleAsleepMOTD = strings.ReplaceAll(data.autoScaleAsleepMOTD, "{duration}", "failed")
+				data.autoScaleAsleepMOTD = data.autoScaleFailedMOTD
 			}
 		}
 	} else if isVIP {
