@@ -76,13 +76,9 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 		}
 
 		var delay time.Duration
-		var maxAttempts uint64
 		if service.Spec.TaskTemplate.RestartPolicy != nil {
 			if service.Spec.TaskTemplate.RestartPolicy.Delay != nil {
 				delay = *service.Spec.TaskTemplate.RestartPolicy.Delay
-			}
-			if service.Spec.TaskTemplate.RestartPolicy.MaxAttempts != nil {
-				maxAttempts = *service.Spec.TaskTemplate.RestartPolicy.MaxAttempts
 			}
 		}
 
@@ -702,7 +698,6 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 	var terminalFailureCount int
 	var lastFailedTime time.Time
 	var delay time.Duration
-	var maxAttempts uint64
 
 	var tasks []swarm.Task
 	var err error
@@ -714,9 +709,6 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 			if service.Spec.TaskTemplate.RestartPolicy != nil {
 				if service.Spec.TaskTemplate.RestartPolicy.Delay != nil {
 					delay = *service.Spec.TaskTemplate.RestartPolicy.Delay
-				}
-				if service.Spec.TaskTemplate.RestartPolicy.MaxAttempts != nil {
-					maxAttempts = *service.Spec.TaskTemplate.RestartPolicy.MaxAttempts
 				}
 			}
 
