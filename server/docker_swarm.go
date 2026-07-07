@@ -43,6 +43,8 @@ type routableSwarmService struct {
 	autoScaleDown        bool
 	autoScaleAsleepMOTD  string
 	autoScaleLoadingMOTD string
+	autoScaleWaitTimeout time.Duration
+	autoScaleFailedMOTD  string
 }
 
 type dockerSwarmWatcherImpl struct {
@@ -470,12 +472,15 @@ type parsedDockerServiceData struct {
 	autoScaleDown        bool
 	autoScaleAsleepMOTD  string
 	autoScaleLoadingMOTD string
+	autoScaleWaitTimeout time.Duration
+	autoScaleFailedMOTD  string
 	isDNSRR              bool
 }
 
 func (w *dockerSwarmWatcherImpl) parseServiceData(service *swarm.Service, networkMap map[string]*network.Inspect) (data parsedDockerServiceData, ok bool) {
 	data.autoScaleUp = w.config.autoScaleUp
 	data.autoScaleDown = w.config.autoScaleDown
+	data.autoScaleWaitTimeout = 60 * time.Second
 	data.serviceID = service.ID
 	data.serviceName = service.Spec.Name
 
@@ -548,6 +553,19 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(service *swarm.Service, networ
 		}
 		if key == DockerRouterLabelAutoScaleLoadingMOTD {
 			data.autoScaleLoadingMOTD = value
+		}
+		if key == DockerRouterLabelAutoScaleWaitTimeout {
+			dur, err := time.ParseDuration(strings.TrimSpace(value))
+			if err != nil {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					WithError(err).
+					Warnf("ignoring service with invalid value for %s", DockerRouterLabelAutoScaleWaitTimeout)
+				return
+			}
+			data.autoScaleWaitTimeout = dur
+		}
+		if key == DockerRouterLabelAutoScaleFailedMOTD {
+			data.autoScaleFailedMOTD = value
 		}
 	}
 
