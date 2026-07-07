@@ -75,6 +75,22 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 			return "", fmt.Errorf("service %s is not replicated and cannot be scaled", serviceID)
 		}
 
+		var delay time.Duration
+		var maxAttempts uint64
+		if service.Spec.TaskTemplate.RestartPolicy != nil {
+			if service.Spec.TaskTemplate.RestartPolicy.Delay != nil {
+				delay = *service.Spec.TaskTemplate.RestartPolicy.Delay
+			}
+			if service.Spec.TaskTemplate.RestartPolicy.MaxAttempts != nil {
+				maxAttempts = *service.Spec.TaskTemplate.RestartPolicy.MaxAttempts
+			}
+		}
+
+		waitTimeout := rs.autoScaleWaitTimeout
+		if waitTimeout == 0 {
+			waitTimeout = 60 * time.Second
+		}
+
 		replicas := service.Spec.Mode.Replicated.Replicas
 		if replicas == nil || *replicas == 0 {
 			logrus.WithFields(logrus.Fields{
@@ -92,17 +108,19 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 
 		// Wait until a task is running and has an IP address
 		var taskIP string
-		deadline := time.Now().Add(60 * time.Second)
+		deadline := time.Now().Add(waitTimeout)
 		for {
 			tasks, err := w.client.TaskList(ctx, dockertypes.TaskListOptions{
-				Filters: filters.NewArgs(
-					filters.Arg("service", serviceID),
-					filters.Arg("desired-state", "running"),
-				),
+				Filters: filters.NewArgs(filters.Arg("service", serviceID)),
 			})
 			if err == nil && len(tasks) > 0 {
+				var hasActiveTask bool
+				var terminalFailureCount int
+				var lastFailedTime time.Time
+
 				for _, task := range tasks {
-					if task.Status.State == swarm.TaskStateRunning {
+					state := task.Status.State
+					if state == swarm.TaskStateRunning {
 						for _, attachment := range task.NetworksAttachments {
 							matchesNetwork := rs.networkID != "" && attachment.Network.ID == rs.networkID
 							isIngress := attachment.Network.Spec.Name == "ingress"
@@ -116,8 +134,57 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 							}
 						}
 					}
-					if taskIP != "" {
-						break
+
+					if state == swarm.TaskStateNew ||
+						state == swarm.TaskStatePending ||
+						state == swarm.TaskStateAssigned ||
+						state == swarm.TaskStateAccepted ||
+						state == swarm.TaskStatePreparing ||
+						state == swarm.TaskStateStarting ||
+						state == swarm.TaskStateRunning {
+						hasActiveTask = true
+					} else if state == swarm.TaskStateFailed || state == swarm.TaskStateShutdown || state == swarm.TaskStateRejected {
+						terminalFailureCount++
+						if task.Status.Timestamp.After(lastFailedTime) {
+							lastFailedTime = task.Status.Timestamp
+						}
+					}
+				}
+
+				if taskIP != "" {
+					break
+				}
+
+				// Check if Swarm gave up or is in restart delay
+				if !hasActiveTask {
+					swarmGaveUp := false
+					var remainingDelay time.Duration
+
+					if delay > 0 && !lastFailedTime.IsZero() {
+						timeSinceFailed := time.Since(lastFailedTime)
+						if timeSinceFailed < delay {
+							remainingDelay = delay - timeSinceFailed
+							newDeadline := lastFailedTime.Add(delay).Add(waitTimeout)
+							if newDeadline.After(deadline) {
+								deadline = newDeadline
+								logrus.WithFields(logrus.Fields{
+									"service":      serviceID,
+									"remaining":    remainingDelay,
+									"extendedWait": time.Until(deadline),
+								}).Info("Swarm task entered restart delay. Dynamically extending waker deadline.")
+							}
+						} else {
+							swarmGaveUp = true
+						}
+					} else if maxAttempts > 0 && uint64(terminalFailureCount) >= maxAttempts {
+						swarmGaveUp = true
+					} else {
+						// Fallback: if no active tasks and no restart delay/max attempts configured, assume Swarm gave up
+						swarmGaveUp = true
+					}
+
+					if swarmGaveUp {
+						return "", fmt.Errorf("Swarm has stopped attempting to start service %s: all tasks have terminated", serviceID)
 					}
 				}
 			}
