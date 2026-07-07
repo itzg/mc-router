@@ -32,6 +32,7 @@ const (
 	DockerRouterLabelAutoScaleLoadingMOTD = "mc-router.auto-scale-loading-motd"
 	DockerRouterLabelAutoScaleWaitTimeout = "mc-router.auto-scale-wait-timeout"
 	DockerRouterLabelAutoScaleFailedMOTD  = "mc-router.auto-scale-failed-motd"
+	DockerRouterLabelAutoScaleRestartDelayMOTD = "mc-router.auto-scale-restart-delay-motd"
 	DockerRouterEventTypeTask             = "task"
 )
 

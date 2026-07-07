@@ -199,7 +199,8 @@ These are the labels scanned:
 - `mc-router.auto-scale-asleep-motd`: Per-container/service override for MOTD to show when scaled to zero. If empty or not set the host will appear unresponsive.
 - `mc-router.auto-scale-loading-motd`: Per-container/service override for MOTD to show while waking up. Supports replacing the `{duration}` token with the remaining Swarm restart delay if the task is waiting to retry. If empty or not set, the global `-auto-scale-loading-motd` value is used.
 - `mc-router.auto-scale-wait-timeout`: Configure the maximum duration the router waits for the container or Swarm task to become reachable after scaling up (e.g. `"5m"` or `"300s"`). Defaults to 60s.
-- `mc-router.auto-scale-failed-motd`: MOTD to show if the container/service fails to start or Swarm exhausts its restart policy (e.g. `"Server failed to start. Retrying in {duration}."`). Supports the `{duration}` countdown token, which dynamically updates during Swarm restart delays.
+- `mc-router.auto-scale-restart-delay-motd`: MOTD to show while the service is in a temporary restart delay (e.g. `"Server failed to start. Retrying in {duration}."`). Supports the `{duration}` countdown token, which dynamically updates.
+- `mc-router.auto-scale-failed-motd`: MOTD to show if the container/service fails to start permanently or Swarm exhausts its restart policy (e.g. `"Server crashed and stopped retrying."`). Does not support the countdown token.
 
 #### Docker Auto Scale Up/Down
 

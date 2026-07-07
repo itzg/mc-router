@@ -180,7 +180,7 @@ func formatMOTD(motd string, deadline time.Time) string {
 		return motd
 	}
 	if deadline.IsZero() {
-		return strings.ReplaceAll(motd, "{duration}", "failed")
+		return strings.ReplaceAll(motd, "{duration}", "never")
 	}
 	now := time.Now()
 	if now.Before(deadline) {
@@ -188,7 +188,7 @@ func formatMOTD(motd string, deadline time.Time) string {
 		durationStr := remaining.Round(time.Second).String()
 		return strings.ReplaceAll(motd, "{duration}", durationStr)
 	}
-	return strings.ReplaceAll(motd, "{duration}", "failed")
+	return strings.ReplaceAll(motd, "{duration}", "never")
 }
 
 func (r *routesImpl) GetAsleepMOTD(serverAddress string) string {

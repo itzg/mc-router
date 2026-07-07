@@ -44,8 +44,9 @@ type routableSwarmService struct {
 	autoScaleAsleepMOTD  string
 	autoScaleLoadingMOTD string
 	autoScaleWaitTimeout time.Duration
-	autoScaleFailedMOTD  string
-	countdownDeadline    time.Time
+	autoScaleFailedMOTD        string
+	autoScaleRestartDelayMOTD  string
+	countdownDeadline          time.Time
 }
 
 type dockerSwarmWatcherImpl struct {
@@ -327,6 +328,7 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			oldRs.autoScaleLoadingMOTD != rs.autoScaleLoadingMOTD ||
 			oldRs.autoScaleWaitTimeout != rs.autoScaleWaitTimeout ||
 			oldRs.autoScaleFailedMOTD != rs.autoScaleFailedMOTD ||
+			oldRs.autoScaleRestartDelayMOTD != rs.autoScaleRestartDelayMOTD ||
 			oldRs.countdownDeadline != rs.countdownDeadline {
 
 			w.serviceMap[rs.externalServiceName] = rs
@@ -472,34 +474,36 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 
 		for _, host := range data.hosts {
 			result = append(result, &routableSwarmService{
-				containerEndpoint:   endpoint,
-				externalServiceName: host,
-				serviceID:            data.serviceID,
-				serviceName:          data.serviceName,
-				networkID:            data.networkID,
-				autoScaleUp:          data.autoScaleUp,
-				autoScaleDown:        data.autoScaleDown,
-				autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
-				autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
-				autoScaleWaitTimeout: data.autoScaleWaitTimeout,
-				autoScaleFailedMOTD:  data.autoScaleFailedMOTD,
-				countdownDeadline:    data.countdownDeadline,
+				containerEndpoint:         endpoint,
+				externalServiceName:       host,
+				serviceID:                 data.serviceID,
+				serviceName:               data.serviceName,
+				networkID:                 data.networkID,
+				autoScaleUp:               data.autoScaleUp,
+				autoScaleDown:             data.autoScaleDown,
+				autoScaleAsleepMOTD:       data.autoScaleAsleepMOTD,
+				autoScaleLoadingMOTD:      data.autoScaleLoadingMOTD,
+				autoScaleWaitTimeout:      data.autoScaleWaitTimeout,
+				autoScaleFailedMOTD:       data.autoScaleFailedMOTD,
+				autoScaleRestartDelayMOTD: data.autoScaleRestartDelayMOTD,
+				countdownDeadline:         data.countdownDeadline,
 			})
 		}
 		if data.def != nil && *data.def {
 			result = append(result, &routableSwarmService{
-				containerEndpoint:   endpoint,
-				externalServiceName: "",
-				serviceID:            data.serviceID,
-				serviceName:          data.serviceName,
-				networkID:            data.networkID,
-				autoScaleUp:          data.autoScaleUp,
-				autoScaleDown:        data.autoScaleDown,
-				autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
-				autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
-				autoScaleWaitTimeout: data.autoScaleWaitTimeout,
-				autoScaleFailedMOTD:  data.autoScaleFailedMOTD,
-				countdownDeadline:    data.countdownDeadline,
+				containerEndpoint:         endpoint,
+				externalServiceName:       "",
+				serviceID:                 data.serviceID,
+				serviceName:               data.serviceName,
+				networkID:                 data.networkID,
+				autoScaleUp:               data.autoScaleUp,
+				autoScaleDown:             data.autoScaleDown,
+				autoScaleAsleepMOTD:       data.autoScaleAsleepMOTD,
+				autoScaleLoadingMOTD:      data.autoScaleLoadingMOTD,
+				autoScaleWaitTimeout:      data.autoScaleWaitTimeout,
+				autoScaleFailedMOTD:       data.autoScaleFailedMOTD,
+				autoScaleRestartDelayMOTD: data.autoScaleRestartDelayMOTD,
+				countdownDeadline:         data.countdownDeadline,
 			})
 		}
 	}
@@ -542,9 +546,10 @@ type parsedDockerServiceData struct {
 	autoScaleAsleepMOTD  string
 	autoScaleLoadingMOTD string
 	autoScaleWaitTimeout time.Duration
-	autoScaleFailedMOTD  string
-	countdownDeadline    time.Time
-	isDNSRR              bool
+	autoScaleFailedMOTD        string
+	autoScaleRestartDelayMOTD  string
+	countdownDeadline          time.Time
+	isDNSRR                    bool
 }
 
 func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *swarm.Service, networkMap map[string]*network.Inspect) (data parsedDockerServiceData, ok bool) {
@@ -636,6 +641,9 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 		}
 		if key == DockerRouterLabelAutoScaleFailedMOTD {
 			data.autoScaleFailedMOTD = value
+		}
+		if key == DockerRouterLabelAutoScaleRestartDelayMOTD {
+			data.autoScaleRestartDelayMOTD = value
 		}
 	}
 
@@ -762,7 +770,13 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 	if replicas == 0 || swarmGaveUp || inRestartDelay {
 		data.ip = ""
 
-		if inRestartDelay || swarmGaveUp {
+		if inRestartDelay {
+			if data.autoScaleRestartDelayMOTD != "" {
+				data.autoScaleAsleepMOTD = data.autoScaleRestartDelayMOTD
+			} else if data.autoScaleFailedMOTD != "" {
+				data.autoScaleAsleepMOTD = data.autoScaleFailedMOTD
+			}
+		} else if swarmGaveUp {
 			if data.autoScaleFailedMOTD != "" {
 				data.autoScaleAsleepMOTD = data.autoScaleFailedMOTD
 			}
