@@ -400,9 +400,14 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 			continue
 		}
 
+		endpoint := ""
+		if data.ip != "" {
+			endpoint = fmt.Sprintf("%s:%d", data.ip, data.port)
+		}
+
 		for _, host := range data.hosts {
 			result = append(result, &routableSwarmService{
-				containerEndpoint:   fmt.Sprintf("%s:%d", data.ip, data.port),
+				containerEndpoint:   endpoint,
 				externalServiceName: host,
 				serviceID:            data.serviceID,
 				serviceName:          data.serviceName,
@@ -415,7 +420,7 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 		}
 		if data.def != nil && *data.def {
 			result = append(result, &routableSwarmService{
-				containerEndpoint:   fmt.Sprintf("%s:%d", data.ip, data.port),
+				containerEndpoint:   endpoint,
 				externalServiceName: "",
 				serviceID:            data.serviceID,
 				serviceName:          data.serviceName,
