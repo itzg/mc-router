@@ -45,6 +45,7 @@ type routableSwarmService struct {
 	autoScaleLoadingMOTD string
 	autoScaleWaitTimeout time.Duration
 	autoScaleFailedMOTD  string
+	countdownDeadline    time.Time
 }
 
 type dockerSwarmWatcherImpl struct {
@@ -316,6 +317,7 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			} else {
 				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.serviceID, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			}
+			w.routes.SetCountdownDeadline(rs.externalServiceName, rs.countdownDeadline)
 		} else if oldRs.containerEndpoint != rs.containerEndpoint ||
 			oldRs.serviceID != rs.serviceID ||
 			oldRs.networkID != rs.networkID ||
@@ -324,7 +326,8 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			oldRs.autoScaleAsleepMOTD != rs.autoScaleAsleepMOTD ||
 			oldRs.autoScaleLoadingMOTD != rs.autoScaleLoadingMOTD ||
 			oldRs.autoScaleWaitTimeout != rs.autoScaleWaitTimeout ||
-			oldRs.autoScaleFailedMOTD != rs.autoScaleFailedMOTD {
+			oldRs.autoScaleFailedMOTD != rs.autoScaleFailedMOTD ||
+			oldRs.countdownDeadline != rs.countdownDeadline {
 
 			w.serviceMap[rs.externalServiceName] = rs
 			wakerFunc := w.makeWakerFunc(rs)
@@ -335,6 +338,7 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			} else {
 				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.serviceID, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			}
+			w.routes.SetCountdownDeadline(rs.externalServiceName, rs.countdownDeadline)
 			logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
 		}
 		visited[rs.externalServiceName] = struct{}{}
@@ -368,6 +372,7 @@ func (w *dockerSwarmWatcherImpl) streamEvents(ctx context.Context) {
 			filters.Arg("event", string(events.ActionCreate)),
 			filters.Arg("event", string(events.ActionUpdate)),
 			filters.Arg("event", string(events.ActionRemove)),
+			filters.Arg("type", DockerRouterEventTypeTask),
 		)
 
 		eventCh, errCh := w.client.Events(ctx, events.ListOptions{Filters: eventFilters})
@@ -481,6 +486,7 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 				autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
 				autoScaleWaitTimeout: data.autoScaleWaitTimeout,
 				autoScaleFailedMOTD:  data.autoScaleFailedMOTD,
+				countdownDeadline:    data.countdownDeadline,
 			})
 		}
 		if data.def != nil && *data.def {
@@ -496,6 +502,7 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 				autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
 				autoScaleWaitTimeout: data.autoScaleWaitTimeout,
 				autoScaleFailedMOTD:  data.autoScaleFailedMOTD,
+				countdownDeadline:    data.countdownDeadline,
 			})
 		}
 	}
@@ -539,6 +546,7 @@ type parsedDockerServiceData struct {
 	autoScaleLoadingMOTD string
 	autoScaleWaitTimeout time.Duration
 	autoScaleFailedMOTD  string
+	countdownDeadline    time.Time
 	isDNSRR              bool
 }
 
@@ -750,6 +758,7 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 				if timeSinceFailed < delay {
 					inRestartDelay = true
 					remainingDelay = delay - timeSinceFailed
+					data.countdownDeadline = lastFailedTime.Add(delay)
 				}
 			}
 		}

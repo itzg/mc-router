@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -70,6 +71,7 @@ type IRoutes interface {
 	GetDefaultRoute() (string, string, WakerFunc, SleeperFunc)
 	GetAsleepMOTD(serverAddress string) string
 	GetLoadingMOTD(serverAddress string) string
+	SetCountdownDeadline(serverAddress string, deadline time.Time)
 	SimplifySRV(srvEnabled bool)
 	// BulkRegister registers a set of static mappings, attaching the scaler's waker/sleeper pair. nil-safe: a nil scaler registers without autoscaling.
 	// Reset must be called separately and previous to this if you want to clear existing mappings.
@@ -88,12 +90,13 @@ func NewRoutes(ctx context.Context) IRoutes {
 }
 
 type mapping struct {
-	backend       string
-	waker         WakerFunc
-	sleeper       SleeperFunc
-	asleepMOTD    string
-	loadingMOTD   string
-	scalingTarget string // The endpoint to scale (may differ from backend when using proxy)
+	backend           string
+	waker             WakerFunc
+	sleeper           SleeperFunc
+	asleepMOTD        string
+	loadingMOTD       string
+	scalingTarget     string // The endpoint to scale (may differ from backend when using proxy)
+	countdownDeadline time.Time
 }
 
 type routesImpl struct {
@@ -172,16 +175,32 @@ func (r *routesImpl) GetDefaultRoute() (string, string, WakerFunc, SleeperFunc) 
 	return r.defaultRoute.backend, r.defaultRoute.scalingTarget, r.defaultRoute.waker, r.defaultRoute.sleeper
 }
 
+func formatMOTD(motd string, deadline time.Time) string {
+	if !strings.Contains(motd, "{duration}") {
+		return motd
+	}
+	if deadline.IsZero() {
+		return strings.ReplaceAll(motd, "{duration}", "failed")
+	}
+	now := time.Now()
+	if now.Before(deadline) {
+		remaining := deadline.Sub(now)
+		durationStr := remaining.Round(time.Second).String()
+		return strings.ReplaceAll(motd, "{duration}", durationStr)
+	}
+	return strings.ReplaceAll(motd, "{duration}", "failed")
+}
+
 func (r *routesImpl) GetAsleepMOTD(serverAddress string) string {
 	r.RLock()
 	defer r.RUnlock()
 
 	if serverAddress == "" {
-		return r.defaultRoute.asleepMOTD
+		return formatMOTD(r.defaultRoute.asleepMOTD, r.defaultRoute.countdownDeadline)
 	}
 
 	if m, ok := r.mappings[serverAddress]; ok {
-		return m.asleepMOTD
+		return formatMOTD(m.asleepMOTD, m.countdownDeadline)
 	}
 	return ""
 }
@@ -191,13 +210,28 @@ func (r *routesImpl) GetLoadingMOTD(serverAddress string) string {
 	defer r.RUnlock()
 
 	if serverAddress == "" {
-		return r.defaultRoute.loadingMOTD
+		return formatMOTD(r.defaultRoute.loadingMOTD, r.defaultRoute.countdownDeadline)
 	}
 
 	if m, ok := r.mappings[serverAddress]; ok {
-		return m.loadingMOTD
+		return formatMOTD(m.loadingMOTD, m.countdownDeadline)
 	}
 	return ""
+}
+
+func (r *routesImpl) SetCountdownDeadline(serverAddress string, deadline time.Time) {
+	r.Lock()
+	defer r.Unlock()
+
+	if serverAddress == "" {
+		r.defaultRoute.countdownDeadline = deadline
+		return
+	}
+
+	if m, ok := r.mappings[serverAddress]; ok {
+		m.countdownDeadline = deadline
+		r.mappings[serverAddress] = m
+	}
 }
 
 func (r *routesImpl) SimplifySRV(srvEnabled bool) {
