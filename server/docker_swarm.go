@@ -115,10 +115,19 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 				var hasActiveTask bool
 				var hasReadyTask bool
 				var readyTaskTimestamp time.Time
+				var latestTask swarm.Task
 
 				for _, task := range tasks {
 					state := task.Status.State
-					if state == swarm.TaskStateRunning {
+					desiredState := task.DesiredState
+
+					// Track the most recently created task to inspect its DesiredState.
+					if latestTask.CreatedAt.IsZero() || task.CreatedAt.After(latestTask.CreatedAt) {
+						latestTask = task
+					}
+
+					// The task is considered fully Running only if both actual and desired states are running.
+					if state == swarm.TaskStateRunning && desiredState == swarm.TaskStateRunning {
 						for _, attachment := range task.NetworksAttachments {
 							matchesNetwork := rs.networkID != "" && attachment.Network.ID == rs.networkID
 							isIngress := attachment.Network.Spec.Name == "ingress"
@@ -133,9 +142,9 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 						}
 					}
 
-					// Swarm task state 'ready' is undocumented but marks a task held during a restart delay.
+					// Swarm task state 'ready' (actual or desired) marks a task held during a restart delay.
 					// Find the latest ready task's status timestamp to measure the restart delay start.
-					if state == swarm.TaskStateReady {
+					if state == swarm.TaskStateReady || desiredState == swarm.TaskStateReady {
 						hasReadyTask = true
 						if task.Status.Timestamp.After(readyTaskTimestamp) {
 							readyTaskTimestamp = task.Status.Timestamp
@@ -150,7 +159,9 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 						state == swarm.TaskStatePreparing ||
 						state == swarm.TaskStateReady ||
 						state == swarm.TaskStateStarting ||
-						state == swarm.TaskStateRunning {
+						state == swarm.TaskStateRunning ||
+						desiredState == swarm.TaskStateReady ||
+						desiredState == swarm.TaskStateRunning {
 						hasActiveTask = true
 					}
 				}
@@ -163,22 +174,25 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 				swarmGaveUp := false
 				var remainingDelay time.Duration
 
-				if hasReadyTask && delay > 0 && !readyTaskTimestamp.IsZero() && time.Since(readyTaskTimestamp) < delay {
+				if hasReadyTask && delay > 0 {
 					// Waker is waiting for a restart delay to expire. Dynamically extend the deadline
 					// so we do not timeout the connection while Swarm holds the start attempt.
-					timeSinceReady := time.Since(readyTaskTimestamp)
-					remainingDelay = delay - timeSinceReady
-					newDeadline := readyTaskTimestamp.Add(delay).Add(waitTimeout)
-					if newDeadline.After(deadline) {
-						deadline = newDeadline
-						logrus.WithFields(logrus.Fields{
-							"service":      serviceID,
-							"remaining":    remainingDelay,
-							"extendedWait": time.Until(deadline),
-						}).Info("Swarm task is in restart delay. Dynamically extending waker deadline.")
+					if !readyTaskTimestamp.IsZero() && time.Since(readyTaskTimestamp) < delay {
+						timeSinceReady := time.Since(readyTaskTimestamp)
+						remainingDelay = delay - timeSinceReady
+						newDeadline := readyTaskTimestamp.Add(delay).Add(waitTimeout)
+						if newDeadline.After(deadline) {
+							deadline = newDeadline
+							logrus.WithFields(logrus.Fields{
+								"service":      serviceID,
+								"remaining":    remainingDelay,
+								"extendedWait": time.Until(deadline),
+							}).Info("Swarm task is in restart delay. Dynamically extending waker deadline.")
+						}
 					}
-				} else if !hasActiveTask && len(tasks) > 0 {
-					// Mentality: If all tasks are completed/failed and there are no active tasks being scheduled, Swarm gave up.
+				} else if !hasActiveTask && latestTask.DesiredState == swarm.TaskStateShutdown && len(tasks) > 0 {
+					// Mentality: If the latest task has DesiredState == Shutdown and there are no active tasks,
+					// Swarm has given up retrying.
 					swarmGaveUp = true
 				}
 
@@ -714,6 +728,7 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 	var hasReadyTask bool
 	var readyTaskTimestamp time.Time
 	var hasActiveTask bool
+	var latestTask swarm.Task
 	var delay time.Duration
 
 	var tasks []swarm.Task
@@ -731,13 +746,22 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 
 			for _, task := range tasks {
 				state := task.Status.State
-				if state == swarm.TaskStateRunning {
+				desiredState := task.DesiredState
+
+				// Track the most recently created task to inspect its DesiredState.
+				if latestTask.CreatedAt.IsZero() || task.CreatedAt.After(latestTask.CreatedAt) {
+					latestTask = task
+				}
+
+				// The task is considered fully Running only if both actual and desired states are running.
+				// If DesiredState is Shutdown or Remove, it is stopping.
+				if state == swarm.TaskStateRunning && desiredState == swarm.TaskStateRunning {
 					hasRunningTask = true
 				}
 
-				// Swarm task state 'ready' is undocumented but marks a task held during a restart delay.
+				// Swarm task state 'ready' (actual or desired) marks a task held during a restart delay.
 				// Find the latest ready task's status timestamp to measure the restart delay start.
-				if state == swarm.TaskStateReady {
+				if state == swarm.TaskStateReady || desiredState == swarm.TaskStateReady {
 					hasReadyTask = true
 					if task.Status.Timestamp.After(readyTaskTimestamp) {
 						readyTaskTimestamp = task.Status.Timestamp
@@ -752,7 +776,9 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 					state == swarm.TaskStatePreparing ||
 					state == swarm.TaskStateReady ||
 					state == swarm.TaskStateStarting ||
-					state == swarm.TaskStateRunning {
+					state == swarm.TaskStateRunning ||
+					desiredState == swarm.TaskStateReady ||
+					desiredState == swarm.TaskStateRunning {
 					hasActiveTask = true
 				}
 			}
@@ -814,17 +840,22 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 		data.ip = ""
 
 		// 3. Restart Delay State: Swarm scheduler is delaying task retry, keeping it in the 'ready' state.
-		if hasReadyTask && delay > 0 && !readyTaskTimestamp.IsZero() && time.Since(readyTaskTimestamp) < delay {
+		if hasReadyTask && delay > 0 {
 			if data.autoScaleRestartDelayMOTD != "" {
 				data.autoScaleAsleepMOTD = data.autoScaleRestartDelayMOTD
 			} else if data.autoScaleFailedMOTD != "" {
 				data.autoScaleAsleepMOTD = data.autoScaleFailedMOTD
+			} else {
+				data.autoScaleAsleepMOTD = "Server failed to start."
 			}
 			data.countdownDeadline = readyTaskTimestamp.Add(delay)
-		} else if !hasActiveTask && len(tasks) > 0 {
-			// 4. Permanently Failed State: Swarm has terminated all tasks in history and gave up (no active task scheduled).
+		} else if !hasActiveTask && latestTask.DesiredState == swarm.TaskStateShutdown && len(tasks) > 0 {
+			// 4. Permanently Failed State: Swarm has commanded a shutdown on the failed task
+			// and is no longer attempting to restart the service.
 			if data.autoScaleFailedMOTD != "" {
 				data.autoScaleAsleepMOTD = data.autoScaleFailedMOTD
+			} else {
+				data.autoScaleAsleepMOTD = "Server failed to start."
 			}
 			data.countdownDeadline = time.Time{}
 		} else {
