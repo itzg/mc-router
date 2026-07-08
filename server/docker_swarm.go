@@ -113,8 +113,8 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 			})
 			if err == nil && len(tasks) > 0 {
 				var hasActiveTask bool
-				var terminalFailureCount int
-				var lastFailedTime time.Time
+				var hasReadyTask bool
+				var readyTaskTimestamp time.Time
 
 				for _, task := range tasks {
 					state := task.Status.State
@@ -133,6 +133,16 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 						}
 					}
 
+					// Swarm task state 'ready' is undocumented but marks a task held during a restart delay.
+					// Find the latest ready task's status timestamp to measure the restart delay start.
+					if state == swarm.TaskStateReady {
+						hasReadyTask = true
+						if task.Status.Timestamp.After(readyTaskTimestamp) {
+							readyTaskTimestamp = task.Status.Timestamp
+						}
+					}
+
+					// Track active task states to see if Swarm is actively attempting to schedule/start a task.
 					if state == swarm.TaskStateNew ||
 						state == swarm.TaskStatePending ||
 						state == swarm.TaskStateAssigned ||
@@ -142,11 +152,6 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 						state == swarm.TaskStateStarting ||
 						state == swarm.TaskStateRunning {
 						hasActiveTask = true
-					} else if state == swarm.TaskStateFailed || state == swarm.TaskStateShutdown || state == swarm.TaskStateRejected {
-						terminalFailureCount++
-						if task.Status.Timestamp.After(lastFailedTime) {
-							lastFailedTime = task.Status.Timestamp
-						}
 					}
 				}
 
@@ -158,24 +163,23 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 				swarmGaveUp := false
 				var remainingDelay time.Duration
 
-				if !hasActiveTask && len(tasks) > 0 {
-					swarmGaveUp = true
-				} else if hasActiveTask && taskIP == "" {
-					if delay > 0 && !lastFailedTime.IsZero() {
-						timeSinceFailed := time.Since(lastFailedTime)
-						if timeSinceFailed < delay {
-							remainingDelay = delay - timeSinceFailed
-							newDeadline := lastFailedTime.Add(delay).Add(waitTimeout)
-							if newDeadline.After(deadline) {
-								deadline = newDeadline
-								logrus.WithFields(logrus.Fields{
-									"service":      serviceID,
-									"remaining":    remainingDelay,
-									"extendedWait": time.Until(deadline),
-								}).Info("Swarm task is in restart delay. Dynamically extending waker deadline.")
-							}
-						}
+				if hasReadyTask && delay > 0 && !readyTaskTimestamp.IsZero() && time.Since(readyTaskTimestamp) < delay {
+					// Waker is waiting for a restart delay to expire. Dynamically extend the deadline
+					// so we do not timeout the connection while Swarm holds the start attempt.
+					timeSinceReady := time.Since(readyTaskTimestamp)
+					remainingDelay = delay - timeSinceReady
+					newDeadline := readyTaskTimestamp.Add(delay).Add(waitTimeout)
+					if newDeadline.After(deadline) {
+						deadline = newDeadline
+						logrus.WithFields(logrus.Fields{
+							"service":      serviceID,
+							"remaining":    remainingDelay,
+							"extendedWait": time.Until(deadline),
+						}).Info("Swarm task is in restart delay. Dynamically extending waker deadline.")
 					}
+				} else if !hasActiveTask && len(tasks) > 0 {
+					// Mentality: If all tasks are completed/failed and there are no active tasks being scheduled, Swarm gave up.
+					swarmGaveUp = true
 				}
 
 				if swarmGaveUp {
@@ -707,9 +711,9 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 	}
 
 	var hasRunningTask bool
+	var hasReadyTask bool
+	var readyTaskTimestamp time.Time
 	var hasActiveTask bool
-	var terminalFailureCount int
-	var lastFailedTime time.Time
 	var delay time.Duration
 
 	var tasks []swarm.Task
@@ -731,6 +735,16 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 					hasRunningTask = true
 				}
 
+				// Swarm task state 'ready' is undocumented but marks a task held during a restart delay.
+				// Find the latest ready task's status timestamp to measure the restart delay start.
+				if state == swarm.TaskStateReady {
+					hasReadyTask = true
+					if task.Status.Timestamp.After(readyTaskTimestamp) {
+						readyTaskTimestamp = task.Status.Timestamp
+					}
+				}
+
+				// Track active task states to see if Swarm is actively attempting to schedule/start a task.
 				if state == swarm.TaskStateNew ||
 					state == swarm.TaskStatePending ||
 					state == swarm.TaskStateAssigned ||
@@ -740,86 +754,87 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 					state == swarm.TaskStateStarting ||
 					state == swarm.TaskStateRunning {
 					hasActiveTask = true
-				} else if state == swarm.TaskStateFailed || state == swarm.TaskStateShutdown || state == swarm.TaskStateRejected {
-					terminalFailureCount++
-					if task.Status.Timestamp.After(lastFailedTime) {
-						lastFailedTime = task.Status.Timestamp
+				}
+			}
+		}
+	}
+
+	// State machine classification:
+	// To prevent premature VIP/DNS resolution routing client connections away from the waker,
+	// we keep data.ip = "" in all non-running states. This forces client connections to use
+	// the waker, keeps the loading MOTD active, and avoids dialing starting/unreachable containers.
+
+	if replicas == 0 {
+		// 1. Sleeping State: Service is scaled to zero.
+		data.ip = ""
+		// data.autoScaleAsleepMOTD is already populated by parsing labels.
+		data.countdownDeadline = time.Time{}
+	} else if hasRunningTask {
+		// 2. Running (Healthy) State: Service has a fully running task.
+		if isVIP {
+			vipIndex := -1
+			if data.networkID != "" {
+				for i, vip := range service.Endpoint.VirtualIPs {
+					if vip.NetworkID == data.networkID {
+						vipIndex = i
+						break
 					}
 				}
 			}
-		}
-	}
-
-	swarmGaveUp := false
-	inRestartDelay := false
-
-	if replicas > 0 && !hasRunningTask {
-		if !hasActiveTask && len(tasks) > 0 {
-			swarmGaveUp = true
-		} else if hasActiveTask {
-			if delay > 0 && !lastFailedTime.IsZero() {
-				timeSinceFailed := time.Since(lastFailedTime)
-				if timeSinceFailed < delay {
-					inRestartDelay = true
-					data.countdownDeadline = lastFailedTime.Add(delay)
+			if vipIndex == -1 {
+				if data.network != nil {
+					for i, vip := range service.Endpoint.VirtualIPs {
+						if ok, err := dockerCheckNetworkName(vip.NetworkID, *data.network, networkMap, networkAliases); ok {
+							vipIndex = i
+							break
+						} else if err != nil {
+							logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+								Debugf("%v", err)
+						}
+					}
+				} else {
+					vipIndex = 0
 				}
 			}
+			if vipIndex != -1 && vipIndex < len(service.Endpoint.VirtualIPs) {
+				virtualIP := service.Endpoint.VirtualIPs[vipIndex]
+				ip, _, _ := net.ParseCIDR(virtualIP.Addr)
+				data.ip = ip.String()
+				data.networkID = virtualIP.NetworkID
+			} else {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					Warnf("ignoring service, unable to find match in VirtualIPs")
+				return
+			}
+		} else if isDNSRR {
+			data.ip = service.Spec.Name
 		}
-	}
-
-	if replicas == 0 || swarmGaveUp || inRestartDelay {
+	} else {
+		// Non-running states: keep data.ip empty to ensure the waker captures client connections
 		data.ip = ""
 
-		if inRestartDelay {
+		// 3. Restart Delay State: Swarm scheduler is delaying task retry, keeping it in the 'ready' state.
+		if hasReadyTask && delay > 0 && !readyTaskTimestamp.IsZero() && time.Since(readyTaskTimestamp) < delay {
 			if data.autoScaleRestartDelayMOTD != "" {
 				data.autoScaleAsleepMOTD = data.autoScaleRestartDelayMOTD
 			} else if data.autoScaleFailedMOTD != "" {
 				data.autoScaleAsleepMOTD = data.autoScaleFailedMOTD
 			}
-		} else if swarmGaveUp {
+			data.countdownDeadline = readyTaskTimestamp.Add(delay)
+		} else if !hasActiveTask && len(tasks) > 0 {
+			// 4. Permanently Failed State: Swarm has terminated all tasks in history and gave up (no active task scheduled).
 			if data.autoScaleFailedMOTD != "" {
 				data.autoScaleAsleepMOTD = data.autoScaleFailedMOTD
 			}
-		}
-	} else if isVIP {
-		vipIndex := -1
-		if data.networkID != "" {
-			for i, vip := range service.Endpoint.VirtualIPs {
-				if vip.NetworkID == data.networkID {
-					vipIndex = i
-					break
-				}
-			}
-		}
-		if vipIndex == -1 {
-			if data.network != nil {
-				for i, vip := range service.Endpoint.VirtualIPs {
-					if ok, err := dockerCheckNetworkName(vip.NetworkID, *data.network, networkMap, networkAliases); ok {
-						vipIndex = i
-						break
-					} else if err != nil {
-						// we intentionally ignore name check errors
-						logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-							Debugf("%v", err)
-					}
-				}
-			} else {
-				// if network isn't specified assume it's the first one
-				vipIndex = 0
-			}
-		}
-		if vipIndex != -1 && vipIndex < len(service.Endpoint.VirtualIPs) {
-			virtualIP := service.Endpoint.VirtualIPs[vipIndex]
-			ip, _, _ := net.ParseCIDR(virtualIP.Addr)
-			data.ip = ip.String()
-			data.networkID = virtualIP.NetworkID
+			data.countdownDeadline = time.Time{}
 		} else {
-			logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-				Warnf("ignoring service, unable to find match in VirtualIPs")
-			return
+			// 5. Starting / Waking State: Swarm has scaled the service up and the task is starting up (transited past ready),
+			// or it is the very first start. We display the loading MOTD on pings.
+			if data.autoScaleLoadingMOTD != "" {
+				data.autoScaleAsleepMOTD = data.autoScaleLoadingMOTD
+			}
+			data.countdownDeadline = time.Time{}
 		}
-	} else if isDNSRR {
-		data.ip = service.Spec.Name
 	}
 
 	ok = true
