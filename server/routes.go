@@ -199,6 +199,7 @@ func (r *routesImpl) GetAsleepMOTD(serverAddress string) string {
 		return formatMOTD(r.defaultRoute.asleepMOTD, r.defaultRoute.countdownDeadline)
 	}
 
+	serverAddress = strings.ToLower(serverAddress)
 	if m, ok := r.mappings[serverAddress]; ok {
 		return formatMOTD(m.asleepMOTD, m.countdownDeadline)
 	}
@@ -213,6 +214,7 @@ func (r *routesImpl) GetLoadingMOTD(serverAddress string) string {
 		return formatMOTD(r.defaultRoute.loadingMOTD, r.defaultRoute.countdownDeadline)
 	}
 
+	serverAddress = strings.ToLower(serverAddress)
 	if m, ok := r.mappings[serverAddress]; ok {
 		return formatMOTD(m.loadingMOTD, m.countdownDeadline)
 	}
@@ -228,6 +230,7 @@ func (r *routesImpl) SetCountdownDeadline(serverAddress string, deadline time.Ti
 		return
 	}
 
+	serverAddress = strings.ToLower(serverAddress)
 	if m, ok := r.mappings[serverAddress]; ok {
 		m.countdownDeadline = deadline
 		r.mappings[serverAddress] = m
@@ -242,6 +245,7 @@ func (r *routesImpl) HasRoute(serverAddress string) bool {
 	r.RLock()
 	defer r.RUnlock()
 
+	serverAddress = strings.ToLower(serverAddress)
 	_, exists := r.mappings[serverAddress]
 	return exists
 }
@@ -323,6 +327,7 @@ func (r *routesImpl) DeleteMapping(serverAddress string) bool {
 	defer r.Unlock()
 	logrus.WithField("serverAddress", serverAddress).Info("Deleting route")
 
+	serverAddress = strings.ToLower(serverAddress)
 	if m, ok := r.mappings[serverAddress]; ok {
 		r.downScaler.Cancel(m.scalingTarget)
 		delete(r.mappings, serverAddress)
