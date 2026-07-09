@@ -89,6 +89,7 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 			waitTimeout = 60 * time.Second
 		}
 
+		var filterTime time.Time
 		replicas := service.Spec.Mode.Replicated.Replicas
 		if replicas == nil || *replicas == 0 {
 			logrus.WithFields(logrus.Fields{
@@ -98,10 +99,13 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 			one := uint64(1)
 			service.Spec.Mode.Replicated.Replicas = &one
 
+			filterTime = time.Now()
 			_, err = w.client.ServiceUpdate(ctx, serviceID, service.Version, service.Spec, dockertypes.ServiceUpdateOptions{})
 			if err != nil {
 				return "", err
 			}
+		} else {
+			filterTime = service.Meta.UpdatedAt
 		}
 
 		// Wait until a task is running and has an IP address
@@ -118,6 +122,11 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 				var latestTask swarm.Task
 
 				for _, task := range tasks {
+					// Ignore tasks created before the current scale-up/deployment cycle to avoid stale history.
+					if !filterTime.IsZero() && task.CreatedAt.Before(filterTime) {
+						continue
+					}
+
 					state := task.Status.State
 					desiredState := task.DesiredState
 
@@ -725,6 +734,7 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 	}
 
 	var hasRunningTask bool
+	var runningTaskIP string
 	var hasReadyTask bool
 	var readyTaskTimestamp time.Time
 	var hasActiveTask bool
@@ -748,6 +758,16 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 				state := task.Status.State
 				desiredState := task.DesiredState
 
+				isTerminal := state == swarm.TaskStateFailed ||
+					state == swarm.TaskStateShutdown ||
+					state == swarm.TaskStateRejected ||
+					state == swarm.TaskStateComplete
+
+				// Ignore terminal tasks from previous service deployments/runs
+				if isTerminal && !service.Meta.UpdatedAt.IsZero() && task.CreatedAt.Before(service.Meta.UpdatedAt) {
+					continue
+				}
+
 				// Track the most recently created task to inspect its DesiredState.
 				if latestTask.CreatedAt.IsZero() || task.CreatedAt.After(latestTask.CreatedAt) {
 					latestTask = task
@@ -757,6 +777,19 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 				// If DesiredState is Shutdown or Remove, it is stopping.
 				if state == swarm.TaskStateRunning && desiredState == swarm.TaskStateRunning {
 					hasRunningTask = true
+					// Extract direct task IP to bypass VIP propagation lag when replicas == 1
+					for _, attachment := range task.NetworksAttachments {
+						matchesNetwork := data.networkID != "" && attachment.Network.ID == data.networkID
+						isIngress := attachment.Network.Spec.Name == "ingress"
+
+						if (matchesNetwork || (data.networkID == "" && !isIngress)) && len(attachment.Addresses) > 0 {
+							parts := strings.Split(attachment.Addresses[0], "/")
+							if ip := net.ParseIP(parts[0]); ip != nil {
+								runningTaskIP = parts[0]
+								break
+							}
+						}
+					}
 				}
 
 				// Swarm task state 'ready' (actual or desired) marks a task held during a restart delay.
@@ -797,7 +830,9 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 		data.countdownDeadline = time.Time{}
 	} else if hasRunningTask {
 		// 2. Running (Healthy) State: Service has a fully running task.
-		if isVIP {
+		if replicas == 1 && runningTaskIP != "" {
+			data.ip = runningTaskIP
+		} else if isVIP {
 			vipIndex := -1
 			if data.networkID != "" {
 				for i, vip := range service.Endpoint.VirtualIPs {
