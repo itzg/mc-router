@@ -335,6 +335,7 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 
 	visited := map[string]struct{}{}
 	for _, rs := range services {
+		// If this is a newly discovered service, set up wakers/sleepers and create the route mapping.
 		if oldRs, ok := w.serviceMap[rs.externalServiceName]; !ok {
 			w.serviceMap[rs.externalServiceName] = rs
 			logrus.WithField("routableService", rs).Debug("ADD")
@@ -346,6 +347,8 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.serviceID, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			}
 			w.routes.SetCountdownDeadline(rs.externalServiceName, rs.countdownDeadline)
+		// If the service is already tracked, check if any metadata, endpoint, MOTDs, or deadline
+		// changed. If so, recreate wakers/sleepers and update the route table.
 		} else if oldRs.containerEndpoint != rs.containerEndpoint ||
 			oldRs.serviceID != rs.serviceID ||
 			oldRs.networkID != rs.networkID ||
@@ -419,6 +422,11 @@ func (w *dockerSwarmWatcherImpl) streamEvents(ctx context.Context) {
 					break loop
 				}
 				logrus.WithFields(logrus.Fields{"type": ev.Type, "action": ev.Action, "id": ev.Actor.ID}).Trace("Docker Swarm event")
+				// Swarm task state updates can have a slight API database propagation lag.
+				// Introduce a small settling delay to ensure task queries reflect the updated state.
+				if ev.Type == DockerRouterEventTypeTask {
+					time.Sleep(200 * time.Millisecond)
+				}
 				if err := w.reconcileServices(ctx); err != nil {
 					logrus.WithError(err).Error("Docker Swarm reconciliation failed")
 				}
