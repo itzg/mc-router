@@ -401,7 +401,6 @@ func (w *dockerSwarmWatcherImpl) streamEvents(ctx context.Context) {
 
 		eventFilters := filters.NewArgs(
 			filters.Arg("type", string(events.ServiceEventType)),
-			filters.Arg("type", DockerRouterEventTypeTask),
 		)
 
 		eventCh, errCh := w.client.Events(ctx, events.ListOptions{Filters: eventFilters})
@@ -412,21 +411,23 @@ func (w *dockerSwarmWatcherImpl) streamEvents(ctx context.Context) {
 			backoff = time.Second
 		}
 
+		ticker := time.NewTicker(5 * time.Second)
+
 	loop:
 		for {
 			select {
 			case <-ctx.Done():
+				ticker.Stop()
 				return
+			case <-ticker.C:
+				if err := w.reconcileServices(ctx); err != nil {
+					logrus.WithError(err).Error("Docker Swarm reconciliation failed")
+				}
 			case ev, ok := <-eventCh:
 				if !ok {
 					break loop
 				}
 				logrus.WithFields(logrus.Fields{"type": ev.Type, "action": ev.Action, "id": ev.Actor.ID}).Trace("Docker Swarm event")
-				// Swarm task state updates can have a slight API database propagation lag.
-				// Introduce a small settling delay to ensure task queries reflect the updated state.
-				if ev.Type == DockerRouterEventTypeTask {
-					time.Sleep(200 * time.Millisecond)
-				}
 				if err := w.reconcileServices(ctx); err != nil {
 					logrus.WithError(err).Error("Docker Swarm reconciliation failed")
 				}
@@ -435,12 +436,14 @@ func (w *dockerSwarmWatcherImpl) streamEvents(ctx context.Context) {
 					break loop
 				}
 				if ctx.Err() != nil {
+					ticker.Stop()
 					return
 				}
 				logrus.WithError(err).Warn("Docker Swarm event stream error, reconnecting")
 				break loop
 			}
 		}
+		ticker.Stop()
 
 		select {
 		case <-ctx.Done():
