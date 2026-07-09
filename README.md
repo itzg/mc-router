@@ -226,7 +226,8 @@ Behavior:
 - While that wake-up is in progress and status pings are received, mc-router can return a loading MOTD (per-container override or `-auto-scale-loading-motd`).
 - When no clients remain connected and the idle timer elapses (`-auto-scale-down-after`), mc-router gracefully stops the container.
 
-Note: Docker Swarm deployments can use auto scaling via the [Webhook Auto Scale](#webhook-auto-scale) integration. Native Swarm service scaling via `-auto-scale-up`/`-auto-scale-down` is not supported.
+> [!NOTE]
+> Native Swarm service scaling via `-auto-scale-up`/`-auto-scale-down` is supported in both VIP (Virtual IP) and DNSRR (DNS Round-Robin) modes. Bypassing the VIP (by routing directly to the task container IP) is automatically enabled when `replicas == 1` to prevent VIP routing delay. Note that DNSRR mode has not been actively tested.
 
 #### Example Docker deployment
 
