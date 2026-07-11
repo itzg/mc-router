@@ -47,6 +47,7 @@ type routableSwarmService struct {
 	autoScaleFailedMOTD        string
 	autoScaleRestartDelayMOTD  string
 	countdownDeadline          time.Time
+	statusState                string
 }
 
 type dockerSwarmWatcherImpl struct {
@@ -329,7 +330,15 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 		// If this is a newly discovered service, set up wakers/sleepers and create the route mapping.
 		if oldRs, ok := w.serviceMap[rs.externalServiceName]; !ok {
 			w.serviceMap[rs.externalServiceName] = rs
-			logrus.WithField("routableService", rs).Debug("ADD")
+			ipDetail := ""
+			if rs.statusState == "running" && rs.containerEndpoint != "" {
+				ipDetail = fmt.Sprintf(" (Endpoint: %s)", rs.containerEndpoint)
+			}
+			logrus.WithFields(logrus.Fields{
+				"service": rs.serviceName,
+				"hosts":   rs.externalServiceName,
+			}).Infof("Swarm service state: %s%s", rs.statusState, ipDetail)
+
 			wakerFunc := w.makeWakerFunc(rs)
 			sleeperFunc := w.makeSleeperFunc(rs)
 			if rs.externalServiceName != "" {
@@ -350,7 +359,19 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			oldRs.autoScaleWaitTimeout != rs.autoScaleWaitTimeout ||
 			oldRs.autoScaleFailedMOTD != rs.autoScaleFailedMOTD ||
 			oldRs.autoScaleRestartDelayMOTD != rs.autoScaleRestartDelayMOTD ||
-			oldRs.countdownDeadline != rs.countdownDeadline {
+			oldRs.countdownDeadline != rs.countdownDeadline ||
+			oldRs.statusState != rs.statusState {
+
+			if oldRs.statusState != rs.statusState {
+				ipDetail := ""
+				if rs.statusState == "running" && rs.containerEndpoint != "" {
+					ipDetail = fmt.Sprintf(" (Endpoint: %s)", rs.containerEndpoint)
+				}
+				logrus.WithFields(logrus.Fields{
+					"service": rs.serviceName,
+					"hosts":   rs.externalServiceName,
+				}).Infof("Swarm service state transition: %s -> %s%s", oldRs.statusState, rs.statusState, ipDetail)
+			}
 
 			w.serviceMap[rs.externalServiceName] = rs
 			wakerFunc := w.makeWakerFunc(rs)
@@ -516,6 +537,7 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 				autoScaleFailedMOTD:       data.autoScaleFailedMOTD,
 				autoScaleRestartDelayMOTD: data.autoScaleRestartDelayMOTD,
 				countdownDeadline:         data.countdownDeadline,
+				statusState:               data.statusState,
 			})
 		}
 		if data.def != nil && *data.def {
@@ -533,6 +555,7 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 				autoScaleFailedMOTD:       data.autoScaleFailedMOTD,
 				autoScaleRestartDelayMOTD: data.autoScaleRestartDelayMOTD,
 				countdownDeadline:         data.countdownDeadline,
+				statusState:               data.statusState,
 			})
 		}
 	}
@@ -579,6 +602,7 @@ type parsedDockerServiceData struct {
 	autoScaleRestartDelayMOTD  string
 	countdownDeadline          time.Time
 	isDNSRR                    bool
+	statusState                string
 }
 
 func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *swarm.Service, networkMap map[string]*network.Inspect) (data parsedDockerServiceData, ok bool) {
@@ -817,11 +841,13 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 
 	if replicas == 0 {
 		// 1. Sleeping State: Service is scaled to zero.
+		data.statusState = "sleeping"
 		data.ip = ""
 		// data.autoScaleAsleepMOTD is already populated by parsing labels.
 		data.countdownDeadline = time.Time{}
 	} else if hasRunningTask {
 		// 2. Running (Healthy) State: Service has a fully running task.
+		data.statusState = "running"
 		if replicas == 1 && runningTaskIP != "" {
 			data.ip = runningTaskIP
 		} else if isVIP {
@@ -868,6 +894,7 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 
 		// 3. Restart Delay State: Swarm scheduler is delaying task retry, keeping it in the 'ready' state.
 		if hasReadyTask && delay > 0 {
+			data.statusState = "restart_delay"
 			if data.autoScaleRestartDelayMOTD != "" {
 				data.autoScaleAsleepMOTD = data.autoScaleRestartDelayMOTD
 			} else if data.autoScaleFailedMOTD != "" {
@@ -879,6 +906,7 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 		} else if !hasActiveTask && latestTask.DesiredState == swarm.TaskStateShutdown && len(tasks) > 0 {
 			// 4. Permanently Failed State: Swarm has commanded a shutdown on the failed task
 			// and is no longer attempting to restart the service.
+			data.statusState = "failed"
 			if data.autoScaleFailedMOTD != "" {
 				data.autoScaleAsleepMOTD = data.autoScaleFailedMOTD
 			} else {
@@ -888,6 +916,7 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 		} else {
 			// 5. Starting / Waking State: Swarm has scaled the service up and the task is starting up (transited past ready),
 			// or it is the very first start. We display the loading MOTD on pings.
+			data.statusState = "waking"
 			if data.autoScaleLoadingMOTD != "" {
 				data.autoScaleAsleepMOTD = data.autoScaleLoadingMOTD
 			}
