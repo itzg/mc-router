@@ -89,7 +89,6 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 			waitTimeout = 60 * time.Second
 		}
 
-		var filterTime time.Time
 		replicas := service.Spec.Mode.Replicated.Replicas
 		if replicas == nil || *replicas == 0 {
 			logrus.WithFields(logrus.Fields{
@@ -99,13 +98,10 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 			one := uint64(1)
 			service.Spec.Mode.Replicated.Replicas = &one
 
-			filterTime = time.Now()
 			_, err = w.client.ServiceUpdate(ctx, serviceID, service.Version, service.Spec, dockertypes.ServiceUpdateOptions{})
 			if err != nil {
 				return "", err
 			}
-		} else {
-			filterTime = service.Meta.UpdatedAt
 		}
 
 		// Wait until a task is running and has an IP address
@@ -122,11 +118,6 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 				var latestTask swarm.Task
 
 				for _, task := range tasks {
-					// Ignore tasks created before the current scale-up/deployment cycle to avoid stale history.
-					if !filterTime.IsZero() && task.CreatedAt.Before(filterTime) {
-						continue
-					}
-
 					state := task.Status.State
 					desiredState := task.DesiredState
 
@@ -768,16 +759,6 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 			for _, task := range tasks {
 				state := task.Status.State
 				desiredState := task.DesiredState
-
-				isTerminal := state == swarm.TaskStateFailed ||
-					state == swarm.TaskStateShutdown ||
-					state == swarm.TaskStateRejected ||
-					state == swarm.TaskStateComplete
-
-				// Ignore terminal tasks from previous service deployments/runs
-				if isTerminal && !service.Meta.UpdatedAt.IsZero() && task.CreatedAt.Before(service.Meta.UpdatedAt) {
-					continue
-				}
 
 				// Track the most recently created task to inspect its DesiredState.
 				if latestTask.CreatedAt.IsZero() || task.CreatedAt.After(latestTask.CreatedAt) {
