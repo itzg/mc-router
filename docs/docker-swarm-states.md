@@ -44,3 +44,12 @@ This document defines how to map Swarm's **Actual Task Status State** (`task.Sta
 * **Condition**: `replicas > 0` AND the desired state of the task is `running` but the actual status is not yet `running` (and not delayed or failed).
 * **Interpretation**: The container is actively being assigned, prepared, or started by Swarm.
 * **Router Action**: Keep the backend route empty (`""`) to preserve the waker, and display the loading/waking MOTD.
+
+---
+
+## Polling Implementation Details
+
+> [!NOTE]
+> **Why Polling is Used Instead of API Events:**
+> Although `mc-router` subscribes to the Docker Event Stream, the Docker Engine API does **not** broadcast task-level scheduling transitions (such as `task.Status.State` moving from `preparing` to `ready` or `running`) over the event system. 
+> To reliably capture these low-level task state changes and resolve the direct task IP without transient routing failures, `mc-router` utilizes a background polling ticker that queries the Swarm Service and Task API every 5 seconds.
