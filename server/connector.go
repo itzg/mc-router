@@ -23,6 +23,14 @@ import (
 
 const (
 	handshakeTimeout = 5 * time.Second
+	// backendDialTimeout bounds how long we wait to establish the TCP
+	// connection to a backend. Without it, dialing a Service whose backing
+	// StatefulSet is scaled to 0 (no endpoints) can hang on the OS SYN-retry
+	// timeout (~30s) — long enough that a client's server-list ping gives up
+	// before the auto-scale asleep MOTD is served from the dial-failure
+	// fallback below. A healthy backend accepts the TCP connection almost
+	// instantly, so this bound only trips on unreachable/asleep backends.
+	backendDialTimeout = 2 * time.Second
 )
 
 var noDeadline time.Time
@@ -647,7 +655,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		Info("Connecting to backend")
 
 	//goland:noinspection GoResourceLeak ownership transferred to pumpConnections and closed with return statements below
-	backendConn, err := net.Dial("tcp", backendHostPort)
+	backendConn, err := net.DialTimeout("tcp", backendHostPort, backendDialTimeout)
 	if err != nil {
 		logrus.
 			WithError(err).
