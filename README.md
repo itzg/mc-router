@@ -44,6 +44,8 @@ Some other features included:
     	If set, statically-configured backends are scaled up on access and down after idle by POSTing to this URL (env AUTO_SCALE_WEBHOOK_URL)
   -auto-scale-webhook-wake-timeout duration
     	Maximum time to wait for the backend to become reachable after a scale-up webhook (env AUTO_SCALE_WEBHOOK_WAKE_TIMEOUT) (default 1m0s)
+  -backend-dial-timeout duration
+    	Timeout for establishing the TCP connection to a backend. Bounds how long a dial to a scaled-to-zero server's Service (no endpoints) waits before the auto-scale asleep MOTD / scale-up fallback is served; operators with fast on-cluster backends can lower it so that fallback fires sooner (env BACKEND_DIAL_TIMEOUT) (default 2s)
   -clients-to-allow value
     	Zero or more client IP addresses or CIDRs to allow. Takes precedence over deny. (env CLIENTS_TO_ALLOW)
   -clients-to-deny value
