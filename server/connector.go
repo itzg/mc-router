@@ -30,7 +30,10 @@ const (
 	// before the auto-scale asleep MOTD is served from the dial-failure
 	// fallback below. A healthy backend accepts the TCP connection almost
 	// instantly, so this bound only trips on unreachable/asleep backends.
-	backendDialTimeout = 2 * time.Second
+	// Overridable via --backend-dial-timeout: operators whose backends are
+	// reachable faster (e.g. on-cluster Services) can lower it so the asleep
+	// MOTD / scale-up fallback fires sooner.
+	defaultBackendDialTimeout = 2 * time.Second
 )
 
 var noDeadline time.Time
@@ -89,6 +92,18 @@ func NewConnector(ctx context.Context, routes IRoutes, downScaler IDownScaler, m
 		activeConnections:          NewActiveConnections(),
 		scaleActiveConnections:     NewActiveConnections(),
 		wakingServers:              NewActiveConnections(),
+		backendDialTimeout:         defaultBackendDialTimeout,
+	}
+}
+
+// UseBackendDialTimeout overrides the timeout for establishing the TCP
+// connection to a backend (values <= 0 keep the default). Backends that are
+// reachable quickly — e.g. on-cluster Services — can use a shorter timeout so
+// the asleep-MOTD / scale-up fallback fires promptly on a scaled-to-zero
+// backend instead of waiting the full default.
+func (c *Connector) UseBackendDialTimeout(d time.Duration) {
+	if d > 0 {
+		c.backendDialTimeout = d
 	}
 }
 
@@ -118,6 +133,7 @@ type Connector struct {
 	connectionNotifier         ConnectionNotifier
 	asleepMOTD                 string
 	loadingMOTD                string
+	backendDialTimeout         time.Duration
 }
 
 func (c *Connector) UseConnectionNotifier(notifier ConnectionNotifier) {
@@ -655,7 +671,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		Info("Connecting to backend")
 
 	//goland:noinspection GoResourceLeak ownership transferred to pumpConnections and closed with return statements below
-	backendConn, err := net.DialTimeout("tcp", backendHostPort, backendDialTimeout)
+	backendConn, err := net.DialTimeout("tcp", backendHostPort, c.backendDialTimeout)
 	if err != nil {
 		logrus.
 			WithError(err).

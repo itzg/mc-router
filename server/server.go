@@ -104,6 +104,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 
 	connector := NewConnector(ctx, routes, downscaler, metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.RecordLogins, autoScaleAllowDenyConfig)
 
+	connector.UseBackendDialTimeout(config.BackendDialTimeout)
 	connector.UseAsleepMOTD(config.AutoScale.AsleepMOTD)
 	connector.UseLoadingMOTD(config.AutoScale.LoadingMOTD)
 
