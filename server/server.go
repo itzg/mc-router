@@ -251,9 +251,9 @@ func (s *Server) Run() {
 			}
 
 		case <-s.ctx.Done():
-			logrus.Info("Server Stopping. Waiting for connections to complete...")
+			logrus.Info("Router server stopping. Waiting for connections to complete...")
 			s.connector.WaitForConnections()
-			logrus.Info("Stopped")
+			logrus.Info("Router server stopped")
 			return
 		}
 	}
