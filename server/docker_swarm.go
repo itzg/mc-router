@@ -613,15 +613,16 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 	data.serviceName = service.Spec.Name
 
 	for key, value := range service.Spec.Labels {
-		if key == DockerRouterLabelHost {
+		switch key {
+		case DockerRouterLabelHost:
 			if data.hosts != nil {
 				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
 					Warnf("ignoring service with duplicate %s", DockerRouterLabelHost)
 				return
 			}
 			data.hosts = SplitExternalHosts(value)
-		}
-		if key == DockerRouterLabelPort {
+
+		case DockerRouterLabelPort:
 			if data.port != 0 {
 				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
 					Warnf("ignoring service with duplicate %s", DockerRouterLabelPort)
@@ -635,8 +636,8 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 					Warnf("ignoring service with invalid %s", DockerRouterLabelPort)
 				return
 			}
-		}
-		if key == DockerRouterLabelDefault {
+
+		case DockerRouterLabelDefault:
 			if data.def != nil {
 				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
 					Warnf("ignoring service with duplicate %s", DockerRouterLabelDefault)
@@ -646,8 +647,8 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 
 			lowerValue := strings.TrimSpace(strings.ToLower(value))
 			*data.def = lowerValue != "" && lowerValue != "0" && lowerValue != "false" && lowerValue != "no"
-		}
-		if key == DockerRouterLabelNetwork {
+
+		case DockerRouterLabelNetwork:
 			if data.network != nil {
 				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
 					Warnf("ignoring service with duplicate %s", DockerRouterLabelNetwork)
@@ -655,8 +656,8 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 			}
 			data.network = new(string)
 			*data.network = value
-		}
-		if key == DockerRouterLabelAutoScaleUp {
+
+		case DockerRouterLabelAutoScaleUp:
 			autoScaleUp, err := strconv.ParseBool(strings.TrimSpace(value))
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
@@ -665,8 +666,8 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 				return
 			}
 			data.autoScaleUp = autoScaleUp
-		}
-		if key == DockerRouterLabelAutoScaleDown {
+
+		case DockerRouterLabelAutoScaleDown:
 			autoScaleDown, err := strconv.ParseBool(strings.TrimSpace(value))
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
@@ -675,14 +676,14 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 				return
 			}
 			data.autoScaleDown = autoScaleDown
-		}
-		if key == DockerRouterLabelAutoScaleAsleepMOTD {
+
+		case DockerRouterLabelAutoScaleAsleepMOTD:
 			data.autoScaleAsleepMOTD = value
-		}
-		if key == DockerRouterLabelAutoScaleLoadingMOTD {
+
+		case DockerRouterLabelAutoScaleLoadingMOTD:
 			data.autoScaleLoadingMOTD = value
-		}
-		if key == DockerRouterLabelAutoScaleWaitTimeout {
+
+		case DockerRouterLabelAutoScaleWaitTimeout:
 			dur, err := time.ParseDuration(strings.TrimSpace(value))
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
@@ -691,11 +692,11 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 				return
 			}
 			data.autoScaleWaitTimeout = dur
-		}
-		if key == DockerRouterLabelAutoScaleFailedMOTD {
+
+		case DockerRouterLabelAutoScaleFailedMOTD:
 			data.autoScaleFailedMOTD = value
-		}
-		if key == DockerRouterLabelAutoScaleRestartDelayMOTD {
+
+		case DockerRouterLabelAutoScaleRestartDelayMOTD:
 			data.autoScaleRestartDelayMOTD = value
 		}
 	}
