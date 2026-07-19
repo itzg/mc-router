@@ -645,34 +645,7 @@ func (w *dockerSwarmWatcherImpl) evaluateSwarmService(ctx context.Context, servi
 		replicas = *service.Spec.Mode.Replicated.Replicas
 	}
 
-	// Resolve target networkID based on label or task template networks
-	networkAliases := map[string][]string{}
-	for _, network := range service.Spec.TaskTemplate.Networks {
-		networkAliases[network.Target] = network.Aliases
-	}
-
-	if data.network != nil {
-		for _, netSpec := range service.Spec.TaskTemplate.Networks {
-			if ok, _ := dockerCheckNetworkName(netSpec.Target, *data.network, networkMap, networkAliases); ok {
-				data.networkID = netSpec.Target
-				break
-			}
-		}
-	} else {
-		// Default: Find the first non-ingress network in the task template
-		for _, netSpec := range service.Spec.TaskTemplate.Networks {
-			if network := networkMap[netSpec.Target]; network != nil {
-				if network.Name != "ingress" {
-					data.networkID = netSpec.Target
-					break
-				}
-			}
-		}
-		// Fallback to first network if all are ingress or not found in networkMap
-		if data.networkID == "" && len(service.Spec.TaskTemplate.Networks) > 0 {
-			data.networkID = service.Spec.TaskTemplate.Networks[0].Target
-		}
-	}
+	data.networkID = resolveTargetNetwork(service, data.network, networkMap)
 
 	var hasRunningTask bool
 	var runningTaskIP string
@@ -777,6 +750,10 @@ func (w *dockerSwarmWatcherImpl) evaluateSwarmService(ctx context.Context, servi
 			}
 			if vipIndex == -1 {
 				if data.network != nil {
+					networkAliases := map[string][]string{}
+					for _, network := range service.Spec.TaskTemplate.Networks {
+						networkAliases[network.Target] = network.Aliases
+					}
 					for i, vip := range service.Endpoint.VirtualIPs {
 						if ok, err := dockerCheckNetworkName(vip.NetworkID, *data.network, networkMap, networkAliases); ok {
 							vipIndex = i
@@ -933,4 +910,33 @@ func (w *dockerSwarmWatcherImpl) parseServiceLabels(service *swarm.Service, data
 		}
 	}
 	return true
+}
+
+func resolveTargetNetwork(service *swarm.Service, labelNetwork *string, networkMap map[string]*network.Inspect) string {
+	networkAliases := map[string][]string{}
+	for _, network := range service.Spec.TaskTemplate.Networks {
+		networkAliases[network.Target] = network.Aliases
+	}
+
+	if labelNetwork != nil {
+		for _, netSpec := range service.Spec.TaskTemplate.Networks {
+			if ok, _ := dockerCheckNetworkName(netSpec.Target, *labelNetwork, networkMap, networkAliases); ok {
+				return netSpec.Target
+			}
+		}
+	} else {
+		// Default: Find the first non-ingress network in the task template
+		for _, netSpec := range service.Spec.TaskTemplate.Networks {
+			if network := networkMap[netSpec.Target]; network != nil {
+				if network.Name != "ingress" {
+					return netSpec.Target
+				}
+			}
+		}
+		// Fallback to first network if all are ingress or not found in networkMap
+		if len(service.Spec.TaskTemplate.Networks) > 0 {
+			return service.Spec.TaskTemplate.Networks[0].Target
+		}
+	}
+	return ""
 }
