@@ -650,94 +650,8 @@ func (w *dockerSwarmWatcherImpl) evaluateSwarmService(ctx context.Context, servi
 
 	tasksSummary := w.queryServiceTasks(ctx, service, replicas, data.networkID)
 
-	// State machine classification:
-	// To prevent premature VIP/DNS resolution routing client connections away from the waker,
-	// we keep data.ip = "" in all non-running states. This forces client connections to use
-	// the waker, keeps the loading MOTD active, and avoids dialing starting/unreachable containers.
-
-	if replicas == 0 {
-		// 1. Sleeping State: Service is scaled to zero.
-		data.statusState = "sleeping"
-		data.ip = ""
-		// data.autoScaleAsleepMOTD is already populated by parsing labels.
-		data.countdownDeadline = time.Time{}
-	} else if tasksSummary.hasRunningTask {
-		// 2. Running (Healthy) State: Service has a fully running task.
-		data.statusState = "running"
-		if replicas == 1 && tasksSummary.runningTaskIP != "" {
-			data.ip = tasksSummary.runningTaskIP
-		} else if isVIP {
-			vipIndex := -1
-			if data.networkID != "" {
-				for i, vip := range service.Endpoint.VirtualIPs {
-					if vip.NetworkID == data.networkID {
-						vipIndex = i
-						break
-					}
-				}
-			}
-			if vipIndex == -1 {
-				if data.network != nil {
-					for i, vip := range service.Endpoint.VirtualIPs {
-						if ok, err := dockerCheckNetworkName(vip.NetworkID, *data.network, networkMap, networkAliases); ok {
-							vipIndex = i
-							break
-						} else if err != nil {
-							logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-								Debugf("%v", err)
-						}
-					}
-				} else {
-					vipIndex = 0
-				}
-			}
-			if vipIndex != -1 && vipIndex < len(service.Endpoint.VirtualIPs) {
-				virtualIP := service.Endpoint.VirtualIPs[vipIndex]
-				ip, _, _ := net.ParseCIDR(virtualIP.Addr)
-				data.ip = ip.String()
-				data.networkID = virtualIP.NetworkID
-			} else {
-				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-					Warnf("ignoring service, unable to find match in VirtualIPs")
-				return
-			}
-		} else if isDNSRR {
-			data.ip = service.Spec.Name
-		}
-	} else {
-		// Non-running states: keep data.ip empty to ensure the waker captures client connections
-		data.ip = ""
-
-		// 3. Restart Delay State: Swarm scheduler is delaying task retry, keeping it in the 'ready' state.
-		if tasksSummary.hasReadyTask && tasksSummary.delay > 0 {
-			data.statusState = "restart_delay"
-			if data.autoScaleRestartDelayMOTD != "" {
-				data.autoScaleAsleepMOTD = data.autoScaleRestartDelayMOTD
-			} else if data.autoScaleFailedMOTD != "" {
-				data.autoScaleAsleepMOTD = data.autoScaleFailedMOTD
-			} else {
-				data.autoScaleAsleepMOTD = "Server failed to start."
-			}
-			data.countdownDeadline = tasksSummary.readyTaskTimestamp.Add(tasksSummary.delay)
-		} else if !tasksSummary.hasActiveTask && tasksSummary.latestTask.DesiredState == swarm.TaskStateShutdown && len(tasksSummary.tasks) > 0 {
-			// 4. Permanently Failed State: Swarm has commanded a shutdown on the failed task
-			// and is no longer attempting to restart the service.
-			data.statusState = "failed"
-			if data.autoScaleFailedMOTD != "" {
-				data.autoScaleAsleepMOTD = data.autoScaleFailedMOTD
-			} else {
-				data.autoScaleAsleepMOTD = "Server failed to start."
-			}
-			data.countdownDeadline = time.Time{}
-		} else {
-			// 5. Starting / Waking State: Swarm has scaled the service up and the task is starting up (transited past ready),
-			// or it is the very first start. We display the loading MOTD on pings.
-			data.statusState = "waking"
-			if data.autoScaleLoadingMOTD != "" {
-				data.autoScaleAsleepMOTD = data.autoScaleLoadingMOTD
-			}
-			data.countdownDeadline = time.Time{}
-		}
+	if !classifyServiceState(&data, service, replicas, isVIP, isDNSRR, tasksSummary, networkMap, networkAliases) {
+		return
 	}
 
 	ok = true
@@ -952,4 +866,93 @@ func (w *dockerSwarmWatcherImpl) queryServiceTasks(ctx context.Context, service 
 	}
 
 	return summary
+}
+
+func classifyServiceState(data *parsedDockerServiceData, service *swarm.Service, replicas uint64, isVIP bool, isDNSRR bool, tasksSummary serviceTasksSummary, networkMap map[string]*network.Inspect, networkAliases map[string][]string) bool {
+	if replicas == 0 {
+		// 1. Sleeping State: Service is scaled to zero.
+		data.statusState = "sleeping"
+		data.ip = ""
+		// data.autoScaleAsleepMOTD is already populated by parsing labels.
+		data.countdownDeadline = time.Time{}
+	} else if tasksSummary.hasRunningTask {
+		// 2. Running (Healthy) State: Service has a fully running task.
+		data.statusState = "running"
+		if replicas == 1 && tasksSummary.runningTaskIP != "" {
+			data.ip = tasksSummary.runningTaskIP
+		} else if isVIP {
+			vipIndex := -1
+			if data.networkID != "" {
+				for i, vip := range service.Endpoint.VirtualIPs {
+					if vip.NetworkID == data.networkID {
+						vipIndex = i
+						break
+					}
+				}
+			}
+			if vipIndex == -1 {
+				if data.network != nil {
+					for i, vip := range service.Endpoint.VirtualIPs {
+						if ok, err := dockerCheckNetworkName(vip.NetworkID, *data.network, networkMap, networkAliases); ok {
+							vipIndex = i
+							break
+						} else if err != nil {
+							logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+								Debugf("%v", err)
+						}
+					}
+				} else {
+					vipIndex = 0
+				}
+			}
+			if vipIndex != -1 && vipIndex < len(service.Endpoint.VirtualIPs) {
+				virtualIP := service.Endpoint.VirtualIPs[vipIndex]
+				ip, _, _ := net.ParseCIDR(virtualIP.Addr)
+				data.ip = ip.String()
+				data.networkID = virtualIP.NetworkID
+			} else {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					Warnf("ignoring service, unable to find match in VirtualIPs")
+				return false
+			}
+		} else if isDNSRR {
+			data.ip = service.Spec.Name
+		}
+	} else {
+		// Non-running states: keep data.ip empty to ensure the waker captures client connections
+		data.ip = ""
+
+		// 3. Restart Delay State: Swarm scheduler is delaying task retry, keeping it in the 'ready' state.
+		if tasksSummary.hasReadyTask && tasksSummary.delay > 0 {
+			data.statusState = "restart_delay"
+			if data.autoScaleRestartDelayMOTD != "" {
+				data.autoScaleAsleepMOTD = data.autoScaleRestartDelayMOTD
+			} else if data.autoScaleFailedMOTD != "" {
+				data.autoScaleAsleepMOTD = data.autoScaleFailedMOTD
+			} else {
+				data.autoScaleAsleepMOTD = "Server failed to start."
+			}
+			data.countdownDeadline = tasksSummary.readyTaskTimestamp.Add(tasksSummary.delay)
+		} else if !tasksSummary.hasActiveTask && tasksSummary.latestTask.DesiredState == swarm.TaskStateShutdown && len(tasksSummary.tasks) > 0 {
+			// 4. Permanently Failed State: Swarm has commanded a shutdown on the failed task
+			// and is no longer attempting to restart the service.
+			data.statusState = "failed"
+			if data.autoScaleFailedMOTD != "" {
+				data.autoScaleAsleepMOTD = data.autoScaleFailedMOTD
+			} else {
+				data.autoScaleAsleepMOTD = "Server failed to start."
+			}
+			data.countdownDeadline = time.Time{}
+		} else {
+			// 5. Starting / Waking State: Swarm has scaled the service up and the task is starting up (transited past ready),
+			// or it is the very first start. We display the loading MOTD on pings.
+			data.statusState = "waking"
+			if data.autoScaleLoadingMOTD != "" {
+				data.autoScaleAsleepMOTD = data.autoScaleLoadingMOTD
+			}
+			data.countdownDeadline = time.Time{}
+		}
+	}
+
+	return true
 }
