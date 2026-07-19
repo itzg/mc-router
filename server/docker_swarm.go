@@ -511,7 +511,7 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 			continue
 		}
 
-		data, ok := w.parseServiceData(ctx, &service, networkMap)
+		data, ok := w.evaluateSwarmService(ctx, &service, networkMap)
 		if !ok {
 			continue
 		}
@@ -604,7 +604,7 @@ type parsedDockerServiceData struct {
 	statusState                string
 }
 
-func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *swarm.Service, networkMap map[string]*network.Inspect) (data parsedDockerServiceData, ok bool) {
+func (w *dockerSwarmWatcherImpl) evaluateSwarmService(ctx context.Context, service *swarm.Service, networkMap map[string]*network.Inspect) (data parsedDockerServiceData, ok bool) {
 	data.autoScaleUp = w.config.autoScaleUp
 	data.autoScaleDown = w.config.autoScaleDown
 	data.autoScaleWaitTimeout = 60 * time.Second
