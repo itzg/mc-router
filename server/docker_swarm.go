@@ -90,8 +90,7 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 			waitTimeout = 60 * time.Second
 		}
 
-		replicas := service.Spec.Mode.Replicated.Replicas
-		if replicas == nil || *replicas == 0 {
+		if service.Spec.Mode.Replicated != nil && service.Spec.Mode.Replicated.Replicas != nil && *service.Spec.Mode.Replicated.Replicas == 0 {
 			logrus.WithFields(logrus.Fields{
 				"serviceID":   serviceID,
 				"serviceName": rs.serviceName,
@@ -612,93 +611,8 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 	data.serviceID = service.ID
 	data.serviceName = service.Spec.Name
 
-	for key, value := range service.Spec.Labels {
-		switch key {
-		case DockerRouterLabelHost:
-			if data.hosts != nil {
-				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-					Warnf("ignoring service with duplicate %s", DockerRouterLabelHost)
-				return
-			}
-			data.hosts = SplitExternalHosts(value)
-
-		case DockerRouterLabelPort:
-			if data.port != 0 {
-				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-					Warnf("ignoring service with duplicate %s", DockerRouterLabelPort)
-				return
-			}
-			var err error
-			data.port, err = strconv.ParseUint(value, 10, 32)
-			if err != nil {
-				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-					WithError(err).
-					Warnf("ignoring service with invalid %s", DockerRouterLabelPort)
-				return
-			}
-
-		case DockerRouterLabelDefault:
-			if data.def != nil {
-				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-					Warnf("ignoring service with duplicate %s", DockerRouterLabelDefault)
-				return
-			}
-			data.def = new(bool)
-
-			lowerValue := strings.TrimSpace(strings.ToLower(value))
-			*data.def = lowerValue != "" && lowerValue != "0" && lowerValue != "false" && lowerValue != "no"
-
-		case DockerRouterLabelNetwork:
-			if data.network != nil {
-				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-					Warnf("ignoring service with duplicate %s", DockerRouterLabelNetwork)
-				return
-			}
-			data.network = new(string)
-			*data.network = value
-
-		case DockerRouterLabelAutoScaleUp:
-			autoScaleUp, err := strconv.ParseBool(strings.TrimSpace(value))
-			if err != nil {
-				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-					WithError(err).
-					Warnf("ignoring service with invalid value for %s", DockerRouterLabelAutoScaleUp)
-				return
-			}
-			data.autoScaleUp = autoScaleUp
-
-		case DockerRouterLabelAutoScaleDown:
-			autoScaleDown, err := strconv.ParseBool(strings.TrimSpace(value))
-			if err != nil {
-				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-					WithError(err).
-					Warnf("ignoring service with invalid value for %s", DockerRouterLabelAutoScaleDown)
-				return
-			}
-			data.autoScaleDown = autoScaleDown
-
-		case DockerRouterLabelAutoScaleAsleepMOTD:
-			data.autoScaleAsleepMOTD = value
-
-		case DockerRouterLabelAutoScaleLoadingMOTD:
-			data.autoScaleLoadingMOTD = value
-
-		case DockerRouterLabelAutoScaleWaitTimeout:
-			dur, err := time.ParseDuration(strings.TrimSpace(value))
-			if err != nil {
-				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
-					WithError(err).
-					Warnf("ignoring service with invalid value for %s", DockerRouterLabelAutoScaleWaitTimeout)
-				return
-			}
-			data.autoScaleWaitTimeout = dur
-
-		case DockerRouterLabelAutoScaleFailedMOTD:
-			data.autoScaleFailedMOTD = value
-
-		case DockerRouterLabelAutoScaleRestartDelayMOTD:
-			data.autoScaleRestartDelayMOTD = value
-		}
+	if !w.parseServiceLabels(service, &data) {
+		return
 	}
 
 	// probably not minecraft related
@@ -927,4 +841,96 @@ func (w *dockerSwarmWatcherImpl) parseServiceData(ctx context.Context, service *
 
 	ok = true
 	return
+}
+
+func (w *dockerSwarmWatcherImpl) parseServiceLabels(service *swarm.Service, data *parsedDockerServiceData) bool {
+	for key, value := range service.Spec.Labels {
+		switch key {
+		case DockerRouterLabelHost:
+			if data.hosts != nil {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					Warnf("ignoring service with duplicate %s", DockerRouterLabelHost)
+				return false
+			}
+			data.hosts = SplitExternalHosts(value)
+
+		case DockerRouterLabelPort:
+			if data.port != 0 {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					Warnf("ignoring service with duplicate %s", DockerRouterLabelPort)
+				return false
+			}
+			var err error
+			data.port, err = strconv.ParseUint(value, 10, 32)
+			if err != nil {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					WithError(err).
+					Warnf("ignoring service with invalid %s", DockerRouterLabelPort)
+				return false
+			}
+
+		case DockerRouterLabelDefault:
+			if data.def != nil {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					Warnf("ignoring service with duplicate %s", DockerRouterLabelDefault)
+				return false
+			}
+			data.def = new(bool)
+
+			lowerValue := strings.TrimSpace(strings.ToLower(value))
+			*data.def = lowerValue != "" && lowerValue != "0" && lowerValue != "false" && lowerValue != "no"
+
+		case DockerRouterLabelNetwork:
+			if data.network != nil {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					Warnf("ignoring service with duplicate %s", DockerRouterLabelNetwork)
+				return false
+			}
+			data.network = new(string)
+			*data.network = value
+
+		case DockerRouterLabelAutoScaleUp:
+			autoScaleUp, err := strconv.ParseBool(strings.TrimSpace(value))
+			if err != nil {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					WithError(err).
+					Warnf("ignoring service with invalid value for %s", DockerRouterLabelAutoScaleUp)
+				return false
+			}
+			data.autoScaleUp = autoScaleUp
+
+		case DockerRouterLabelAutoScaleDown:
+			autoScaleDown, err := strconv.ParseBool(strings.TrimSpace(value))
+			if err != nil {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					WithError(err).
+					Warnf("ignoring service with invalid value for %s", DockerRouterLabelAutoScaleDown)
+				return false
+			}
+			data.autoScaleDown = autoScaleDown
+
+		case DockerRouterLabelAutoScaleAsleepMOTD:
+			data.autoScaleAsleepMOTD = value
+
+		case DockerRouterLabelAutoScaleLoadingMOTD:
+			data.autoScaleLoadingMOTD = value
+
+		case DockerRouterLabelAutoScaleWaitTimeout:
+			dur, err := time.ParseDuration(strings.TrimSpace(value))
+			if err != nil {
+				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
+					WithError(err).
+					Warnf("ignoring service with invalid value for %s", DockerRouterLabelAutoScaleWaitTimeout)
+				return false
+			}
+			data.autoScaleWaitTimeout = dur
+
+		case DockerRouterLabelAutoScaleFailedMOTD:
+			data.autoScaleFailedMOTD = value
+
+		case DockerRouterLabelAutoScaleRestartDelayMOTD:
+			data.autoScaleRestartDelayMOTD = value
+		}
+	}
+	return true
 }
