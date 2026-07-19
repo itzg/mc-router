@@ -1,0 +1,28 @@
+services:
+  mc:
+    image: itzg/minecraft-server
+    environment:
+      EULA: "TRUE"
+      TYPE: PAPER
+      VERSION: 1.20.1
+      PREFER_IPV6: true
+    labels:
+      mc-router.host: "localhost"
+    networks:
+      - only-ipv6
+  mc-router:
+    image: itzg/mc-router
+    environment:
+      IN_DOCKER: true
+    networks:
+      - only-ipv6
+    ports:
+      - "25565:25565"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+networks:
+  only-ipv6:
+    driver: bridge
+    enable_ipv6: true
+    # https://docs.docker.com/reference/compose-file/networks/#enable_ipv4
+    enable_ipv4: false
