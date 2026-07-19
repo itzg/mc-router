@@ -648,80 +648,7 @@ func (w *dockerSwarmWatcherImpl) evaluateSwarmService(ctx context.Context, servi
 	networkAliases := getNetworkAliases(service)
 	data.networkID = resolveTargetNetwork(service, data.network, networkMap, networkAliases)
 
-	var hasRunningTask bool
-	var runningTaskIP string
-	var hasReadyTask bool
-	var readyTaskTimestamp time.Time
-	var hasActiveTask bool
-	var latestTask swarm.Task
-	var delay time.Duration
-
-	var tasks []swarm.Task
-	var err error
-	if replicas > 0 {
-		tasks, err = w.client.TaskList(ctx, dockertypes.TaskListOptions{
-			Filters: filters.NewArgs(filters.Arg("service", service.ID)),
-		})
-		if err == nil && len(tasks) > 0 {
-			if service.Spec.TaskTemplate.RestartPolicy != nil {
-				if service.Spec.TaskTemplate.RestartPolicy.Delay != nil {
-					delay = *service.Spec.TaskTemplate.RestartPolicy.Delay
-				}
-			}
-
-			for _, task := range tasks {
-				state := task.Status.State
-				desiredState := task.DesiredState
-
-				// Track the most recently created task to inspect its DesiredState.
-				if latestTask.CreatedAt.IsZero() || task.CreatedAt.After(latestTask.CreatedAt) {
-					latestTask = task
-				}
-
-				// The task is considered fully Running only if both actual and desired states are running.
-				// If DesiredState is Shutdown or Remove, it is stopping.
-				if state == swarm.TaskStateRunning && desiredState == swarm.TaskStateRunning {
-					hasRunningTask = true
-					// Extract direct task IP to bypass VIP propagation lag when replicas == 1
-					for _, attachment := range task.NetworksAttachments {
-						matchesNetwork := data.networkID != "" && attachment.Network.ID == data.networkID
-						isIngress := attachment.Network.Spec.Name == "ingress"
-
-						if (matchesNetwork || (data.networkID == "" && !isIngress)) && len(attachment.Addresses) > 0 {
-							parts := strings.Split(attachment.Addresses[0], "/")
-							if ip := net.ParseIP(parts[0]); ip != nil {
-								runningTaskIP = parts[0]
-								break
-							}
-						}
-					}
-				}
-
-				// Swarm task state 'ready' (actual or desired) marks a task held during a restart delay.
-				// Find the latest ready task's status timestamp to measure the restart delay start.
-				if state == swarm.TaskStateReady || desiredState == swarm.TaskStateReady {
-					hasReadyTask = true
-					if task.Status.Timestamp.After(readyTaskTimestamp) {
-						readyTaskTimestamp = task.Status.Timestamp
-					}
-				}
-
-				// Track active task states to see if Swarm is actively attempting to schedule/start a task.
-				if state == swarm.TaskStateNew ||
-					state == swarm.TaskStatePending ||
-					state == swarm.TaskStateAssigned ||
-					state == swarm.TaskStateAccepted ||
-					state == swarm.TaskStatePreparing ||
-					state == swarm.TaskStateReady ||
-					state == swarm.TaskStateStarting ||
-					state == swarm.TaskStateRunning ||
-					desiredState == swarm.TaskStateReady ||
-					desiredState == swarm.TaskStateRunning {
-					hasActiveTask = true
-				}
-			}
-		}
-	}
+	tasksSummary := w.queryServiceTasks(ctx, service, replicas, data.networkID)
 
 	// State machine classification:
 	// To prevent premature VIP/DNS resolution routing client connections away from the waker,
@@ -734,11 +661,11 @@ func (w *dockerSwarmWatcherImpl) evaluateSwarmService(ctx context.Context, servi
 		data.ip = ""
 		// data.autoScaleAsleepMOTD is already populated by parsing labels.
 		data.countdownDeadline = time.Time{}
-	} else if hasRunningTask {
+	} else if tasksSummary.hasRunningTask {
 		// 2. Running (Healthy) State: Service has a fully running task.
 		data.statusState = "running"
-		if replicas == 1 && runningTaskIP != "" {
-			data.ip = runningTaskIP
+		if replicas == 1 && tasksSummary.runningTaskIP != "" {
+			data.ip = tasksSummary.runningTaskIP
 		} else if isVIP {
 			vipIndex := -1
 			if data.networkID != "" {
@@ -782,7 +709,7 @@ func (w *dockerSwarmWatcherImpl) evaluateSwarmService(ctx context.Context, servi
 		data.ip = ""
 
 		// 3. Restart Delay State: Swarm scheduler is delaying task retry, keeping it in the 'ready' state.
-		if hasReadyTask && delay > 0 {
+		if tasksSummary.hasReadyTask && tasksSummary.delay > 0 {
 			data.statusState = "restart_delay"
 			if data.autoScaleRestartDelayMOTD != "" {
 				data.autoScaleAsleepMOTD = data.autoScaleRestartDelayMOTD
@@ -791,8 +718,8 @@ func (w *dockerSwarmWatcherImpl) evaluateSwarmService(ctx context.Context, servi
 			} else {
 				data.autoScaleAsleepMOTD = "Server failed to start."
 			}
-			data.countdownDeadline = readyTaskTimestamp.Add(delay)
-		} else if !hasActiveTask && latestTask.DesiredState == swarm.TaskStateShutdown && len(tasks) > 0 {
+			data.countdownDeadline = tasksSummary.readyTaskTimestamp.Add(tasksSummary.delay)
+		} else if !tasksSummary.hasActiveTask && tasksSummary.latestTask.DesiredState == swarm.TaskStateShutdown && len(tasksSummary.tasks) > 0 {
 			// 4. Permanently Failed State: Swarm has commanded a shutdown on the failed task
 			// and is no longer attempting to restart the service.
 			data.statusState = "failed"
@@ -939,4 +866,90 @@ func resolveTargetNetwork(service *swarm.Service, labelNetwork *string, networkM
 		}
 	}
 	return ""
+}
+
+type serviceTasksSummary struct {
+	hasRunningTask     bool
+	runningTaskIP      string
+	hasReadyTask       bool
+	readyTaskTimestamp time.Time
+	hasActiveTask      bool
+	latestTask         swarm.Task
+	delay              time.Duration
+	tasks              []swarm.Task
+}
+
+func (w *dockerSwarmWatcherImpl) queryServiceTasks(ctx context.Context, service *swarm.Service, replicas uint64, networkID string) serviceTasksSummary {
+	var summary serviceTasksSummary
+	if replicas == 0 {
+		return summary
+	}
+
+	tasks, err := w.client.TaskList(ctx, dockertypes.TaskListOptions{
+		Filters: filters.NewArgs(filters.Arg("service", service.ID)),
+	})
+	if err != nil || len(tasks) == 0 {
+		return summary
+	}
+
+	summary.tasks = tasks
+
+	if service.Spec.TaskTemplate.RestartPolicy != nil {
+		if service.Spec.TaskTemplate.RestartPolicy.Delay != nil {
+			summary.delay = *service.Spec.TaskTemplate.RestartPolicy.Delay
+		}
+	}
+
+	for _, task := range tasks {
+		state := task.Status.State
+		desiredState := task.DesiredState
+
+		// Track the most recently created task to inspect its DesiredState.
+		if summary.latestTask.CreatedAt.IsZero() || task.CreatedAt.After(summary.latestTask.CreatedAt) {
+			summary.latestTask = task
+		}
+
+		// The task is considered fully Running only if both actual and desired states are running.
+		if state == swarm.TaskStateRunning && desiredState == swarm.TaskStateRunning {
+			summary.hasRunningTask = true
+			// Extract direct task IP to bypass VIP propagation lag when replicas == 1
+			for _, attachment := range task.NetworksAttachments {
+				matchesNetwork := networkID != "" && attachment.Network.ID == networkID
+				isIngress := attachment.Network.Spec.Name == "ingress"
+
+				if (matchesNetwork || (networkID == "" && !isIngress)) && len(attachment.Addresses) > 0 {
+					parts := strings.Split(attachment.Addresses[0], "/")
+					if ip := net.ParseIP(parts[0]); ip != nil {
+						summary.runningTaskIP = parts[0]
+						break
+					}
+				}
+			}
+		}
+
+		// Swarm task state 'ready' (actual or desired) marks a task held during a restart delay.
+		// Find the latest ready task's status timestamp to measure the restart delay start.
+		if state == swarm.TaskStateReady || desiredState == swarm.TaskStateReady {
+			summary.hasReadyTask = true
+			if task.Status.Timestamp.After(summary.readyTaskTimestamp) {
+				summary.readyTaskTimestamp = task.Status.Timestamp
+			}
+		}
+
+		// Track active task states to see if Swarm is actively attempting to schedule/start a task.
+		if state == swarm.TaskStateNew ||
+			state == swarm.TaskStatePending ||
+			state == swarm.TaskStateAssigned ||
+			state == swarm.TaskStateAccepted ||
+			state == swarm.TaskStatePreparing ||
+			state == swarm.TaskStateReady ||
+			state == swarm.TaskStateStarting ||
+			state == swarm.TaskStateRunning ||
+			desiredState == swarm.TaskStateReady ||
+			desiredState == swarm.TaskStateRunning {
+			summary.hasActiveTask = true
+		}
+	}
+
+	return summary
 }
