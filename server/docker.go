@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/sirupsen/logrus"
 )
@@ -267,7 +268,7 @@ func (w *dockerWatcherImpl) containersForID(ctx context.Context, containerID str
 	}
 	endpoint := ""
 	if !data.notRunning {
-		endpoint = fmt.Sprintf("%s:%d", data.ip, data.port)
+		endpoint = dockerBackendEndpoint(data.ip, data.port)
 	}
 	var result []*routableContainer
 	for _, host := range data.hosts {
@@ -483,7 +484,7 @@ func (w *dockerWatcherImpl) listContainers(ctx context.Context) ([]*routableCont
 
 		endpoint := ""
 		if !data.notRunning {
-			endpoint = fmt.Sprintf("%s:%d", data.ip, data.port)
+			endpoint = dockerBackendEndpoint(data.ip, data.port)
 		}
 		logrus.WithField("backendEndpoint", endpoint).
 			WithField("containerID", container.ID).
@@ -527,6 +528,20 @@ type parsedDockerContainerData struct {
 	autoScaleAsleepMOTD  string
 	autoScaleLoadingMOTD string
 	notRunning           bool
+}
+
+func dockerEndpointIP(endpoint *network.EndpointSettings) string {
+	if endpoint == nil {
+		return ""
+	}
+	if endpoint.IPAddress != "" {
+		return endpoint.IPAddress
+	}
+	return endpoint.GlobalIPv6Address
+}
+
+func dockerBackendEndpoint(ip string, port uint64) string {
+	return net.JoinHostPort(ip, strconv.FormatUint(port, 10))
 }
 
 func (w *dockerWatcherImpl) parseContainerData(container *container.InspectResponse) (data parsedDockerContainerData, ok bool) {
@@ -629,17 +644,17 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 		// specified network
 		for name, endpoint := range container.NetworkSettings.Networks {
 			if name == endpoint.NetworkID {
-				data.ip = endpoint.IPAddress
+				data.ip = dockerEndpointIP(endpoint)
 			}
 
 			if name == *data.network {
-				data.ip = endpoint.IPAddress
+				data.ip = dockerEndpointIP(endpoint)
 				break
 			}
 
 			for _, alias := range endpoint.Aliases {
 				if alias == name {
-					data.ip = endpoint.IPAddress
+					data.ip = dockerEndpointIP(endpoint)
 					break
 				}
 			}
@@ -655,7 +670,7 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 		}
 
 		for _, endpoint := range container.NetworkSettings.Networks {
-			data.ip = endpoint.IPAddress
+			data.ip = dockerEndpointIP(endpoint)
 			break
 		}
 	}
