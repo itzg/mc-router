@@ -34,20 +34,20 @@ func NewDockerSwarmWatcher(socket string, timeout time.Duration, autoScaleUp boo
 }
 
 type routableSwarmService struct {
-	externalServiceName  string
-	containerEndpoint    string
-	serviceID            string
-	serviceName          string
-	networkID            string
-	autoScaleUp          bool
-	autoScaleDown        bool
-	autoScaleAsleepMOTD  string
-	autoScaleLoadingMOTD string
-	autoScaleWaitTimeout time.Duration
-	autoScaleFailedMOTD        string
-	autoScaleRestartDelayMOTD  string
-	countdownDeadline          time.Time
-	statusState                string
+	externalServiceName       string
+	containerEndpoint         string
+	serviceID                 string
+	serviceName               string
+	networkID                 string
+	autoScaleUp               bool
+	autoScaleDown             bool
+	autoScaleAsleepMOTD       string
+	autoScaleLoadingMOTD      string
+	autoScaleWaitTimeout      time.Duration
+	autoScaleFailedMOTD       string
+	autoScaleRestartDelayMOTD string
+	countdownDeadline         time.Time
+	statusState               string
 }
 
 type dockerSwarmWatcherImpl struct {
@@ -346,8 +346,8 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.serviceID, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			}
 			w.routes.SetCountdownDeadline(rs.externalServiceName, rs.countdownDeadline)
-		// If the service is already tracked, check if any metadata, endpoint, MOTDs, or deadline
-		// changed. If so, recreate wakers/sleepers and update the route table.
+			// If the service is already tracked, check if any metadata, endpoint, MOTDs, or deadline
+			// changed. If so, recreate wakers/sleepers and update the route table.
 		} else if oldRs.containerEndpoint != rs.containerEndpoint ||
 			oldRs.serviceID != rs.serviceID ||
 			oldRs.networkID != rs.networkID ||
@@ -584,24 +584,24 @@ func dockerCheckNetworkName(id string, name string, networkMap map[string]*netwo
 }
 
 type parsedDockerServiceData struct {
-	hosts                []string
-	port                 uint64
-	def                  *bool
-	network              *string
-	networkID            string
-	ip                   string
-	serviceID            string
-	serviceName          string
-	autoScaleUp          bool
-	autoScaleDown        bool
-	autoScaleAsleepMOTD  string
-	autoScaleLoadingMOTD string
-	autoScaleWaitTimeout time.Duration
-	autoScaleFailedMOTD        string
-	autoScaleRestartDelayMOTD  string
-	countdownDeadline          time.Time
-	isDNSRR                    bool
-	statusState                string
+	hosts                     []string
+	port                      uint64
+	def                       *bool
+	network                   *string
+	networkID                 string
+	ip                        string
+	serviceID                 string
+	serviceName               string
+	autoScaleUp               bool
+	autoScaleDown             bool
+	autoScaleAsleepMOTD       string
+	autoScaleLoadingMOTD      string
+	autoScaleWaitTimeout      time.Duration
+	autoScaleFailedMOTD       string
+	autoScaleRestartDelayMOTD string
+	countdownDeadline         time.Time
+	isDNSRR                   bool
+	statusState               string
 }
 
 func (w *dockerSwarmWatcherImpl) evaluateSwarmService(ctx context.Context, service *swarm.Service, networkMap map[string]*network.Inspect) (data parsedDockerServiceData, ok bool) {
