@@ -284,6 +284,14 @@ func (w *dockerSwarmWatcherImpl) makeSleeperFunc(rs *routableSwarmService) Sleep
 	}
 }
 
+func (w *dockerSwarmWatcherImpl) makeServiceLifecycleFuncs(rs *routableSwarmService) (WakerFunc, SleeperFunc) {
+	var wakerFunc WakerFunc
+	if rs.statusState == "sleeping" || rs.statusState == "waking" {
+		wakerFunc = w.makeWakerFunc(rs)
+	}
+	return wakerFunc, w.makeSleeperFunc(rs)
+}
+
 func (w *dockerSwarmWatcherImpl) Start(ctx context.Context) error {
 	var err error
 
@@ -338,8 +346,7 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 				"hosts":   rs.externalServiceName,
 			}).Infof("Swarm service state: %s%s", rs.statusState, ipDetail)
 
-			wakerFunc := w.makeWakerFunc(rs)
-			sleeperFunc := w.makeSleeperFunc(rs)
+			wakerFunc, sleeperFunc := w.makeServiceLifecycleFuncs(rs)
 			if rs.externalServiceName != "" {
 				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, rs.serviceID, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			} else {
@@ -373,8 +380,7 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			}
 
 			w.serviceMap[rs.externalServiceName] = rs
-			wakerFunc := w.makeWakerFunc(rs)
-			sleeperFunc := w.makeSleeperFunc(rs)
+			wakerFunc, sleeperFunc := w.makeServiceLifecycleFuncs(rs)
 			if rs.externalServiceName != "" {
 				w.routes.DeleteMapping(rs.externalServiceName)
 				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, rs.serviceID, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
@@ -841,9 +847,9 @@ func (w *dockerSwarmWatcherImpl) queryServiceTasks(ctx context.Context, service 
 			}
 		}
 
-		// Swarm task state 'ready' (actual or desired) marks a task held during a restart delay.
+		// Swarm task desired state 'ready' marks a task held during a restart delay.
 		// Find the latest ready task's status timestamp to measure the restart delay start.
-		if state == swarm.TaskStateReady || desiredState == swarm.TaskStateReady {
+		if desiredState == swarm.TaskStateReady {
 			summary.hasReadyTask = true
 			if task.Status.Timestamp.After(summary.readyTaskTimestamp) {
 				summary.readyTaskTimestamp = task.Status.Timestamp
@@ -923,7 +929,7 @@ func classifyServiceState(data *parsedDockerServiceData, service *swarm.Service,
 		data.ip = ""
 
 		// 3. Restart Delay State: Swarm scheduler is delaying task retry, keeping it in the 'ready' state.
-		if tasksSummary.hasReadyTask && tasksSummary.delay > 0 {
+		if tasksSummary.hasReadyTask {
 			data.statusState = "restart_delay"
 			if data.autoScaleRestartDelayMOTD != "" {
 				data.autoScaleAsleepMOTD = data.autoScaleRestartDelayMOTD
