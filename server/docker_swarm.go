@@ -286,7 +286,7 @@ func (w *dockerSwarmWatcherImpl) makeSleeperFunc(rs *routableSwarmService) Sleep
 
 func (w *dockerSwarmWatcherImpl) makeServiceLifecycleFuncs(rs *routableSwarmService) (WakerFunc, SleeperFunc) {
 	var wakerFunc WakerFunc
-	if rs.statusState == "sleeping" || rs.statusState == "waking" {
+	if rs.statusState == "sleeping" || rs.statusState == "waking" || rs.statusState == "running" {
 		wakerFunc = w.makeWakerFunc(rs)
 	}
 	return wakerFunc, w.makeSleeperFunc(rs)
