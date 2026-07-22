@@ -196,11 +196,13 @@ These are the labels scanned:
 - `mc-router.port`: This value must be set to the port the Minecraft server is listening on. The default value is 25565.
 - `mc-router.default`: Set this to a truthy value to make this server the default backend. Please note that `mc-router.host` is still required to be set.
 - `mc-router.network`: Specify the network you are using for the router if multiple are present in the container/service. You can either use the network ID, it's full name or an alias.
-- `mc-router.auto-scale-up`: Per-container override to enable/disable auto scale up for Docker. When true (or left unspecified and the global `-auto-scale-up` flag is enabled), mc-router will start or unpause this container when a client connects to the declared hostname(s).
-- `mc-router.auto-scale-down`: Per-container override to enable/disable auto scale down for Docker. When true (or left unspecified and the global `-auto-scale-down` flag is enabled), mc-router will stop this container after it has been idle for the configured `-auto-scale-down-after` duration.
-- `mc-router.auto-scale-asleep-motd`: Per-container override for MOTD to show when container is scaled to zero. If empty or not set the host will
-appear unresponsive.
-- `mc-router.auto-scale-loading-motd`: Per-container override for MOTD to show while the container is waking and not yet reachable. If empty or not set, the global `-auto-scale-loading-motd` value is used.
+- `mc-router.auto-scale-up`: Per-container/service override to enable/disable auto scale up for Docker/Swarm. When true (or left unspecified and the global `-auto-scale-up` flag is enabled), mc-router will start the container or scale up the Swarm service when a client connects.
+- `mc-router.auto-scale-down`: Per-container/service override to enable/disable auto scale down for Docker/Swarm. When true (or left unspecified and the global `-auto-scale-down` flag is enabled), mc-router will stop the container or scale down the Swarm service to 0 after it has been idle.
+- `mc-router.auto-scale-asleep-motd`: Per-container/service override for MOTD to show when scaled to zero. If empty or not set the host will appear unresponsive.
+- `mc-router.auto-scale-loading-motd`: Per-container/service override for MOTD to show while waking up. Supports replacing the `{duration}` token with the remaining Swarm restart delay if the task is waiting to retry. If empty or not set, the global `-auto-scale-loading-motd` value is used.
+- `mc-router.auto-scale-wait-timeout`: Configure the maximum duration the router waits for the container or Swarm task to become reachable after scaling up (e.g. `"5m"` or `"300s"`). Defaults to 60s. Note: Since the Minecraft Java client has a strict connection timeout of 30 seconds, configuring this value above 30s is not recommended for player join connections.
+- `mc-router.auto-scale-restart-delay-motd`: MOTD to show while the service is in a temporary restart delay (e.g. `"Server failed to start. Retrying in {duration}."`). Supports the `{duration}` countdown token, which dynamically updates.
+- `mc-router.auto-scale-failed-motd`: MOTD to show if the container/service fails to start permanently or Swarm exhausts its restart policy (e.g. `"Server crashed and stopped retrying."`). Does not support the countdown token.
 
 #### Docker Auto Scale Up/Down
 
@@ -226,7 +228,8 @@ Behavior:
 - While that wake-up is in progress and status pings are received, mc-router can return a loading MOTD (per-container override or `-auto-scale-loading-motd`).
 - When no clients remain connected and the idle timer elapses (`-auto-scale-down-after`), mc-router gracefully stops the container.
 
-Note: Docker Swarm deployments can use auto scaling via the [Webhook Auto Scale](#webhook-auto-scale) integration. Native Swarm service scaling via `-auto-scale-up`/`-auto-scale-down` is not supported.
+> [!NOTE]
+> Native Swarm service scaling via `-auto-scale-up`/`-auto-scale-down` is supported in both VIP (Virtual IP) and DNSRR (DNS Round-Robin) modes. Bypassing the VIP (by routing directly to the task container IP) is automatically enabled when `replicas == 1` to prevent VIP routing delay. Note that DNSRR mode has not been actively tested.
 
 #### Example Docker deployment
 
@@ -541,7 +544,7 @@ To override the MOTD shown when the server is scaled down or scaling up, you can
 - `mc-router.itzg.me/autoScaleLoadingMOTD`
 
 You can also customize how long the router will wait for a scaling backend to become reachable (default: 60s):
-- `mc-router.itzg.me/autoScaleWaitTimeout` (e.g. `2m`, `30s`)
+- `mc-router.itzg.me/autoScaleWaitTimeout` (e.g. `2m`, `30s`). Note: Since the Minecraft Java client has a strict connection timeout of 30 seconds, configuring this value above 30s is not recommended for player join connections.
 
 Example server with custom MOTD and timeout:
 ```yaml
