@@ -229,6 +229,10 @@ func (s *Server) AcceptConnection(conn net.Conn) {
 	s.connector.AcceptConnection(conn)
 }
 
+func (s *Server) WithRoutesListener(listener RoutesListener) {
+	s.routes.WithListener(listener)
+}
+
 // Run will run the server until the context is done or a fatal error occurs, so this should be
 // in a go routine.
 func (s *Server) Run() {
