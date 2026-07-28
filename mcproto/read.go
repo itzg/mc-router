@@ -13,6 +13,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"unicode/utf8"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/text/encoding/unicode"
@@ -183,7 +185,12 @@ func ReadUTF16BEString(reader io.Reader, symbolLen uint16) (string, error) {
 		return "", err
 	}
 
-	return string(result), nil
+	str := string(result)
+	if !utf8.ValidString(str) {
+		return "", errors.New("string is not valid UTF-8")
+	}
+
+	return str, nil
 }
 
 func ReadFrame(reader io.Reader, addr net.Addr) (*Frame, error) {
@@ -301,7 +308,12 @@ func ReadString(reader io.Reader) (string, error) {
 		strBuilder.WriteByte(b[0])
 	}
 
-	return strBuilder.String(), nil
+	str := strBuilder.String()
+	if !utf8.ValidString(str) {
+		return "", errors.New("string is not valid UTF-8")
+	}
+
+	return str, nil
 }
 
 func ReadByte(reader io.Reader) (byte, error) {
