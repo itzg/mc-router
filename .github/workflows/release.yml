@@ -12,6 +12,7 @@ jobs:
     with:
       go-version-file: 'go.mod'
       enable-ghcr: true
+      # disable govulncheck until #568 is addressed
       include-govulncheck: false
     secrets:
       image-registry-username: ${{ secrets.DOCKERHUB_USERNAME }}
