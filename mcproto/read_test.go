@@ -16,6 +16,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestReadString(t *testing.T) {
+	t.Run("Valid UTF-8", func(t *testing.T) {
+		var buf bytes.Buffer
+		_ = WriteString(&buf, "mc.example.com")
+		str, err := ReadString(&buf)
+		require.NoError(t, err)
+		assert.Equal(t, "mc.example.com", str)
+	})
+
+	t.Run("Invalid UTF-8", func(t *testing.T) {
+		var buf bytes.Buffer
+		invalidBytes := []byte{0x01, 0xd9, 0x20, 0x34, 0xc3, 0x58, 0xdc, 0x0b, 0x85, 0xfe, 0x6b, 0xfd, 0x3b, 0x73, 0x07, 0x11, 0xb4, 0x39, 0x4b, 0x43, 0x2d}
+		_ = WriteVarInt(&buf, int32(len(invalidBytes)))
+		buf.Write(invalidBytes)
+
+		str, err := ReadString(&buf)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not valid UTF-8")
+		assert.Empty(t, str)
+	})
+}
+
 func TestReadVarInt(t *testing.T) {
 	tests := []struct {
 		Name     string

@@ -188,3 +188,37 @@ func TestConnectorMOTDFallback(t *testing.T) {
 	assert.Contains(t, jsonStr, "fallback asleep")
 	assert.False(t, scaleUpCalled, "Waker should NOT be called for a status request")
 }
+
+func TestConnectorNonUTF8Handshake(t *testing.T) {
+	routes := NewRoutes(t.Context())
+	downScaler := NewDownScaler(false, 5*time.Second)
+
+	metricsBuilder := prometheusMetricsBuilder{}
+	c := NewConnector(t.Context(), routes, downScaler, metricsBuilder.BuildConnectorMetrics(), false, false, nil)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+
+	go c.acceptConnections(ln, 100, 0)
+
+	clientConn, err := net.Dial("tcp", ln.Addr().String())
+	require.NoError(t, err)
+	defer clientConn.Close()
+
+	invalidBytes := []byte{0x01, 0xd9, 0x20, 0x34, 0xc3, 0x58, 0xdc, 0x0b, 0x85, 0xfe, 0x6b, 0xfd, 0x3b, 0x73, 0x07, 0x11, 0xb4, 0x39, 0x4b, 0x43, 0x2d}
+	err = writeTestPacket(clientConn, 0x00, func(w io.Writer) {
+		_ = mcproto.WriteVarInt(w, 758)
+		_ = mcproto.WriteVarInt(w, int32(len(invalidBytes)))
+		w.Write(invalidBytes)
+		w.Write([]byte{0x63, 0xdd})
+		_ = mcproto.WriteVarInt(w, 1)
+	})
+	require.NoError(t, err)
+
+	// Wait briefly for connection processing to finish without panicking
+	_ = clientConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	buf := make([]byte, 10)
+	_, _ = clientConn.Read(buf)
+}
+

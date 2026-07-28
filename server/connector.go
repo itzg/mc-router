@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"golang.ngrok.com/ngrok"
 	"golang.ngrok.com/ngrok/config"
@@ -524,6 +526,13 @@ func (c *Connector) readPlayerInfo(protocolVersion mcproto.ProtocolVersion, buff
 	}
 }
 
+func sanitizeUTF8(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	return strings.ToValidUTF8(s, "")
+}
+
 func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress string, playerInfo *PlayerInfo, backendHostPort string, scalingTarget string, cleanupMetrics bool, checkScaleDown bool) {
 	if c.connectionNotifier != nil {
 		err := c.connectionNotifier.NotifyDisconnected(c.ctx, clientAddr, serverAddress, playerInfo, backendHostPort)
@@ -538,16 +547,16 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 
 		c.activeConnections.Decrement(backendHostPort)
 		c.metrics.ServerActiveConnections.
-			With("server_address", serverAddress).
+			With("server_address", sanitizeUTF8(serverAddress)).
 			Set(float64(c.activeConnections.GetCount(backendHostPort)))
 
 		c.scaleActiveConnections.Decrement(scalingTarget)
 
 		if c.recordLogins && playerInfo != nil {
 			c.metrics.ServerActivePlayer.
-				With("player_name", playerInfo.Name).
-				With("player_uuid", playerInfo.Uuid.String()).
-				With("server_address", serverAddress).
+				With("player_name", sanitizeUTF8(playerInfo.Name)).
+				With("player_uuid", sanitizeUTF8(playerInfo.Uuid.String())).
+				With("server_address", sanitizeUTF8(serverAddress)).
 				Set(0)
 		}
 	}
@@ -714,7 +723,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		}
 	}
 
-	c.metrics.ConnectionsBackend.With("host", resolvedHost).Add(1)
+	c.metrics.ConnectionsBackend.With("host", sanitizeUTF8(resolvedHost)).Add(1)
 
 	c.metrics.ActiveConnections.Set(float64(
 		atomic.AddInt32(&c.totalActiveConnections, 1)))
@@ -722,7 +731,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 	c.activeConnections.Increment(backendHostPort)
 	c.scaleActiveConnections.Increment(scalingTarget)
 	c.metrics.ServerActiveConnections.
-		With("server_address", serverAddress).
+		With("server_address", sanitizeUTF8(serverAddress)).
 		Set(float64(c.activeConnections.GetCount(backendHostPort)))
 
 	if c.recordLogins && playerInfo != nil {
@@ -733,15 +742,15 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			Info("Player attempted to login to server")
 
 		c.metrics.ServerActivePlayer.
-			With("player_name", playerInfo.Name).
-			With("player_uuid", playerInfo.Uuid.String()).
-			With("server_address", serverAddress).
+			With("player_name", sanitizeUTF8(playerInfo.Name)).
+			With("player_uuid", sanitizeUTF8(playerInfo.Uuid.String())).
+			With("server_address", sanitizeUTF8(serverAddress)).
 			Set(1)
 
 		c.metrics.ServerLogins.
-			With("player_name", playerInfo.Name).
-			With("player_uuid", playerInfo.Uuid.String()).
-			With("server_address", serverAddress).
+			With("player_name", sanitizeUTF8(playerInfo.Name)).
+			With("player_uuid", sanitizeUTF8(playerInfo.Uuid.String())).
+			With("server_address", sanitizeUTF8(serverAddress)).
 			Add(1)
 	}
 
