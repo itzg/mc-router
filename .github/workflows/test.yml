@@ -21,3 +21,5 @@ jobs:
     uses: itzg/github-workflows/.github/workflows/go-test.yml@main
     with:
       go-version-file: 'go.mod'
+      # disable govulncheck until #568 is addressed
+      include-govulncheck: 'false'
