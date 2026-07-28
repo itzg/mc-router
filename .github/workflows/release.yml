@@ -12,6 +12,7 @@ jobs:
     with:
       go-version-file: 'go.mod'
       enable-ghcr: true
+      include-govulncheck: false
     secrets:
       image-registry-username: ${{ secrets.DOCKERHUB_USERNAME }}
       image-registry-password: ${{ secrets.DOCKERHUB_TOKEN }}
