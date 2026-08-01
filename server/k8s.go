@@ -500,20 +500,6 @@ func (t *K8sScalingTarget) String() string {
 	return t.endpoint
 }
 
-func (t *K8sScalingTarget) Equal(other ScalingTarget) bool {
-	if t == nil || other == nil {
-		return t == nil && other == nil
-	}
-	otherTarget, ok := other.(*K8sScalingTarget)
-	if !ok {
-		return false
-	}
-	return t.Key() == otherTarget.Key()
-}
-
-func (t *K8sScalingTarget) Key() string {
-	if t == nil {
-		return ""
-	}
+func (t *K8sScalingTarget) ScalingKey() string {
 	return t.endpoint
 }

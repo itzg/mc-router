@@ -305,15 +305,19 @@ func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddres
 }
 
 func (r *routesImpl) GetSleeper(scalingTarget ScalingTarget) SleeperFunc {
+	if scalingTarget == nil {
+		return nil
+	}
+
 	r.RLock()
 	defer r.RUnlock()
 
 	for _, m := range r.mappings {
-		if m.scalingTarget.Equal(scalingTarget) && m.sleeper != nil {
+		if m.scalingTarget != nil && m.scalingTarget.ScalingKey() == scalingTarget.ScalingKey() && m.sleeper != nil {
 			return m.sleeper
 		}
 	}
-	if r.defaultRoute != nil && r.defaultRoute.scalingTarget.Equal(scalingTarget) && r.defaultRoute.sleeper != nil {
+	if r.defaultRoute != nil && r.defaultRoute.scalingTarget != nil && r.defaultRoute.scalingTarget.ScalingKey() == scalingTarget.ScalingKey() && r.defaultRoute.sleeper != nil {
 		return r.defaultRoute.sleeper
 	}
 	return nil

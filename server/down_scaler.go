@@ -53,12 +53,12 @@ func (ds *downScalerImpl) Start(ctx context.Context, scalingTarget ScalingTarget
 	}
 
 	// If an existing scale down routine exists, cancel it
-	if scaleDownCancel, ok := ds.contextCancellations[scalingTarget.Key()]; ok {
+	if scaleDownCancel, ok := ds.contextCancellations[scalingTarget.ScalingKey()]; ok {
 		scaleDownCancel()
 	}
 
 	scaleDownContext, scaleDownContextCancellation := context.WithCancel(ctx)
-	ds.contextCancellations[scalingTarget.Key()] = scaleDownContextCancellation
+	ds.contextCancellations[scalingTarget.ScalingKey()] = scaleDownContextCancellation
 	go ds.scaleDown(scaleDownContext, scalingTarget, routes)
 }
 
@@ -70,10 +70,10 @@ func (ds *downScalerImpl) Cancel(scalingTarget ScalingTarget) {
 		return
 	}
 
-	if scaleDownContextCancellation, ok := ds.contextCancellations[scalingTarget.Key()]; ok {
+	if scaleDownContextCancellation, ok := ds.contextCancellations[scalingTarget.ScalingKey()]; ok {
 		logrus.WithField("scalingTarget", scalingTarget).Debug("Canceling scale down")
 		scaleDownContextCancellation()
-		delete(ds.contextCancellations, scalingTarget.Key())
+		delete(ds.contextCancellations, scalingTarget.ScalingKey())
 	}
 }
 

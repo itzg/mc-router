@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,7 +36,6 @@ const (
 	DockerRouterLabelAutoScaleWaitTimeout      = "mc-router.auto-scale-wait-timeout"
 	DockerRouterLabelAutoScaleFailedMOTD       = "mc-router.auto-scale-failed-motd"
 	DockerRouterLabelAutoScaleRestartDelayMOTD = "mc-router.auto-scale-restart-delay-motd"
-	DockerRouterEventTypeTask                  = "task"
 )
 
 type dockerWatcherConfig struct {
@@ -51,10 +51,10 @@ func (c *dockerWatcherConfig) apiVersionOpt() client.Opt {
 	if c.apiVersion != "" {
 		logrus.WithField("apiVersion", c.apiVersion).Debug("Using specific Docker API version")
 		return client.WithVersion(c.apiVersion)
-	} else {
-		logrus.Debug("Using Docker API version negotiation")
-		return client.WithAPIVersionNegotiation()
 	}
+
+	logrus.Debug("Using Docker API version negotiation")
+	return client.WithAPIVersionNegotiation()
 }
 
 func NewDockerWatcher(socket string, timeout time.Duration, autoScaleUp bool, autoScaleDown bool, dockerApiVersion string, routes IRoutes) IDockerWatcher {
@@ -84,11 +84,11 @@ func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
 		return nil
 	}
 	return func(ctx context.Context) (string, error) {
-		containerID := rc.containerID
-		if containerID == "" {
+		containerId := rc.containerId
+		if containerId == "" {
 			return "", fmt.Errorf("missing container id for wake")
 		}
-		inspect, err := w.client.ContainerInspect(ctx, containerID)
+		inspect, err := w.client.ContainerInspect(ctx, containerId)
 		if err != nil {
 			return "", err
 		}
@@ -97,18 +97,18 @@ func (w *dockerWatcherImpl) makeWakerFunc(rc *routableContainer) WakerFunc {
 		}
 		// If paused, unpause; if not running, start; otherwise no-op
 		if inspect.State.Paused {
-			logrus.WithFields(logrus.Fields{"containerID": containerID}).Debug("Unpausing container for wake")
-			if err := w.client.ContainerUnpause(ctx, containerID); err != nil {
+			logrus.WithFields(logrus.Fields{"containerId": containerId}).Debug("Unpausing container for wake")
+			if err := w.client.ContainerUnpause(ctx, containerId); err != nil {
 				return "", err
 			}
 		} else if !inspect.State.Running {
-			logrus.WithFields(logrus.Fields{"containerID": containerID}).Debug("Starting container for wake")
-			if err := w.client.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+			logrus.WithFields(logrus.Fields{"containerId": containerId}).Debug("Starting container for wake")
+			if err := w.client.ContainerStart(ctx, containerId, container.StartOptions{}); err != nil {
 				return "", err
 			}
 		}
 
-		inspect, err = w.client.ContainerInspect(ctx, containerID)
+		inspect, err = w.client.ContainerInspect(ctx, containerId)
 		if err != nil {
 			return "", err
 		}
@@ -153,19 +153,19 @@ func (w *dockerWatcherImpl) makeSleeperFunc(rc *routableContainer) SleeperFunc {
 		return nil
 	}
 	return func(ctx context.Context) error {
-		containerID := rc.containerID
-		if containerID == "" {
+		containerId := rc.containerId
+		if containerId == "" {
 			return fmt.Errorf("missing container id for sleep")
 		}
-		inspect, err := w.client.ContainerInspect(ctx, containerID)
+		inspect, err := w.client.ContainerInspect(ctx, containerId)
 		if err != nil {
 			return err
 		}
 		if inspect.State != nil && inspect.State.Running {
 			// Graceful stop with 60s timeout
 			timeout := 60
-			logrus.WithFields(logrus.Fields{"containerID": containerID}).Debug("Stopping container for sleep")
-			if err := w.client.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil {
+			logrus.WithFields(logrus.Fields{"containerId": containerId}).Debug("Stopping container for sleep")
+			if err := w.client.ContainerStop(ctx, containerId, container.StopOptions{Timeout: &timeout}); err != nil {
 				return err
 			}
 		}
@@ -191,7 +191,7 @@ func (w *dockerWatcherImpl) monitorContainers(ctx context.Context) error {
 
 	byID := map[string][]*routableContainer{}
 	for _, rc := range containers {
-		byID[rc.containerID] = append(byID[rc.containerID], rc)
+		byID[rc.containerId] = append(byID[rc.containerId], rc)
 	}
 
 	for id, desired := range byID {
@@ -200,7 +200,7 @@ func (w *dockerWatcherImpl) monitorContainers(ctx context.Context) error {
 
 	// Remove entries whose container is no longer present at all
 	for name, rc := range w.containerMap {
-		if _, present := byID[rc.containerID]; present {
+		if _, present := byID[rc.containerId]; present {
 			continue
 		}
 		delete(w.containerMap, name)
@@ -217,18 +217,18 @@ func (w *dockerWatcherImpl) monitorContainers(ctx context.Context) error {
 // applyEvent reacts to a single Docker event by reconciling only the routes
 // belonging to the affected container — no full re-list.
 func (w *dockerWatcherImpl) applyEvent(ctx context.Context, ev events.Message) error {
-	containerID := ev.Actor.ID
+	containerId := ev.Actor.ID
 	if ev.Type == events.NetworkEventType {
-		containerID = ev.Actor.Attributes["container"]
+		containerId = ev.Actor.Attributes["container"]
 	}
-	if containerID == "" {
+	if containerId == "" {
 		logrus.WithField("event", ev).Warn("network event missing container attribute, skipping")
 		return nil
 	}
 
 	var desired []*routableContainer
 	if !(ev.Type == events.ContainerEventType && ev.Action == events.ActionDestroy) {
-		got, err := w.containersForID(ctx, containerID)
+		got, err := w.containersForID(ctx, containerId)
 		if err != nil {
 			return err
 		}
@@ -243,24 +243,24 @@ func (w *dockerWatcherImpl) applyEvent(ctx context.Context, ev events.Message) e
 	relevant := len(desired) > 0
 	if !relevant {
 		for _, rc := range w.containerMap {
-			if rc.containerID == containerID {
+			if rc.containerId == containerId {
 				relevant = true
 				break
 			}
 		}
 	}
 	if relevant {
-		logrus.WithFields(logrus.Fields{"type": ev.Type, "action": ev.Action, "id": containerID}).Trace("Docker event")
+		logrus.WithFields(logrus.Fields{"type": ev.Type, "action": ev.Action, "id": containerId}).Trace("Docker event")
 	}
 
-	w.applyContainerRoutesLocked(containerID, desired)
+	w.applyContainerRoutesLocked(containerId, desired)
 	return nil
 }
 
 // containersForID inspects a single container and returns the routableContainers
 // it should produce. Returns nil if the container is gone or not routable.
-func (w *dockerWatcherImpl) containersForID(ctx context.Context, containerID string) ([]*routableContainer, error) {
-	inspect, err := w.client.ContainerInspect(ctx, containerID)
+func (w *dockerWatcherImpl) containersForID(ctx context.Context, containerId string) ([]*routableContainer, error) {
+	inspect, err := w.client.ContainerInspect(ctx, containerId)
 	if err != nil {
 		if cerrdefs.IsNotFound(err) {
 			return nil, nil
@@ -276,34 +276,37 @@ func (w *dockerWatcherImpl) containersForID(ctx context.Context, containerID str
 		endpoint = dockerBackendEndpoint(data.ip, data.port)
 	}
 	var result []*routableContainer
+	scalingTarget := NewDockerScalingTarget(containerId)
 	for _, host := range data.hosts {
 		result = append(result, &routableContainer{
 			containerEndpoint:     endpoint,
 			externalContainerName: host,
-			containerID:           containerID,
+			containerId:           containerId,
 			autoScaleUp:           data.autoScaleUp,
 			autoScaleDown:         data.autoScaleDown,
 			autoScaleAsleepMOTD:   data.autoScaleAsleepMOTD,
 			autoScaleLoadingMOTD:  data.autoScaleLoadingMOTD,
+			scalingTarget:         scalingTarget,
 		})
 	}
 	if data.def != nil && *data.def {
 		result = append(result, &routableContainer{
 			containerEndpoint:     endpoint,
 			externalContainerName: "",
-			containerID:           containerID,
+			containerId:           containerId,
 			autoScaleUp:           data.autoScaleUp,
 			autoScaleDown:         data.autoScaleDown,
 			autoScaleAsleepMOTD:   data.autoScaleAsleepMOTD,
 			autoScaleLoadingMOTD:  data.autoScaleLoadingMOTD,
+			scalingTarget:         scalingTarget,
 		})
 	}
 	return result, nil
 }
 
-// applyContainerRoutesLocked reconciles the routes for a single containerID
+// applyContainerRoutesLocked reconciles the routes for a single containerId
 // against the desired set. Caller must hold monitorLock.
-func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerID string, desired []*routableContainer) {
+func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerId string, desired []*routableContainer) {
 	desiredByName := map[string]*routableContainer{}
 	for _, rc := range desired {
 		desiredByName[rc.externalContainerName] = rc
@@ -311,7 +314,7 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerID string, desir
 
 	// Drop entries previously owned by this container that are no longer desired
 	for name, rc := range w.containerMap {
-		if rc.containerID != containerID {
+		if rc.containerId != containerId {
 			continue
 		}
 		if _, keep := desiredByName[name]; keep {
@@ -327,22 +330,21 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerID string, desir
 	}
 
 	for _, rs := range desired {
-		scalingTarget := NewDockerScalingTarget(rs.containerID)
 		oldRs, exists := w.containerMap[rs.externalContainerName]
 		if !exists {
 			w.containerMap[rs.externalContainerName] = rs
 			wakerFunc := w.makeWakerFunc(rs)
 			sleeperFunc := w.makeSleeperFunc(rs)
 			if rs.externalContainerName != "" {
-				w.routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, NamedScalingTarget(rs.containerID), wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			} else {
-				w.routes.SetDefaultRoute(rs.containerEndpoint, NamedScalingTarget(rs.containerID), wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			}
 			logrus.WithField("routableContainer", rs).Debug("ADD")
 			continue
 		}
 		if oldRs.containerEndpoint == rs.containerEndpoint &&
-			oldRs.containerID == rs.containerID &&
+			oldRs.containerId == rs.containerId &&
 			oldRs.autoScaleUp == rs.autoScaleUp &&
 			oldRs.autoScaleDown == rs.autoScaleDown &&
 			oldRs.autoScaleAsleepMOTD == rs.autoScaleAsleepMOTD &&
@@ -354,9 +356,9 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerID string, desir
 		sleeperFunc := w.makeSleeperFunc(rs)
 		if rs.externalContainerName != "" {
 			w.routes.RemoveMapping(rs.externalContainerName)
-			w.routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+			w.routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 		} else {
-			w.routes.SetDefaultRoute(rs.containerEndpoint, scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+			w.routes.SetDefaultRoute(rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 		}
 		logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
 	}
@@ -477,10 +479,11 @@ func (w *dockerWatcherImpl) listContainers(ctx context.Context) ([]*routableCont
 	}
 
 	var result []*routableContainer
-	for _, container := range containers {
-		inspect, err := w.client.ContainerInspect(ctx, container.ID)
+	for _, c := range containers {
+		containerId := c.ID
+		inspect, err := w.client.ContainerInspect(ctx, containerId)
 		if err != nil {
-			logrus.WithFields(logrus.Fields{"containerID": container.ID}).WithError(err).Error("Failed to inspect Docker container")
+			logrus.WithFields(logrus.Fields{"containerId": containerId}).WithError(err).Error("Failed to inspect Docker container")
 			continue
 		}
 		data, ok := w.parseContainerData(&inspect)
@@ -493,34 +496,32 @@ func (w *dockerWatcherImpl) listContainers(ctx context.Context) ([]*routableCont
 			endpoint = dockerBackendEndpoint(data.ip, data.port)
 		}
 		logrus.WithField("backendEndpoint", endpoint).
-			WithField("containerID", container.ID).
+			WithField("containerId", containerId).
 			Debug("Found routable Docker container")
 
+		scalingTarget := NewDockerScalingTarget(containerId)
 		for _, host := range data.hosts {
-			result = append(result, &routableContainer{
-				containerEndpoint:     endpoint,
-				externalContainerName: host,
-				containerID:           container.ID,
-				autoScaleUp:           data.autoScaleUp,
-				autoScaleDown:         data.autoScaleDown,
-				autoScaleAsleepMOTD:   data.autoScaleAsleepMOTD,
-				autoScaleLoadingMOTD:  data.autoScaleLoadingMOTD,
-			})
+			result = append(result, newRoutableContainer(endpoint, host, containerId, data, scalingTarget))
 		}
 		if data.def != nil && *data.def {
-			result = append(result, &routableContainer{
-				containerEndpoint:     endpoint,
-				externalContainerName: "",
-				containerID:           container.ID,
-				autoScaleUp:           data.autoScaleUp,
-				autoScaleDown:         data.autoScaleDown,
-				autoScaleAsleepMOTD:   data.autoScaleAsleepMOTD,
-				autoScaleLoadingMOTD:  data.autoScaleLoadingMOTD,
-			})
+			result = append(result, newRoutableContainer(endpoint, "", containerId, data, scalingTarget))
 		}
 	}
 
 	return result, nil
+}
+
+func newRoutableContainer(endpoint string, host string, containerId string, data parsedDockerContainerData, target *DockerScalingTarget) *routableContainer {
+	return &routableContainer{
+		containerEndpoint:     endpoint,
+		externalContainerName: host,
+		containerId:           containerId,
+		autoScaleUp:           data.autoScaleUp,
+		autoScaleDown:         data.autoScaleDown,
+		autoScaleAsleepMOTD:   data.autoScaleAsleepMOTD,
+		autoScaleLoadingMOTD:  data.autoScaleLoadingMOTD,
+		scalingTarget:         target,
+	}
 }
 
 type parsedDockerContainerData struct {
@@ -658,11 +659,8 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 				break
 			}
 
-			for _, alias := range endpoint.Aliases {
-				if alias == name {
-					data.ip = dockerEndpointIP(endpoint)
-					break
-				}
+			if slices.Contains(endpoint.Aliases, name) {
+				data.ip = dockerEndpointIP(endpoint)
 			}
 		}
 	} else {
@@ -701,26 +699,27 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 	return
 }
 
-// TODO have routableContainer implement ScalingTarget
 type routableContainer struct {
+	ScalingIndicator
 	externalContainerName string
 	containerEndpoint     string
-	containerID           string
+	containerId           string
 	autoScaleUp           bool
 	autoScaleDown         bool
 	autoScaleAsleepMOTD   string
 	autoScaleLoadingMOTD  string
+	scalingTarget         *DockerScalingTarget
 }
 
 type DockerScalingTarget struct {
 	ScalingIndicator
-	containerID string
+	containerId string
 }
 
-func NewDockerScalingTarget(containerID string) *DockerScalingTarget {
+func NewDockerScalingTarget(containerId string) *DockerScalingTarget {
 	return &DockerScalingTarget{
 		ScalingIndicator: ScalingIndicator{scaling: &atomic.Bool{}},
-		containerID:      containerID,
+		containerId:      containerId,
 	}
 }
 
@@ -728,23 +727,12 @@ func (t *DockerScalingTarget) String() string {
 	if t == nil {
 		return ""
 	}
-	return t.containerID
+	return t.containerId
 }
 
-func (t *DockerScalingTarget) Equal(other ScalingTarget) bool {
-	if t == nil || other == nil {
-		return t == nil && other == nil
-	}
-	otherTarget, ok := other.(*DockerScalingTarget)
-	if !ok {
-		return false
-	}
-	return t.Key() == otherTarget.Key()
-}
-
-func (t *DockerScalingTarget) Key() string {
+func (t *DockerScalingTarget) ScalingKey() string {
 	if t == nil {
 		return ""
 	}
-	return t.containerID
+	return t.containerId
 }

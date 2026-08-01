@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -80,12 +81,32 @@ func Test_routesImpl_FindBackendForServerAddress(t *testing.T) {
 	}
 }
 
+type testingScalingTarget struct {
+	ScalingIndicator
+	name string
+}
+
+func TestingScalingTarget(name string) ScalingTarget {
+	return &testingScalingTarget{name: name, ScalingIndicator: ScalingIndicator{scaling: &atomic.Bool{}}}
+}
+
+func (n *testingScalingTarget) String() string {
+	if n == nil {
+		return ""
+	}
+	return n.name
+}
+
+func (n *testingScalingTarget) ScalingKey() string {
+	return n.name
+}
+
 func Test_routesImpl_ScaleKey(t *testing.T) {
 	downScaler := NewDownScaler(false, 1*time.Second)
 
 	addressProxy := "proxy:25577"
-	targetProxy := NamedScalingTarget(addressProxy)
-	target5 := NamedScalingTarget("10.0.0.5:25565")
+	targetProxy := TestingScalingTarget(addressProxy)
+	target5 := TestingScalingTarget("10.0.0.5:25565")
 	t.Run("scaleKey is set when provided", func(t *testing.T) {
 		r := NewRoutes(t.Context())
 		r.WithDownScaler(downScaler)
@@ -93,7 +114,7 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 
 		backend, _, scalingTarget, _, _ := r.FindBackendForServerAddress(context.Background(), "mc.example.com")
 		assert.Equal(t, addressProxy, backend)
-		assert.Equal(t, "10.0.0.5:25565", scalingTarget.Key())
+		assert.Equal(t, "10.0.0.5:25565", scalingTarget.ScalingKey())
 	})
 
 	t.Run("GetSleepers matches on scaleKey not backend", func(t *testing.T) {
@@ -106,9 +127,9 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 		}
 
 		// Two routes with same proxy backend but different scaleKeys
-		target1 := NamedScalingTarget("10.0.0.1:25565")
+		target1 := TestingScalingTarget("10.0.0.1:25565")
 		r.CreateMapping("mc1.example.com", addressProxy, target1, nil, sleeper, "", "")
-		target2 := NamedScalingTarget("10.0.0.2:25565")
+		target2 := TestingScalingTarget("10.0.0.2:25565")
 		r.CreateMapping("mc2.example.com", addressProxy, target2, nil, nil, "", "")
 
 		s := r.GetSleeper(target1)
@@ -133,7 +154,7 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 
 		backend, scalingTarget, _, _ := r.GetDefaultRoute()
 		assert.Equal(t, addressProxy, backend)
-		assert.True(t, scalingTarget.Equal(target5))
+		assert.Equal(t, target5.ScalingKey(), scalingTarget.ScalingKey())
 	})
 
 	t.Run("default route scaleKey defaults to backend", func(t *testing.T) {

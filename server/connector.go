@@ -552,7 +552,7 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 			Set(float64(c.activeConnections.GetCount(backendHostPort)))
 
 		if scalingTarget != nil {
-			c.scaleActiveConnections.Decrement(scalingTarget.Key())
+			c.scaleActiveConnections.Decrement(scalingTarget.ScalingKey())
 		}
 
 		if c.recordLogins && playerInfo != nil {
@@ -569,7 +569,7 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 		WithField("player", playerInfo).
 		WithField("connectionCount", c.activeConnections.GetCount(backendHostPort)).
 		Info("Closed connection to backend")
-	if checkScaleDown && scalingTarget != nil && c.scaleActiveConnections.GetCount(scalingTarget.Key()) <= 0 {
+	if checkScaleDown && scalingTarget != nil && c.scaleActiveConnections.GetCount(scalingTarget.ScalingKey()) <= 0 {
 		c.downScaler.Start(c.ctx, scalingTarget, c.routes)
 	}
 	c.connectionsCond.Signal()
@@ -594,12 +594,13 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			WithField("player", playerInfo).
 			WithField("serverAllowsPlayer", serverAllowsPlayer).
 			Debug("checked if player is allowed to wake up the server")
-		if serverAllowsPlayer {
+		if serverAllowsPlayer && scalingTarget.StartScaling() {
+			defer scalingTarget.EndScaling()
+
 			// Cancel down scaler if active before scale up
-			if scalingTarget != nil {
-				c.downScaler.Cancel(scalingTarget)
-				cleanupCheckScaleDown = true
-			}
+			c.downScaler.Cancel(scalingTarget)
+			cleanupCheckScaleDown = true
+
 			logrus.WithField("serverAddress", serverAddress).Info("Waking up backend server")
 			c.wakingServers.Increment(serverAddress)
 			newBackendHostPort, err := waker(c.ctx)
@@ -727,7 +728,9 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		atomic.AddInt32(&c.totalActiveConnections, 1)))
 
 	c.activeConnections.Increment(backendHostPort)
-	c.scaleActiveConnections.Increment(scalingTarget.Key())
+	if scalingTarget != nil {
+		c.scaleActiveConnections.Increment(scalingTarget.ScalingKey())
+	}
 	c.metrics.ServerActiveConnections.
 		With("server_address", sanitizeUTF8(serverAddress)).
 		Set(float64(c.activeConnections.GetCount(backendHostPort)))

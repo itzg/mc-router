@@ -69,35 +69,21 @@ func (t *WebhookScalingTarget) String() string {
 	return t.backend
 }
 
-func (t *WebhookScalingTarget) Equal(other ScalingTarget) bool {
-	if t == nil || other == nil {
-		return t == nil && other == nil
-	}
-	otherTarget, ok := other.(*WebhookScalingTarget)
-	if !ok {
-		return false
-	}
-	return t.Key() == otherTarget.Key()
-}
-
-func (t *WebhookScalingTarget) Key() string {
-	if t == nil {
-		return ""
-	}
+func (t *WebhookScalingTarget) ScalingKey() string {
 	return t.backend
 }
 
 // routeFuncs returns the waker/sleeper pair for a static route. It is nil-safe
 // so callers can invoke it on an unconfigured (nil) scaler.
 func (s *WebhookScaler) routeFuncs(serverAddress string, backend string) (WakerFunc, SleeperFunc, ScalingTarget) {
-	if s == nil {
+	if s == nil || s.url == "" {
 		return nil, nil, nil
 	}
 	return s.makeWakerFunc(serverAddress, backend), s.makeSleeperFunc(serverAddress, backend), &WebhookScalingTarget{backend: backend}
 }
 
 func (s *WebhookScaler) makeWakerFunc(serverAddress string, backend string) WakerFunc {
-	if s.url == "" {
+	if s == nil || s.url == "" {
 		return nil
 	}
 	return func(ctx context.Context) (string, error) {

@@ -141,8 +141,9 @@ func TestConnectorMOTDFallback(t *testing.T) {
 		scaleUpCalled = true
 		return backendAddress, nil
 	}
+	scalingTarget := TestingScalingTarget(backendAddress)
 
-	routes.CreateMapping("mc.example.com", backendAddress, nil, waker, nil, "fallback asleep", "fallback loading")
+	routes.CreateMapping("mc.example.com", backendAddress, scalingTarget, waker, nil, "fallback asleep", "fallback loading")
 
 	metricsBuilder := discardMetricsBuilder{}
 	c := NewConnector(t.Context(), routes, downScaler, metricsBuilder.BuildConnectorMetrics(), false, false, nil)
