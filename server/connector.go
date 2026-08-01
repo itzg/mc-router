@@ -42,6 +42,7 @@ var noDeadline time.Time
 
 type ActiveConnections struct {
 	sync.RWMutex
+	// activeConnections key is either a backend address or scaling target key depending on metrics usage
 	activeConnections map[string]int
 }
 
@@ -51,24 +52,24 @@ func NewActiveConnections() *ActiveConnections {
 	}
 }
 
-func (sm *ActiveConnections) Increment(backendAddress string) {
+func (sm *ActiveConnections) Increment(key string) {
 	sm.Lock()
 	defer sm.Unlock()
-	if _, ok := sm.activeConnections[backendAddress]; !ok {
-		sm.activeConnections[backendAddress] = 1
+	if _, ok := sm.activeConnections[key]; !ok {
+		sm.activeConnections[key] = 1
 		return
 	}
-	sm.activeConnections[backendAddress] += 1
+	sm.activeConnections[key] += 1
 }
 
-func (sm *ActiveConnections) Decrement(backendAddress string) {
+func (sm *ActiveConnections) Decrement(key string) {
 	sm.Lock()
 	defer sm.Unlock()
-	if activeConnections, ok := sm.activeConnections[backendAddress]; ok && activeConnections <= 0 {
-		sm.activeConnections[backendAddress] = 0
+	if activeConnections, ok := sm.activeConnections[key]; ok && activeConnections <= 0 {
+		sm.activeConnections[key] = 0
 		return
 	}
-	sm.activeConnections[backendAddress] -= 1
+	sm.activeConnections[key] -= 1
 }
 
 func (sm *ActiveConnections) GetCount(backendAddress string) int {
@@ -533,7 +534,7 @@ func sanitizeUTF8(s string) string {
 	return strings.ToValidUTF8(s, "")
 }
 
-func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress string, playerInfo *PlayerInfo, backendHostPort string, scalingTarget string, cleanupMetrics bool, checkScaleDown bool) {
+func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress string, playerInfo *PlayerInfo, backendHostPort string, scalingTarget ScalingTarget, cleanupMetrics bool, checkScaleDown bool) {
 	if c.connectionNotifier != nil {
 		err := c.connectionNotifier.NotifyDisconnected(c.ctx, clientAddr, serverAddress, playerInfo, backendHostPort)
 		if err != nil {
@@ -550,7 +551,9 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 			With("server_address", sanitizeUTF8(serverAddress)).
 			Set(float64(c.activeConnections.GetCount(backendHostPort)))
 
-		c.scaleActiveConnections.Decrement(scalingTarget)
+		if scalingTarget != nil {
+			c.scaleActiveConnections.Decrement(scalingTarget.Key())
+		}
 
 		if c.recordLogins && playerInfo != nil {
 			c.metrics.ServerActivePlayer.
@@ -566,7 +569,7 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 		WithField("player", playerInfo).
 		WithField("connectionCount", c.activeConnections.GetCount(backendHostPort)).
 		Info("Closed connection to backend")
-	if checkScaleDown && c.scaleActiveConnections.GetCount(scalingTarget) <= 0 {
+	if checkScaleDown && scalingTarget != nil && c.scaleActiveConnections.GetCount(scalingTarget.Key()) <= 0 {
 		c.downScaler.Start(c.ctx, scalingTarget, c.routes)
 	}
 	c.connectionsCond.Signal()
@@ -593,10 +596,10 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			Debug("checked if player is allowed to wake up the server")
 		if serverAllowsPlayer {
 			// Cancel down scaler if active before scale up
-			if scalingTarget != "" {
+			if scalingTarget != nil {
 				c.downScaler.Cancel(scalingTarget)
+				cleanupCheckScaleDown = true
 			}
-			cleanupCheckScaleDown = true
 			logrus.WithField("serverAddress", serverAddress).Info("Waking up backend server")
 			c.wakingServers.Increment(serverAddress)
 			newBackendHostPort, err := waker(c.ctx)
@@ -611,11 +614,6 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 				c.metrics.Errors.With("type", "wakeup_no_address").Add(1)
 				return
 			}
-			if scalingTarget == "" {
-				scalingTarget = newBackendHostPort
-			}
-			// Cancel again in case any routes were changed during wake up
-			c.downScaler.Cancel(scalingTarget)
 			backendHostPort = newBackendHostPort
 			logrus.WithFields(logrus.Fields{
 				"serverAddress":   serverAddress,
@@ -729,7 +727,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		atomic.AddInt32(&c.totalActiveConnections, 1)))
 
 	c.activeConnections.Increment(backendHostPort)
-	c.scaleActiveConnections.Increment(scalingTarget)
+	c.scaleActiveConnections.Increment(scalingTarget.Key())
 	c.metrics.ServerActiveConnections.
 		With("server_address", sanitizeUTF8(serverAddress)).
 		Set(float64(c.activeConnections.GetCount(backendHostPort)))

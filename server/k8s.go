@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -34,7 +35,7 @@ const (
 )
 
 // K8sWatcher is a RouteFinder that can find routes from kubernetes services.
-// It also watches for stateful sets to auto scale up/down, if enabled.
+// It also watches for stateful sets to auto-scale up/down, if enabled.
 type K8sWatcher struct {
 	sync.RWMutex
 	config        *rest.Config
@@ -180,7 +181,7 @@ func (w *K8sWatcher) handleUpdate(oldObj interface{}, newObj interface{}) {
 			"old": oldRoutableService,
 		}).Debug("UPDATE")
 		if oldRoutableService.externalServiceName != "" {
-			w.routesHandler.DeleteMapping(oldRoutableService.externalServiceName)
+			w.routesHandler.RemoveMapping(oldRoutableService.externalServiceName)
 		}
 	}
 
@@ -204,9 +205,9 @@ func (w *K8sWatcher) handleDelete(obj interface{}) {
 			logrus.WithField("routableService", routableService).Debug("DELETE")
 
 			if routableService.externalServiceName != "" {
-				w.routesHandler.DeleteMapping(routableService.externalServiceName)
+				w.routesHandler.RemoveMapping(routableService.externalServiceName)
 			} else {
-				w.routesHandler.SetDefaultRoute("", "", nil, nil, "", "")
+				w.routesHandler.RemoveDefaultRoute()
 			}
 		}
 	}
@@ -231,7 +232,7 @@ func (w *K8sWatcher) handleAdd(obj interface{}) {
 type routableService struct {
 	externalServiceName  string
 	containerEndpoint    string
-	scalingTarget        string
+	scalingTarget        ScalingTarget
 	autoScaleUp          WakerFunc
 	autoScaleDown        SleeperFunc
 	autoScaleAsleepMOTD  string
@@ -283,7 +284,7 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 	endpoint := net.JoinHostPort(clusterIp, port)
 
 	routingEndpoint := endpoint
-	scalingTarget := endpoint // Default to service endpoint for scaling
+	scalingTarget := NewK8sScalingTarget(endpoint)
 
 	if proxyServerName, exists := service.Annotations[AnnotationProxyServerName]; exists && proxyServerName != "" {
 		// Ensure the proxy address has a port
@@ -319,7 +320,7 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 		externalServiceName:  externalServiceName,
 		containerEndpoint:    routingEndpoint,
 		scalingTarget:        scalingTarget,
-		autoScaleUp:          buildK8sWaker(routingEndpoint, wakerFunc, waitTimeout),
+		autoScaleUp:          buildK8sWaker(routingEndpoint, scalingTarget, wakerFunc, waitTimeout),
 		autoScaleDown:        w.buildScaleFunction(service, 1, 0),
 		autoScaleAsleepMOTD:  autoScaleAsleepMOTD,
 		autoScaleLoadingMOTD: autoScaleLoadingMOTD,
@@ -327,32 +328,36 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 	return rs
 }
 
-func buildK8sWaker(endpoint string, scaleUp SleeperFunc, waitTimeout time.Duration) WakerFunc {
+func buildK8sWaker(endpoint string, target ScalingTarget, scaleUp SleeperFunc, waitTimeout time.Duration) WakerFunc {
 	if scaleUp == nil {
 		return nil
 	}
 	return func(ctx context.Context) (string, error) {
-		if err := scaleUp(ctx); err != nil {
-			return "", err
-		}
+		if target.StartScaling() {
+			defer target.EndScaling()
 
-		deadline := time.Now().Add(waitTimeout)
-		for {
-			conn, err := net.DialTimeout("tcp", endpoint, 1*time.Second)
-			if err == nil {
-				_ = conn.Close()
-				break
+			if err := scaleUp(ctx); err != nil {
+				return "", err
 			}
-			if ctx.Err() != nil {
-				return endpoint, ctx.Err()
-			}
-			if time.Now().After(deadline) {
-				return endpoint, fmt.Errorf("timeout waiting for K8s backend to become reachable at %s", endpoint)
-			}
-			select {
-			case <-ctx.Done():
-				return endpoint, ctx.Err()
-			case <-time.After(500 * time.Millisecond):
+
+			deadline := time.Now().Add(waitTimeout)
+			for {
+				conn, err := net.DialTimeout("tcp", endpoint, 1*time.Second)
+				if err == nil {
+					_ = conn.Close()
+					break
+				}
+				if ctx.Err() != nil {
+					return endpoint, ctx.Err()
+				}
+				if time.Now().After(deadline) {
+					return endpoint, fmt.Errorf("timeout waiting for K8s backend to become reachable at %s", endpoint)
+				}
+				select {
+				case <-ctx.Done():
+					return endpoint, ctx.Err()
+				case <-time.After(500 * time.Millisecond):
+				}
 			}
 		}
 
@@ -363,7 +368,7 @@ func buildK8sWaker(endpoint string, scaleUp SleeperFunc, waitTimeout time.Durati
 // buildScaleFunction generates a SleeperFunc to scale StatefulSets based on specified criteria and service annotations.
 // Will return nil if the service should not be auto-scaled due config or annotation.
 func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to int32) SleeperFunc {
-	// Currently, annotations can only be used to opt-out of auto-scaling.
+	// Currently, annotations can only be used to opt out of auto-scaling.
 	// However, this logic is prepared also for opt-in, as it returns a `SleeperFunc` when flags are false but annotations are set to `enabled`.
 	if from <= to {
 		enabled, exists := service.Annotations[AnnotationAutoScaleUp]
@@ -474,4 +479,41 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 		}
 		return nil
 	}
+}
+
+type K8sScalingTarget struct {
+	ScalingIndicator
+	endpoint string
+}
+
+func NewK8sScalingTarget(endpoint string) *K8sScalingTarget {
+	return &K8sScalingTarget{
+		ScalingIndicator: ScalingIndicator{scaling: &atomic.Bool{}},
+		endpoint:         endpoint,
+	}
+}
+
+func (t *K8sScalingTarget) String() string {
+	if t == nil {
+		return ""
+	}
+	return t.endpoint
+}
+
+func (t *K8sScalingTarget) Equal(other ScalingTarget) bool {
+	if t == nil || other == nil {
+		return t == nil && other == nil
+	}
+	otherTarget, ok := other.(*K8sScalingTarget)
+	if !ok {
+		return false
+	}
+	return t.Key() == otherTarget.Key()
+}
+
+func (t *K8sScalingTarget) Key() string {
+	if t == nil {
+		return ""
+	}
+	return t.endpoint
 }

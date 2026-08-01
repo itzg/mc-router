@@ -57,7 +57,7 @@ func (a *apiServer) routesListHandler(writer http.ResponseWriter, _ *http.Reques
 	routes := make(map[string]serverRoute, len(mappings))
 	for k := range mappings {
 		backend, address, scalingTarget, _, _ := a.routes.FindBackendForServerAddress(context.Background(), k)
-		routes[address] = serverRoute{Backend: backend, ScalingTarget: scalingTarget}
+		routes[address] = serverRoute{Backend: backend, ScalingTarget: scalingTarget.String()}
 	}
 
 	bytes, err := json.Marshal(routes)
@@ -77,7 +77,7 @@ func (a *apiServer) routesListHandler(writer http.ResponseWriter, _ *http.Reques
 func (a *apiServer) routesDeleteHandler(writer http.ResponseWriter, request *http.Request) {
 	serverAddress := mux.Vars(request)["serverAddress"]
 	if serverAddress != "" {
-		if a.routes.DeleteMapping(serverAddress) {
+		if a.routes.RemoveMapping(serverAddress) {
 			writer.WriteHeader(http.StatusOK)
 		} else {
 			writer.WriteHeader(http.StatusNotFound)
@@ -103,8 +103,8 @@ func (a *apiServer) routesCreateHandler(writer http.ResponseWriter, request *htt
 		return
 	}
 
-	waker, sleeper := a.scaler.routeFuncs(definition.ServerAddress, definition.Backend)
-	a.routes.CreateMapping(definition.ServerAddress, definition.Backend, "", waker, sleeper, "", "")
+	waker, sleeper, scalingTarget := a.scaler.routeFuncs(definition.ServerAddress, definition.Backend)
+	a.routes.CreateMapping(definition.ServerAddress, definition.Backend, scalingTarget, waker, sleeper, "", "")
 	a.configLoader.SaveRoutes()
 	writer.WriteHeader(http.StatusCreated)
 }
@@ -125,8 +125,8 @@ func (a *apiServer) routesSetDefault(writer http.ResponseWriter, request *http.R
 		return
 	}
 
-	waker, sleeper := a.scaler.routeFuncs("", body.Backend)
-	a.routes.SetDefaultRoute(body.Backend, "", waker, sleeper, "", "")
+	waker, sleeper, scalingTarget := a.scaler.routeFuncs("", body.Backend)
+	a.routes.SetDefaultRoute(body.Backend, scalingTarget, waker, sleeper, "", "")
 	a.configLoader.SaveRoutes()
 	writer.WriteHeader(http.StatusOK)
 }

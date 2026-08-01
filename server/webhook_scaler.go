@@ -57,13 +57,43 @@ func NewWebhookScaler(url string, headers map[string]string, requestTimeout time
 	}
 }
 
+type WebhookScalingTarget struct {
+	ScalingIndicator
+	backend string
+}
+
+func (t *WebhookScalingTarget) String() string {
+	if t == nil {
+		return ""
+	}
+	return t.backend
+}
+
+func (t *WebhookScalingTarget) Equal(other ScalingTarget) bool {
+	if t == nil || other == nil {
+		return t == nil && other == nil
+	}
+	otherTarget, ok := other.(*WebhookScalingTarget)
+	if !ok {
+		return false
+	}
+	return t.Key() == otherTarget.Key()
+}
+
+func (t *WebhookScalingTarget) Key() string {
+	if t == nil {
+		return ""
+	}
+	return t.backend
+}
+
 // routeFuncs returns the waker/sleeper pair for a static route. It is nil-safe
 // so callers can invoke it on an unconfigured (nil) scaler.
-func (s *WebhookScaler) routeFuncs(serverAddress string, backend string) (WakerFunc, SleeperFunc) {
+func (s *WebhookScaler) routeFuncs(serverAddress string, backend string) (WakerFunc, SleeperFunc, ScalingTarget) {
 	if s == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
-	return s.makeWakerFunc(serverAddress, backend), s.makeSleeperFunc(serverAddress, backend)
+	return s.makeWakerFunc(serverAddress, backend), s.makeSleeperFunc(serverAddress, backend), &WebhookScalingTarget{backend: backend}
 }
 
 func (s *WebhookScaler) makeWakerFunc(serverAddress string, backend string) WakerFunc {

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	dockertypes "github.com/docker/docker/api/types"
@@ -33,6 +34,7 @@ func NewDockerSwarmWatcher(socket string, timeout time.Duration, autoScaleUp boo
 	}
 }
 
+// TODO see if routableSwarmService can implement ScalingTarget instead of needing DockerSwarmScalingTarget
 type routableSwarmService struct {
 	externalServiceName       string
 	containerEndpoint         string
@@ -94,7 +96,7 @@ func (w *dockerSwarmWatcherImpl) makeWakerFunc(rs *routableSwarmService) WakerFu
 			logrus.WithFields(logrus.Fields{
 				"serviceID":   serviceID,
 				"serviceName": rs.serviceName,
-			}).Debug("Scaling up Swarm service to 1 replica")
+			}).Debug("IsScaling up Swarm service to 1 replica")
 			one := uint64(1)
 			service.Spec.Mode.Replicated.Replicas = &one
 
@@ -270,7 +272,7 @@ func (w *dockerSwarmWatcherImpl) makeSleeperFunc(rs *routableSwarmService) Sleep
 			logrus.WithFields(logrus.Fields{
 				"serviceID":   serviceID,
 				"serviceName": rs.serviceName,
-			}).Debug("Scaling down Swarm service to 0 replicas")
+			}).Debug("IsScaling down Swarm service to 0 replicas")
 			zero := uint64(0)
 			service.Spec.Mode.Replicated.Replicas = &zero
 
@@ -334,6 +336,7 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 
 	visited := map[string]struct{}{}
 	for _, rs := range services {
+		scalingTarget := NewDockerSwarmScalingTarget(rs.serviceID)
 		// If this is a newly discovered service, set up wakers/sleepers and create the route mapping.
 		if oldRs, ok := w.serviceMap[rs.externalServiceName]; !ok {
 			w.serviceMap[rs.externalServiceName] = rs
@@ -348,9 +351,9 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 
 			wakerFunc, sleeperFunc := w.makeServiceLifecycleFuncs(rs)
 			if rs.externalServiceName != "" {
-				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, rs.serviceID, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			} else {
-				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.serviceID, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.SetDefaultRoute(rs.containerEndpoint, scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			}
 			w.routes.SetCountdownDeadline(rs.externalServiceName, rs.countdownDeadline)
 			// If the service is already tracked, check if any metadata, endpoint, MOTDs, or deadline
@@ -382,10 +385,10 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			w.serviceMap[rs.externalServiceName] = rs
 			wakerFunc, sleeperFunc := w.makeServiceLifecycleFuncs(rs)
 			if rs.externalServiceName != "" {
-				w.routes.DeleteMapping(rs.externalServiceName)
-				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, rs.serviceID, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.RemoveMapping(rs.externalServiceName)
+				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			} else {
-				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.serviceID, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.SetDefaultRoute(rs.containerEndpoint, scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			}
 			w.routes.SetCountdownDeadline(rs.externalServiceName, rs.countdownDeadline)
 			logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
@@ -396,9 +399,9 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 		if _, ok := visited[rs.externalServiceName]; !ok {
 			delete(w.serviceMap, rs.externalServiceName)
 			if rs.externalServiceName != "" {
-				w.routes.DeleteMapping(rs.externalServiceName)
+				w.routes.RemoveMapping(rs.externalServiceName)
 			} else {
-				w.routes.SetDefaultRoute("", "", nil, nil, "", "")
+				w.routes.RemoveDefaultRoute()
 			}
 			logrus.WithField("routableService", rs).Debug("DELETE")
 		}
@@ -501,9 +504,9 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 	}
 
 	networkMap := make(map[string]*network.Inspect)
-	for _, network := range networkList {
-		networkToAdd := network
-		networkMap[network.ID] = &networkToAdd
+	for _, n := range networkList {
+		networkToAdd := n
+		networkMap[n.ID] = &networkToAdd
 	}
 
 	var result []*routableSwarmService
@@ -573,8 +576,8 @@ func dockerCheckNetworkName(id string, name string, networkMap map[string]*netwo
 	if id == name {
 		return true, nil
 	}
-	if network := networkMap[id]; network != nil {
-		if network.Name == name {
+	if n := networkMap[id]; n != nil {
+		if n.Name == name {
 			return true, nil
 		}
 		aliases := networkAliases[id]
@@ -758,8 +761,8 @@ func (w *dockerSwarmWatcherImpl) parseServiceLabels(service *swarm.Service, data
 
 func getNetworkAliases(service *swarm.Service) map[string][]string {
 	networkAliases := map[string][]string{}
-	for _, network := range service.Spec.TaskTemplate.Networks {
-		networkAliases[network.Target] = network.Aliases
+	for _, n := range service.Spec.TaskTemplate.Networks {
+		networkAliases[n.Target] = n.Aliases
 	}
 	return networkAliases
 }
@@ -774,8 +777,8 @@ func resolveTargetNetwork(service *swarm.Service, labelNetwork *string, networkM
 	} else {
 		// Default: Find the first non-ingress network in the task template
 		for _, netSpec := range service.Spec.TaskTemplate.Networks {
-			if network := networkMap[netSpec.Target]; network != nil {
-				if network.Name != "ingress" {
+			if n := networkMap[netSpec.Target]; n != nil {
+				if n.Name != "ingress" {
 					return netSpec.Target
 				}
 			}
@@ -961,4 +964,41 @@ func classifyServiceState(data *parsedDockerServiceData, service *swarm.Service,
 	}
 
 	return true
+}
+
+type DockerSwarmScalingTarget struct {
+	ScalingIndicator
+	serviceID string
+}
+
+func NewDockerSwarmScalingTarget(serviceID string) *DockerSwarmScalingTarget {
+	return &DockerSwarmScalingTarget{
+		ScalingIndicator: ScalingIndicator{scaling: &atomic.Bool{}},
+		serviceID:        serviceID,
+	}
+}
+
+func (t *DockerSwarmScalingTarget) String() string {
+	if t == nil {
+		return ""
+	}
+	return t.serviceID
+}
+
+func (t *DockerSwarmScalingTarget) Equal(other ScalingTarget) bool {
+	if t == nil || other == nil {
+		return t == nil && other == nil
+	}
+	otherTarget, ok := other.(*DockerSwarmScalingTarget)
+	if !ok {
+		return false
+	}
+	return t.Key() == otherTarget.Key()
+}
+
+func (t *DockerSwarmScalingTarget) Key() string {
+	if t == nil {
+		return ""
+	}
+	return t.serviceID
 }

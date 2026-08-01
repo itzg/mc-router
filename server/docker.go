@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -23,18 +24,18 @@ type IDockerWatcher interface {
 }
 
 const (
-	DockerRouterLabelHost                 = "mc-router.host"
-	DockerRouterLabelPort                 = "mc-router.port"
-	DockerRouterLabelDefault              = "mc-router.default"
-	DockerRouterLabelNetwork              = "mc-router.network"
-	DockerRouterLabelAutoScaleUp          = "mc-router.auto-scale-up"
-	DockerRouterLabelAutoScaleDown        = "mc-router.auto-scale-down"
-	DockerRouterLabelAutoScaleAsleepMOTD  = "mc-router.auto-scale-asleep-motd"
-	DockerRouterLabelAutoScaleLoadingMOTD = "mc-router.auto-scale-loading-motd"
-	DockerRouterLabelAutoScaleWaitTimeout = "mc-router.auto-scale-wait-timeout"
-	DockerRouterLabelAutoScaleFailedMOTD  = "mc-router.auto-scale-failed-motd"
+	DockerRouterLabelHost                      = "mc-router.host"
+	DockerRouterLabelPort                      = "mc-router.port"
+	DockerRouterLabelDefault                   = "mc-router.default"
+	DockerRouterLabelNetwork                   = "mc-router.network"
+	DockerRouterLabelAutoScaleUp               = "mc-router.auto-scale-up"
+	DockerRouterLabelAutoScaleDown             = "mc-router.auto-scale-down"
+	DockerRouterLabelAutoScaleAsleepMOTD       = "mc-router.auto-scale-asleep-motd"
+	DockerRouterLabelAutoScaleLoadingMOTD      = "mc-router.auto-scale-loading-motd"
+	DockerRouterLabelAutoScaleWaitTimeout      = "mc-router.auto-scale-wait-timeout"
+	DockerRouterLabelAutoScaleFailedMOTD       = "mc-router.auto-scale-failed-motd"
 	DockerRouterLabelAutoScaleRestartDelayMOTD = "mc-router.auto-scale-restart-delay-motd"
-	DockerRouterEventTypeTask             = "task"
+	DockerRouterEventTypeTask                  = "task"
 )
 
 type dockerWatcherConfig struct {
@@ -204,9 +205,9 @@ func (w *dockerWatcherImpl) monitorContainers(ctx context.Context) error {
 		}
 		delete(w.containerMap, name)
 		if name != "" {
-			w.routes.DeleteMapping(name)
+			w.routes.RemoveMapping(name)
 		} else {
-			w.routes.SetDefaultRoute("", "", nil, nil, "", "")
+			w.routes.RemoveDefaultRoute()
 		}
 		logrus.WithField("routableContainer", rc).Debug("DELETE")
 	}
@@ -318,23 +319,24 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerID string, desir
 		}
 		delete(w.containerMap, name)
 		if name != "" {
-			w.routes.DeleteMapping(name)
+			w.routes.RemoveMapping(name)
 		} else {
-			w.routes.SetDefaultRoute("", "", nil, nil, "", "")
+			w.routes.RemoveDefaultRoute()
 		}
 		logrus.WithField("routableContainer", rc).Debug("DELETE")
 	}
 
 	for _, rs := range desired {
+		scalingTarget := NewDockerScalingTarget(rs.containerID)
 		oldRs, exists := w.containerMap[rs.externalContainerName]
 		if !exists {
 			w.containerMap[rs.externalContainerName] = rs
 			wakerFunc := w.makeWakerFunc(rs)
 			sleeperFunc := w.makeSleeperFunc(rs)
 			if rs.externalContainerName != "" {
-				w.routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, NamedScalingTarget(rs.containerID), wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			} else {
-				w.routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.SetDefaultRoute(rs.containerEndpoint, NamedScalingTarget(rs.containerID), wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			}
 			logrus.WithField("routableContainer", rs).Debug("ADD")
 			continue
@@ -351,10 +353,10 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerID string, desir
 		wakerFunc := w.makeWakerFunc(rs)
 		sleeperFunc := w.makeSleeperFunc(rs)
 		if rs.externalContainerName != "" {
-			w.routes.DeleteMapping(rs.externalContainerName)
-			w.routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, "", wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+			w.routes.RemoveMapping(rs.externalContainerName)
+			w.routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 		} else {
-			w.routes.SetDefaultRoute(rs.containerEndpoint, "", wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+			w.routes.SetDefaultRoute(rs.containerEndpoint, scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 		}
 		logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
 	}
@@ -699,6 +701,7 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 	return
 }
 
+// TODO have routableContainer implement ScalingTarget
 type routableContainer struct {
 	externalContainerName string
 	containerEndpoint     string
@@ -707,4 +710,41 @@ type routableContainer struct {
 	autoScaleDown         bool
 	autoScaleAsleepMOTD   string
 	autoScaleLoadingMOTD  string
+}
+
+type DockerScalingTarget struct {
+	ScalingIndicator
+	containerID string
+}
+
+func NewDockerScalingTarget(containerID string) *DockerScalingTarget {
+	return &DockerScalingTarget{
+		ScalingIndicator: ScalingIndicator{scaling: &atomic.Bool{}},
+		containerID:      containerID,
+	}
+}
+
+func (t *DockerScalingTarget) String() string {
+	if t == nil {
+		return ""
+	}
+	return t.containerID
+}
+
+func (t *DockerScalingTarget) Equal(other ScalingTarget) bool {
+	if t == nil || other == nil {
+		return t == nil && other == nil
+	}
+	otherTarget, ok := other.(*DockerScalingTarget)
+	if !ok {
+		return false
+	}
+	return t.Key() == otherTarget.Key()
+}
+
+func (t *DockerScalingTarget) Key() string {
+	if t == nil {
+		return ""
+	}
+	return t.containerID
 }

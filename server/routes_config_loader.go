@@ -53,8 +53,8 @@ func (r *RoutesConfigLoader) Load(routesConfigFileName string) error {
 	}
 
 	r.routes.BulkRegister(r.scaler, config.Mappings)
-	waker, sleeper := r.scaler.routeFuncs("", config.DefaultServer)
-	r.routes.SetDefaultRoute(config.DefaultServer, "", waker, sleeper, "", "")
+	waker, sleeper, scalingTarget := r.scaler.routeFuncs("", config.DefaultServer)
+	r.routes.SetDefaultRoute(config.DefaultServer, scalingTarget, waker, sleeper, "", "")
 	return nil
 }
 
@@ -72,8 +72,8 @@ func (r *RoutesConfigLoader) Reload() error {
 	logrus.WithField("routesConfig", r.fileName).Info("Re-loading routes config file")
 	r.routes.Reset()
 	r.routes.BulkRegister(r.scaler, config.Mappings)
-	waker, sleeper := r.scaler.routeFuncs("", config.DefaultServer)
-	r.routes.SetDefaultRoute(config.DefaultServer, "", waker, sleeper, "", "")
+	waker, sleeper, scalingTarget := r.scaler.routeFuncs("", config.DefaultServer)
+	r.routes.SetDefaultRoute(config.DefaultServer, scalingTarget, waker, sleeper, "", "")
 
 	return nil
 }
