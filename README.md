@@ -190,6 +190,15 @@ When using in Docker, make sure to volume mount the Docker socket into the conta
       - /var/run/docker.sock:/var/run/docker.sock:ro
 ```
 
+#### User access to docker socket
+
+> [!IMPORTANT]
+> If getting "Permission denied" errors for the docker socket change this group ID to match your system. 
+> Group ID 999 is the default for Docker Desktop's VM, which is why that is used in the example.
+>
+> Find the group ID by using `stat -c '%g' /var/run/docker.sock` on your host user: ":999". Note the colon before the group ID since
+> the `user` syntax is `user: <user>:<group>`
+
 These are the labels scanned:
 
 - `mc-router.host`: Used to configure the hostname the Minecraft clients would use to connect to the server. The container/service endpoint will be used as the routed backend. You can use more than one hostname by splitting it with a comma or newline. Whitespace around commas is automatically trimmed. For example: `"host1.com,host2.com"`, `"host1.com, host2.com"`, or `"host1.com\nhost2.com"`.

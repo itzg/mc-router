@@ -7,6 +7,10 @@ services:
       - "25565:25565"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    # If getting "Permission denied" errors for the docker socket
+    # change this group ID to match your system. Group ID 999 is the default for Docker Desktop's VM.
+    # Find the group ID by using `stat -c '%g' /var/run/docker.sock` on your host
+    user: ":999"
     # Matches MCs below
     network_mode: bridge
   vanilla:
