@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -582,10 +583,8 @@ func dockerCheckNetworkName(id string, name string, networkMap map[string]*netwo
 			return true, nil
 		}
 		aliases := networkAliases[id]
-		for _, alias := range aliases {
-			if alias == name {
-				return true, nil
-			}
+		if slices.Contains(aliases, name) {
+			return true, nil
 		}
 		return false, nil
 	}
@@ -983,7 +982,7 @@ func (t *DockerSwarmScalingTarget) String() string {
 	if t == nil {
 		return ""
 	}
-	return t.serviceID
+	return "dockerSwarm{" + t.serviceID + "}"
 }
 
 func (t *DockerSwarmScalingTarget) ScalingKey() string {

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/avast/retry-go/v5"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	apps "k8s.io/api/apps/v1"
@@ -32,6 +33,11 @@ const (
 	AnnotationAutoScaleAsleepMOTD  = "mc-router.itzg.me/autoScaleAsleepMOTD"
 	AnnotationAutoScaleLoadingMOTD = "mc-router.itzg.me/autoScaleLoadingMOTD"
 	AnnotationAutoScaleWaitTimeout = "mc-router.itzg.me/autoScaleWaitTimeout"
+)
+
+const (
+	backendReadyRetryDelay     = 500 * time.Millisecond
+	backendReadyConnectTimeout = 250 * time.Millisecond
 )
 
 // K8sWatcher is a RouteFinder that can find routes from kubernetes services.
@@ -107,6 +113,7 @@ func (w *K8sWatcher) Start(ctx context.Context, handler RoutesHandler) error {
 			UpdateFunc: w.handleUpdate,
 		},
 	})
+	logrus.Debug("Starting service informer")
 	go serviceController.RunWithContext(ctx)
 
 	w.mappings = make(map[string]string)
@@ -126,6 +133,7 @@ func (w *K8sWatcher) Start(ctx context.Context, handler RoutesHandler) error {
 			},
 		})
 
+		logrus.Debug("Starting stateful set informer")
 		go statefulSetController.RunWithContext(ctx)
 	}
 
@@ -133,20 +141,22 @@ func (w *K8sWatcher) Start(ctx context.Context, handler RoutesHandler) error {
 	return nil
 }
 
-func (w *K8sWatcher) handleAddStatefulSet() func(obj interface{}) {
-	return func(obj interface{}) {
+func (w *K8sWatcher) handleAddStatefulSet() func(obj any) {
+	return func(obj any) {
 		statefulSet, ok := obj.(*apps.StatefulSet)
 		if !ok {
 			return
 		}
+		logrus.WithField("statefulSet", infoForSts(statefulSet)).
+			Debug("ADD")
 		w.RLock()
 		defer w.RUnlock()
 		w.mappings[statefulSet.Spec.ServiceName] = statefulSet.Name
 	}
 }
 
-func (w *K8sWatcher) handleUpdateStatefulSet() func(oldObj interface{}, newObj interface{}) {
-	return func(oldObj, newObj interface{}) {
+func (w *K8sWatcher) handleUpdateStatefulSet() func(oldObj any, newObj any) {
+	return func(oldObj, newObj any) {
 		oldStatefulSet, ok := oldObj.(*apps.StatefulSet)
 		if !ok {
 			return
@@ -155,6 +165,8 @@ func (w *K8sWatcher) handleUpdateStatefulSet() func(oldObj interface{}, newObj i
 		if !ok {
 			return
 		}
+		logrus.WithFields(logrus.Fields{"old": infoForSts(oldStatefulSet), "new": infoForSts(newStatefulSet)}).
+			Debug("UPDATE")
 		w.RLock()
 		defer w.RUnlock()
 		delete(w.mappings, oldStatefulSet.Spec.ServiceName)
@@ -162,12 +174,24 @@ func (w *K8sWatcher) handleUpdateStatefulSet() func(oldObj interface{}, newObj i
 	}
 }
 
-func (w *K8sWatcher) handleDeleteStatefulSet() func(obj interface{}) {
-	return func(obj interface{}) {
+func infoForSts(sts *apps.StatefulSet) string {
+	return fmt.Sprintf("statefulSet{name=%s, replicas=%d, readyReplicas=%d, currentReplicas=%d, serviceName=%s}",
+		sts.Name,
+		sts.Status.Replicas,
+		sts.Status.ReadyReplicas,
+		sts.Status.CurrentReplicas,
+		sts.Spec.ServiceName,
+	)
+}
+
+func (w *K8sWatcher) handleDeleteStatefulSet() func(obj any) {
+	return func(obj any) {
 		statefulSet, ok := obj.(*apps.StatefulSet)
 		if !ok {
 			return
 		}
+		logrus.WithField("statefulSet", infoForSts(statefulSet)).
+			Debug("DELETE")
 		w.RLock()
 		defer w.RUnlock()
 		delete(w.mappings, statefulSet.Spec.ServiceName)
@@ -175,7 +199,7 @@ func (w *K8sWatcher) handleDeleteStatefulSet() func(obj interface{}) {
 }
 
 // oldObj and newObj are expected to be *v1.Service
-func (w *K8sWatcher) handleUpdate(oldObj interface{}, newObj interface{}) {
+func (w *K8sWatcher) handleUpdate(oldObj any, newObj any) {
 	newServices := w.extractRoutableServices(newObj)
 
 	// Build a set of new service names for quick lookup
@@ -208,7 +232,7 @@ func (w *K8sWatcher) handleUpdate(oldObj interface{}, newObj interface{}) {
 }
 
 // obj is expected to be a *v1.Service
-func (w *K8sWatcher) handleDelete(obj interface{}) {
+func (w *K8sWatcher) handleDelete(obj any) {
 	routableServices := w.extractRoutableServices(obj)
 	for _, routableService := range routableServices {
 		if routableService != nil {
@@ -224,7 +248,7 @@ func (w *K8sWatcher) handleDelete(obj interface{}) {
 }
 
 // obj is expected to be a *v1.Service
-func (w *K8sWatcher) handleAdd(obj interface{}) {
+func (w *K8sWatcher) handleAdd(obj any) {
 	routableServices := w.extractRoutableServices(obj)
 	for _, routableService := range routableServices {
 		if routableService != nil {
@@ -249,8 +273,13 @@ type routableService struct {
 	autoScaleLoadingMOTD string
 }
 
+func (r *routableService) String() string {
+	return fmt.Sprintf("routableService{externalName=%s, endpoint=%s, scalingTarget=%s, autoScaleUp=%t, autoScaleDown=%t}",
+		r.externalServiceName, r.containerEndpoint, r.scalingTarget, r.autoScaleUp != nil, r.autoScaleDown != nil)
+}
+
 // obj is expected to be a *v1.Service
-func (w *K8sWatcher) extractRoutableServices(obj interface{}) []*routableService {
+func (w *K8sWatcher) extractRoutableServices(obj any) []*routableService {
 	service, ok := obj.(*core.Service)
 	if !ok {
 		return nil
@@ -330,7 +359,7 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 		externalServiceName:  externalServiceName,
 		containerEndpoint:    routingEndpoint,
 		scalingTarget:        scalingTarget,
-		autoScaleUp:          buildK8sWaker(routingEndpoint, scalingTarget, wakerFunc, waitTimeout),
+		autoScaleUp:          buildK8sWaker(routingEndpoint, wakerFunc, waitTimeout),
 		autoScaleDown:        w.buildScaleFunction(service, 1, 0),
 		autoScaleAsleepMOTD:  autoScaleAsleepMOTD,
 		autoScaleLoadingMOTD: autoScaleLoadingMOTD,
@@ -338,37 +367,56 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 	return rs
 }
 
-func buildK8sWaker(endpoint string, target ScalingTarget, scaleUp SleeperFunc, waitTimeout time.Duration) WakerFunc {
+func buildK8sWaker(endpoint string, scaleUp SleeperFunc, waitTimeout time.Duration) WakerFunc {
 	if scaleUp == nil {
 		return nil
 	}
 	return func(ctx context.Context) (string, error) {
-		if target.StartScaling() {
-			defer target.EndScaling()
+		// The connector already holds the StartScaling lock before calling the waker,
+		// so we go straight to scaling up without a redundant StartScaling check.
+		logrus.
+			WithField("endpoint", endpoint).
+			Debug("Scaling up K8s StatefulSet replicas to 1")
+		if err := scaleUp(ctx); err != nil {
+			return "", err
+		}
 
-			if err := scaleUp(ctx); err != nil {
-				return "", err
-			}
+		logrus.
+			WithField("endpoint", endpoint).
+			WithField("waitTimeout", waitTimeout).
+			Debug("Waiting for K8s backend to become reachable")
 
-			deadline := time.Now().Add(waitTimeout)
-			for {
-				conn, err := net.DialTimeout("tcp", endpoint, 1*time.Second)
-				if err == nil {
-					_ = conn.Close()
-					break
-				}
-				if ctx.Err() != nil {
-					return endpoint, ctx.Err()
-				}
-				if time.Now().After(deadline) {
-					return endpoint, fmt.Errorf("timeout waiting for K8s backend to become reachable at %s", endpoint)
-				}
-				select {
-				case <-ctx.Done():
-					return endpoint, ctx.Err()
-				case <-time.After(500 * time.Millisecond):
-				}
+		// Apply overall deadline to retries
+		retryCtx, retryCancel := context.WithTimeout(ctx, waitTimeout)
+		defer retryCancel()
+
+		const backendReadyRetryMaxDelay = 1 * time.Second
+		retryErr := retry.New(
+			retry.Context(retryCtx),
+			retry.DelayType(retry.BackOffDelay),
+			retry.Delay(backendReadyRetryDelay),
+			retry.MaxDelay(backendReadyRetryMaxDelay),
+			retry.UntilSucceeded(),
+			retry.OnRetry(func(n uint, err error) {
+				logrus.
+					WithField("endpoint", endpoint).
+					WithField("attempt", n).
+					WithError(err).
+					Debug("Retrying K8s backend reachability")
+			}),
+		).Do(func() error {
+			conn, err := net.DialTimeout("tcp", endpoint, backendReadyConnectTimeout)
+			if err == nil {
+				_ = conn.Close()
+				logrus.WithField("endpoint", endpoint).Debug("K8s backend is now reachable")
+				return nil
 			}
+			return err
+		})
+		if errors.Is(retryErr, context.DeadlineExceeded) {
+			return endpoint, fmt.Errorf("timeout waiting for K8s backend to become reachable at %s", endpoint)
+		} else if retryErr != nil {
+			return endpoint, fmt.Errorf("error waiting for K8s backend to become reachable at %s: %w", endpoint, retryErr)
 		}
 
 		return endpoint, nil
@@ -421,9 +469,21 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 		}
 
 	}
+
+	logrus.WithField("service", service.Name).
+		WithField("from", from).
+		WithField("to", to).
+		Debug("Service auto-scale enabled")
 	return func(ctx context.Context) error {
 		serviceName := service.Name
 		if statefulSetName, exists := w.mappings[serviceName]; exists {
+			logrus.
+				WithField("service", serviceName).
+				WithField("from", from).
+				WithField("to", to).
+				WithField("statefulSet", statefulSetName).
+				Debug("Scaling StatefulSet")
+
 			// Get current replicas to check if scaling is needed
 			if scale, err := w.clientset.AppsV1().StatefulSets(service.Namespace).GetScale(ctx, statefulSetName, meta.GetOptions{}); err == nil {
 				replicas := scale.Status.Replicas
@@ -487,6 +547,7 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 				return fmt.Errorf("GetScale failed for StatefulSet %s: %w", statefulSetName, err)
 			}
 		}
+		logrus.WithField("service", serviceName).Warn("Service has no StatefulSet associated - skipping scaling")
 		return nil
 	}
 }
@@ -507,7 +568,7 @@ func (t *K8sScalingTarget) String() string {
 	if t == nil {
 		return ""
 	}
-	return t.endpoint
+	return "k8s{" + t.endpoint + "}"
 }
 
 func (t *K8sScalingTarget) ScalingKey() string {

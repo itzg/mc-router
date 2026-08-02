@@ -512,7 +512,7 @@ func TestK8s_autoScaleWithoutProxy(t *testing.T) {
 }
 
 func TestBuildK8sWaker_NilScaleUp(t *testing.T) {
-	waker := buildK8sWaker("10.0.0.1:25565", nil, nil, 60*time.Second)
+	waker := buildK8sWaker("10.0.0.1:25565", nil, 60*time.Second)
 	assert.Nil(t, waker, "buildK8sWaker should return nil when scaleUp is nil")
 }
 
@@ -532,8 +532,7 @@ func TestBuildK8sWaker_WaitsForEndpoint(t *testing.T) {
 		return nil
 	}
 
-	scalingTarget := NewK8sScalingTarget(endpoint)
-	waker := buildK8sWaker(endpoint, scalingTarget, scaleUp, 60*time.Second)
+	waker := buildK8sWaker(endpoint, scaleUp, 60*time.Second)
 	require.NotNil(t, waker)
 
 	result, err := waker(context.Background())
@@ -548,8 +547,7 @@ func TestBuildK8sWaker_ScaleUpError(t *testing.T) {
 	}
 
 	endpoint := "10.0.0.1:25565"
-	scalingTarget := NewK8sScalingTarget(endpoint)
-	waker := buildK8sWaker(endpoint, scalingTarget, scaleUp, 60*time.Second)
+	waker := buildK8sWaker(endpoint, scaleUp, 60*time.Second)
 	require.NotNil(t, waker)
 
 	_, err := waker(context.Background())
@@ -563,8 +561,7 @@ func TestBuildK8sWaker_ContextCancellation(t *testing.T) {
 	}
 
 	endpoint := "192.0.2.1:65534"
-	scalingTarget := NewK8sScalingTarget(endpoint)
-	waker := buildK8sWaker(endpoint, scalingTarget, scaleUp, 60*time.Second)
+	waker := buildK8sWaker(endpoint, scaleUp, 60*time.Second)
 	require.NotNil(t, waker)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

@@ -11,13 +11,6 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -buildvcs=false ./cmd/mc-router
 
-FROM alpine AS certs
-RUN apk add -U \
-    ca-certificates \
-    tzdata
-
-FROM scratch
+FROM cgr.dev/chainguard/static
 ENTRYPOINT ["/mc-router"]
-COPY --from=certs /etc/ssl/certs/ /etc/ssl/certs
-COPY --from=certs /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /build/mc-router /mc-router

@@ -3,6 +3,7 @@ module github.com/itzg/mc-router
 go 1.26.5
 
 require (
+	github.com/avast/retry-go/v5 v5.0.0
 	github.com/containerd/errdefs v1.0.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-kit/kit v0.13.0

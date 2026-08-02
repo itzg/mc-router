@@ -54,7 +54,6 @@ spec:
       containers:
       - image: itzg/mc-router
         name: mc-router
-        # Add "--auto-scale-up" here for https://github.com/itzg/mc-router/#auto-scale-up
         args:
           - --api-binding
           - :8080
@@ -64,6 +63,16 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
+          - name: DEBUG
+            value: "false"
+          - name: AUTO_SCALE_DOWN
+            value: "true"
+          - name: AUTO_SCALE_UP
+            value: "true"
+          - name: AUTO_SCALE_DOWN_AFTER
+            value: "1m"
+          - name: AUTO_SCALE_ASLEEP_MOTD
+            value: "Server is asleep. Join again to wake it up!"
         ports:
         - name: proxy
           containerPort: 25565

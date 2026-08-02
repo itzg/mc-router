@@ -74,14 +74,16 @@ func (ds *downScalerImpl) Start(ctx context.Context, scalingTarget ScalingTarget
 
 		sleeper := routes.GetSleeper(scalingTarget)
 		logrus.WithField("scalingTarget", scalingTarget).
-			WithField("sleeper", sleeper != nil).
-			Debug("Found sleeper to use")
+			WithField("found", sleeper != nil).
+			Debug("Looking for sleeper to use")
 		if sleeper == nil {
 			return
 		}
 
 		if scalingTarget.StartScaling() {
 			defer scalingTarget.EndScaling()
+
+			logrus.WithField("scalingTarget", scalingTarget).Debug("Executing sleeper function")
 			if err := sleeper(ctx); err != nil {
 				logrus.WithError(err).
 					WithField("scalingTarget", scalingTarget).

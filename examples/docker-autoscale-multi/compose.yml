@@ -8,6 +8,8 @@ services:
       AUTO_SCALE_DOWN_AFTER: 1m
       AUTO_SCALE_ASLEEP_MOTD: "Server is asleep. Join again to wake it up!"
       DEBUG: true
+    # Uncomment this if getting "Permission denied" errors for the docker socket
+#    user: root
     ports:
       - "25565:25565"
     volumes:

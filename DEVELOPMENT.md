@@ -18,13 +18,17 @@ Start mc-router directly in the devcontainer.
 
 Verified with skaffold v2.23.0
 
-```
+```shell
 skaffold dev --kube-context=docker-desktop --default-repo=gcr.io/YOURS
 ```
 
 - `YOURS` with your github username or the repo entirely
 
-Also be sure to kubectl apply the minecraft deployment such as `docs/k8s-mc-with-default.yaml`
+Also be sure to kubectl apply the minecraft deployment such as `docs/k8s-mc-deployment.yaml` or `docs/k8s-mc-sts.yaml`, if using autoscaling.
+
+> [!NOTE]
+> The dev image build performed by skaffold uses [ko](https://skaffold.dev/docs/builders/builder-types/ko/), which 
+> does not use the `Dockerfile` in the repo; however, the base image is [the same](https://github.com/chainguard-images/images/tree/main/images/static).
 
 ## Manual test cases
 

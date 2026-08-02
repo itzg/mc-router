@@ -731,7 +731,7 @@ func (t *DockerScalingTarget) String() string {
 	if t == nil {
 		return ""
 	}
-	return t.containerId
+	return "docker{" + t.containerId + "}"
 }
 
 func (t *DockerScalingTarget) ScalingKey() string {

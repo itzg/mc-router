@@ -1,9 +1,4 @@
-FROM alpine AS certs
-RUN apk add -U \
-    ca-certificates \
-    tzdata
-
-FROM scratch
+FROM cgr.dev/chainguard/static
 
 ARG TARGETPLATFORM
 

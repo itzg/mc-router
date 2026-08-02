@@ -161,6 +161,11 @@ func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget ScalingTarget
 	for _, listener := range r.routesListeners {
 		listener.OnDefaultRouteSet(backend)
 	}
+
+	// Trigger auto-scale down for default route on creation, same as CreateMapping.
+	if r.downScaler != nil && scalingTarget != nil && backend != "" {
+		r.downScaler.Start(r.ctx, scalingTarget, r)
+	}
 }
 
 func (r *routesImpl) GetDefaultRoute() (string, ScalingTarget, WakerFunc, SleeperFunc) {

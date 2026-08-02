@@ -5,7 +5,8 @@ metadata:
   name: mc-router-dev
 build:
   artifacts:
-  - image: itzg/mc-router-dev
+    # image needs to match the image used in manifests/rawYaml below
+  - image: itzg/mc-router
     # https://skaffold.dev/docs/pipeline-stages/builders/ko/
     ko:
       main: ./cmd/mc-router/

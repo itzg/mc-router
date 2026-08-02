@@ -578,8 +578,14 @@ func (c *Connector) cleanupBackendConnection(
 		WithField("player", playerInfo).
 		WithField("connectionCount", c.activeConnections.GetCount(backendHostPort)).
 		Info("Closed connection to backend")
-	if checkScaleDown && scalingTarget != nil && c.downScaler != nil && c.scaleActiveConnections.GetCount(scalingTarget.ScalingKey()) <= 0 {
-		c.downScaler.Start(c.ctx, scalingTarget, c.routes)
+	if scalingTarget != nil && checkScaleDown {
+		scaleCount := c.scaleActiveConnections.GetCount(scalingTarget.ScalingKey())
+		logrus.WithField("scalingTarget", scalingTarget).
+			WithField("scaleActiveConnections", scaleCount).
+			Debug("Evaluating scale-down after connection close")
+		if c.downScaler != nil && scaleCount <= 0 {
+			c.downScaler.Start(c.ctx, scalingTarget, c.routes)
+		}
 	}
 	c.connectionsCond.Signal()
 }
@@ -610,7 +616,10 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			if c.downScaler != nil {
 				c.downScaler.Cancel(scalingTarget)
 			}
-			cleanupCheckScaleDown = true
+			// Note: cleanupCheckScaleDown is intentionally NOT set here. If the dial
+			// fails after a successful wake (backend still booting), we must not
+			// immediately schedule a scale-down — the server was just started. The
+			// scale-down timer is only armed below once a connection is established.
 
 			logrus.WithField("serverAddress", serverAddress).Info("Waking up backend server")
 			c.wakingServers.Increment(serverAddress)
@@ -700,6 +709,12 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			WithField("player", playerInfo).
 			Warn("Unable to connect to backend")
 		c.metrics.Errors.With("type", "backend_failed").Add(1)
+
+		if waker != nil {
+			logrus.WithField("serverAddress", serverAddress).
+				WithField("backend", backendHostPort).
+				Debug("Backend not ready after wake; scale-down timer will not be started")
+		}
 
 		if c.connectionNotifier != nil {
 			notifyErr := c.connectionNotifier.NotifyFailedBackendConnection(c.ctx, clientAddr, serverAddress, playerInfo, backendHostPort, err)
