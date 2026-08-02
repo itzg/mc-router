@@ -35,9 +35,7 @@ func NewDockerSwarmWatcher(socket string, timeout time.Duration, autoScaleUp boo
 	}
 }
 
-// TODO see if routableSwarmService can implement ScalingTarget instead of needing DockerSwarmScalingTarget
 type routableSwarmService struct {
-	ScalingIndicator
 	externalServiceName       string
 	containerEndpoint         string
 	serviceID                 string
@@ -56,11 +54,8 @@ type routableSwarmService struct {
 }
 
 func (r *routableSwarmService) String() string {
-	return r.serviceID
-}
-
-func (r *routableSwarmService) ScalingKey() string {
-	return r.serviceID
+	return fmt.Sprintf("routableSwarmService{externalName=%s, endpoint=%s, serviceID=%s, serviceName=%s, networkID=%s, autoScaleUp=%v, autoScaleDown=%v, autoScaleAsleepMOTD=%s, autoScaleLoadingMOTD=%s, autoScaleFailedMOTD=%s, autoScaleRestartDelayMOTD=%s, statusState=%s, scalingTarget=%v}",
+		r.externalServiceName, r.containerEndpoint, r.serviceID, r.serviceName, r.networkID, r.autoScaleUp, r.autoScaleDown, r.autoScaleAsleepMOTD, r.autoScaleLoadingMOTD, r.autoScaleFailedMOTD, r.autoScaleRestartDelayMOTD, r.statusState, r.scalingTarget)
 }
 
 type dockerSwarmWatcherImpl struct {
@@ -554,7 +549,6 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 
 func newRoutableSwarmService(endpoint string, host string, data parsedDockerServiceData, target *DockerSwarmScalingTarget) *routableSwarmService {
 	return &routableSwarmService{
-		ScalingIndicator:          ScalingIndicator{scaling: &atomic.Bool{}},
 		containerEndpoint:         endpoint,
 		externalServiceName:       host,
 		serviceID:                 data.serviceID,
