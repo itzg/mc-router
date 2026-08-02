@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/avast/retry-go/v5"
 	"golang.ngrok.com/ngrok"
 	"golang.ngrok.com/ngrok/config"
 
@@ -36,6 +37,12 @@ const (
 	// reachable faster (e.g. on-cluster Services) can lower it so the asleep
 	// MOTD / scale-up fallback fires sooner.
 	defaultBackendDialTimeout = 2 * time.Second
+)
+
+const (
+	backendReadyRetryDelay     = 500 * time.Millisecond
+	backendReadyConnectTimeout = 250 * time.Millisecond
+	backendReadyRetryMaxDelay  = 1 * time.Second
 )
 
 var noDeadline time.Time
@@ -960,4 +967,41 @@ func protocolToName(proto int) string {
 	default:
 		return "1.7+"
 	}
+}
+
+func waitForBackend(ctx context.Context, endpoint string, waitTimeout time.Duration) (string, error) {
+	// Apply overall deadline to retries
+	retryCtx, retryCancel := context.WithTimeout(ctx, waitTimeout)
+	defer retryCancel()
+
+	retryErr := retry.New(
+		retry.Context(retryCtx),
+		retry.DelayType(retry.BackOffDelay),
+		retry.Delay(backendReadyRetryDelay),
+		retry.MaxDelay(backendReadyRetryMaxDelay),
+		retry.UntilSucceeded(),
+		retry.OnRetry(func(n uint, err error) {
+			logrus.
+				WithField("endpoint", endpoint).
+				WithField("attempt", n).
+				WithError(err).
+				Debug("Retrying K8s backend reachability")
+		}),
+	).Do(func() error {
+		conn, err := net.DialTimeout("tcp", endpoint, backendReadyConnectTimeout)
+		if err == nil {
+			_ = conn.Close()
+			logrus.WithField("endpoint", endpoint).Debug("K8s backend is now reachable")
+			return nil
+		}
+		return err
+	})
+	if errors.Is(retryErr, context.DeadlineExceeded) {
+		return endpoint, fmt.Errorf("timeout waiting for K8s backend to become reachable at %s", endpoint)
+	} else if retryErr != nil {
+		return endpoint, fmt.Errorf("error waiting for K8s backend to become reachable at %s: %w", endpoint, retryErr)
+	}
+
+	return endpoint, nil
+
 }

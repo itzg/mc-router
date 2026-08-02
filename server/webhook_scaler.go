@@ -108,10 +108,7 @@ func (s *WebhookScaler) makeWakerFunc(serverAddress string, backend string) Wake
 				"override":          override,
 			}).Debug("Using backend address from scale-up response")
 		}
-		if err := s.waitForBackendReachable(ctx, effectiveBackend, s.wakeTimeout); err != nil {
-			return effectiveBackend, err
-		}
-		return effectiveBackend, nil
+		return waitForBackend(ctx, effectiveBackend, s.wakeTimeout)
 	}
 }
 

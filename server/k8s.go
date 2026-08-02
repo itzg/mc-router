@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/avast/retry-go/v5"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	apps "k8s.io/api/apps/v1"
@@ -33,11 +32,6 @@ const (
 	AnnotationAutoScaleAsleepMOTD  = "mc-router.itzg.me/autoScaleAsleepMOTD"
 	AnnotationAutoScaleLoadingMOTD = "mc-router.itzg.me/autoScaleLoadingMOTD"
 	AnnotationAutoScaleWaitTimeout = "mc-router.itzg.me/autoScaleWaitTimeout"
-)
-
-const (
-	backendReadyRetryDelay     = 500 * time.Millisecond
-	backendReadyConnectTimeout = 250 * time.Millisecond
 )
 
 // K8sWatcher is a RouteFinder that can find routes from kubernetes services.
@@ -386,40 +380,7 @@ func buildK8sWaker(endpoint string, scaleUp SleeperFunc, waitTimeout time.Durati
 			WithField("waitTimeout", waitTimeout).
 			Debug("Waiting for K8s backend to become reachable")
 
-		// Apply overall deadline to retries
-		retryCtx, retryCancel := context.WithTimeout(ctx, waitTimeout)
-		defer retryCancel()
-
-		const backendReadyRetryMaxDelay = 1 * time.Second
-		retryErr := retry.New(
-			retry.Context(retryCtx),
-			retry.DelayType(retry.BackOffDelay),
-			retry.Delay(backendReadyRetryDelay),
-			retry.MaxDelay(backendReadyRetryMaxDelay),
-			retry.UntilSucceeded(),
-			retry.OnRetry(func(n uint, err error) {
-				logrus.
-					WithField("endpoint", endpoint).
-					WithField("attempt", n).
-					WithError(err).
-					Debug("Retrying K8s backend reachability")
-			}),
-		).Do(func() error {
-			conn, err := net.DialTimeout("tcp", endpoint, backendReadyConnectTimeout)
-			if err == nil {
-				_ = conn.Close()
-				logrus.WithField("endpoint", endpoint).Debug("K8s backend is now reachable")
-				return nil
-			}
-			return err
-		})
-		if errors.Is(retryErr, context.DeadlineExceeded) {
-			return endpoint, fmt.Errorf("timeout waiting for K8s backend to become reachable at %s", endpoint)
-		} else if retryErr != nil {
-			return endpoint, fmt.Errorf("error waiting for K8s backend to become reachable at %s: %w", endpoint, retryErr)
-		}
-
-		return endpoint, nil
+		return waitForBackend(ctx, endpoint, waitTimeout)
 	}
 }
 
