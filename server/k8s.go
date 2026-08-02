@@ -176,23 +176,33 @@ func (w *K8sWatcher) handleDeleteStatefulSet() func(obj interface{}) {
 
 // oldObj and newObj are expected to be *v1.Service
 func (w *K8sWatcher) handleUpdate(oldObj interface{}, newObj interface{}) {
-	for _, oldRoutableService := range w.extractRoutableServices(oldObj) {
-		logrus.WithFields(logrus.Fields{
-			"old": oldRoutableService,
-		}).Debug("UPDATE")
-		if oldRoutableService.externalServiceName != "" {
-			w.routesHandler.RemoveMapping(oldRoutableService.externalServiceName)
+	newServices := w.extractRoutableServices(newObj)
+
+	// Build a set of new service names for quick lookup
+	newNames := make(map[string]struct{}, len(newServices))
+	for _, rs := range newServices {
+		if rs.externalServiceName != "" {
+			newNames[rs.externalServiceName] = struct{}{}
 		}
 	}
 
-	for _, newRoutableService := range w.extractRoutableServices(newObj) {
-		logrus.WithFields(logrus.Fields{
-			"new": newRoutableService,
-		}).Debug("UPDATE")
-		if newRoutableService.externalServiceName != "" {
-			w.routesHandler.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint, newRoutableService.scalingTarget, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown, newRoutableService.autoScaleAsleepMOTD, newRoutableService.autoScaleLoadingMOTD)
+	// Remove routes whose server address is no longer present in the new object
+	for _, oldRS := range w.extractRoutableServices(oldObj) {
+		logrus.WithFields(logrus.Fields{"old": oldRS}).Debug("UPDATE")
+		if oldRS.externalServiceName != "" {
+			if _, stillPresent := newNames[oldRS.externalServiceName]; !stillPresent {
+				w.routesHandler.RemoveMapping(oldRS.externalServiceName)
+			}
+		}
+	}
+
+	// Update or create routes for new addresses; use UpdateMapping (no timer bounce)
+	for _, newRS := range newServices {
+		logrus.WithFields(logrus.Fields{"new": newRS}).Debug("UPDATE")
+		if newRS.externalServiceName != "" {
+			w.routesHandler.UpdateMapping(newRS.externalServiceName, newRS.containerEndpoint, newRS.scalingTarget, newRS.autoScaleUp, newRS.autoScaleDown, newRS.autoScaleAsleepMOTD, newRS.autoScaleLoadingMOTD)
 		} else {
-			w.routesHandler.SetDefaultRoute(newRoutableService.containerEndpoint, newRoutableService.scalingTarget, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown, newRoutableService.autoScaleAsleepMOTD, newRoutableService.autoScaleLoadingMOTD)
+			w.routesHandler.SetDefaultRoute(newRS.containerEndpoint, newRS.scalingTarget, newRS.autoScaleUp, newRS.autoScaleDown, newRS.autoScaleAsleepMOTD, newRS.autoScaleLoadingMOTD)
 		}
 	}
 }

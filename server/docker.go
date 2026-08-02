@@ -279,26 +279,26 @@ func (w *dockerWatcherImpl) containersForID(ctx context.Context, containerId str
 	scalingTarget := NewDockerScalingTarget(containerId)
 	for _, host := range data.hosts {
 		result = append(result, &routableContainer{
-			containerEndpoint:     endpoint,
-			externalContainerName: host,
-			containerId:           containerId,
-			autoScaleUp:           data.autoScaleUp,
-			autoScaleDown:         data.autoScaleDown,
-			autoScaleAsleepMOTD:   data.autoScaleAsleepMOTD,
-			autoScaleLoadingMOTD:  data.autoScaleLoadingMOTD,
-			scalingTarget:         scalingTarget,
+			containerEndpoint:    endpoint,
+			externalName:         host,
+			containerId:          containerId,
+			autoScaleUp:          data.autoScaleUp,
+			autoScaleDown:        data.autoScaleDown,
+			autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
+			autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
+			scalingTarget:        scalingTarget,
 		})
 	}
 	if data.def != nil && *data.def {
 		result = append(result, &routableContainer{
-			containerEndpoint:     endpoint,
-			externalContainerName: "",
-			containerId:           containerId,
-			autoScaleUp:           data.autoScaleUp,
-			autoScaleDown:         data.autoScaleDown,
-			autoScaleAsleepMOTD:   data.autoScaleAsleepMOTD,
-			autoScaleLoadingMOTD:  data.autoScaleLoadingMOTD,
-			scalingTarget:         scalingTarget,
+			containerEndpoint:    endpoint,
+			externalName:         "",
+			containerId:          containerId,
+			autoScaleUp:          data.autoScaleUp,
+			autoScaleDown:        data.autoScaleDown,
+			autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
+			autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
+			scalingTarget:        scalingTarget,
 		})
 	}
 	return result, nil
@@ -309,7 +309,7 @@ func (w *dockerWatcherImpl) containersForID(ctx context.Context, containerId str
 func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerId string, desired []*routableContainer) {
 	desiredByName := map[string]*routableContainer{}
 	for _, rc := range desired {
-		desiredByName[rc.externalContainerName] = rc
+		desiredByName[rc.externalName] = rc
 	}
 
 	// Drop entries previously owned by this container that are no longer desired
@@ -330,13 +330,13 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerId string, desir
 	}
 
 	for _, rs := range desired {
-		oldRs, exists := w.containerMap[rs.externalContainerName]
+		oldRs, exists := w.containerMap[rs.externalName]
 		if !exists {
-			w.containerMap[rs.externalContainerName] = rs
+			w.containerMap[rs.externalName] = rs
 			wakerFunc := w.makeWakerFunc(rs)
 			sleeperFunc := w.makeSleeperFunc(rs)
-			if rs.externalContainerName != "" {
-				w.routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+			if rs.externalName != "" {
+				w.routes.CreateMapping(rs.externalName, rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			} else {
 				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 			}
@@ -351,12 +351,11 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerId string, desir
 			oldRs.autoScaleLoadingMOTD == rs.autoScaleLoadingMOTD {
 			continue
 		}
-		w.containerMap[rs.externalContainerName] = rs
+		w.containerMap[rs.externalName] = rs
 		wakerFunc := w.makeWakerFunc(rs)
 		sleeperFunc := w.makeSleeperFunc(rs)
-		if rs.externalContainerName != "" {
-			w.routes.RemoveMapping(rs.externalContainerName)
-			w.routes.CreateMapping(rs.externalContainerName, rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+		if rs.externalName != "" {
+			w.routes.UpdateMapping(rs.externalName, rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 		} else {
 			w.routes.SetDefaultRoute(rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
 		}
@@ -513,14 +512,14 @@ func (w *dockerWatcherImpl) listContainers(ctx context.Context) ([]*routableCont
 
 func newRoutableContainer(endpoint string, host string, containerId string, data parsedDockerContainerData, target *DockerScalingTarget) *routableContainer {
 	return &routableContainer{
-		containerEndpoint:     endpoint,
-		externalContainerName: host,
-		containerId:           containerId,
-		autoScaleUp:           data.autoScaleUp,
-		autoScaleDown:         data.autoScaleDown,
-		autoScaleAsleepMOTD:   data.autoScaleAsleepMOTD,
-		autoScaleLoadingMOTD:  data.autoScaleLoadingMOTD,
-		scalingTarget:         target,
+		containerEndpoint:    endpoint,
+		externalName:         host,
+		containerId:          containerId,
+		autoScaleUp:          data.autoScaleUp,
+		autoScaleDown:        data.autoScaleDown,
+		autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
+		autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
+		scalingTarget:        target,
 	}
 }
 
@@ -701,14 +700,19 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 
 type routableContainer struct {
 	ScalingIndicator
-	externalContainerName string
-	containerEndpoint     string
-	containerId           string
-	autoScaleUp           bool
-	autoScaleDown         bool
-	autoScaleAsleepMOTD   string
-	autoScaleLoadingMOTD  string
-	scalingTarget         *DockerScalingTarget
+	externalName         string
+	containerEndpoint    string
+	containerId          string
+	autoScaleUp          bool
+	autoScaleDown        bool
+	autoScaleAsleepMOTD  string
+	autoScaleLoadingMOTD string
+	scalingTarget        *DockerScalingTarget
+}
+
+func (r *routableContainer) String() string {
+	return fmt.Sprintf("routableContainer{externalName=%s, endpoint=%s, id=%s, autoScaleUp=%t, autoScaleDown=%t, autoScaleAsleepMOTD=%s, autoScaleLoadingMOTD=%s, scalingTarget=%v}",
+		r.externalName, r.containerEndpoint, r.containerId, r.autoScaleUp, r.autoScaleDown, r.autoScaleAsleepMOTD, r.autoScaleLoadingMOTD, r.scalingTarget)
 }
 
 type DockerScalingTarget struct {

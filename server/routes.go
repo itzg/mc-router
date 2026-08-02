@@ -27,6 +27,11 @@ type RouteFinder interface {
 
 type RoutesHandler interface {
 	CreateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string)
+	// UpdateMapping atomically replaces the backend for an existing route without touching the
+	// scale-down timer. Use this instead of RemoveMapping+CreateMapping when the server address
+	// itself has not changed, so the timer bounce (cancel-on-remove, start-on-create) is avoided.
+	// If backend is empty the timer is cancelled (container stopped externally).
+	UpdateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string)
 	SetDefaultRoute(backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string)
 	RemoveDefaultRoute()
 	// RemoveMapping requests that the serverAddress be removed from routes.
@@ -370,9 +375,38 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, scaling
 		listener.OnRouteAdded(serverAddress, backend)
 	}
 
-	// Trigger auto-scale down when mapping is created to ensure servers are shut down if router restarts
-	if r.downScaler != nil && scalingTarget != nil {
+	// Trigger auto-scale down when mapping is created to ensure servers are shut down if router restarts.
+	// Only start the timer when backend is non-empty — an empty backend means the server is already
+	// asleep/stopped (e.g. a Docker stop event updated the route), so there is nothing to scale down.
+	if r.downScaler != nil && scalingTarget != nil && backend != "" {
 		r.downScaler.Start(r.ctx, scalingTarget, r)
+	}
+}
+
+// UpdateMapping atomically replaces the backend for an existing route without touching the
+// scale-down timer — the connector owns the timer once a connection is active. When backend
+// is empty (container stopped externally) the timer is cancelled so it doesn't fire needlessly.
+func (r *routesImpl) UpdateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
+	r.Lock()
+	defer r.Unlock()
+
+	serverAddress = strings.ToLower(serverAddress)
+
+	logrus.WithFields(logrus.Fields{
+		"serverAddress": serverAddress,
+		"backend":       backend,
+	}).Info("Updated route mapping")
+	r.mappings[serverAddress] = mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD, loadingMOTD: loadingMOTD}
+
+	for _, listener := range r.routesListeners {
+		listener.OnRouteRemoved(serverAddress)
+		listener.OnRouteAdded(serverAddress, backend)
+	}
+
+	// Cancel the timer when the backend disappears (container stopped externally).
+	// Don't start a new timer when backend is non-empty — the connector manages that.
+	if r.downScaler != nil && scalingTarget != nil && backend == "" {
+		r.downScaler.Cancel(scalingTarget)
 	}
 }
 

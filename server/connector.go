@@ -116,9 +116,10 @@ type NgrokConnector struct {
 }
 
 type Connector struct {
-	ctx                        context.Context
-	state                      mcproto.State
-	routes                     IRoutes
+	ctx    context.Context
+	state  mcproto.State
+	routes IRoutes
+	// downScaler is used to scale up and down the number of backend connections. nil if disabled.
 	downScaler                 IDownScaler
 	metrics                    *ConnectorMetrics
 	sendProxyProto             bool
@@ -534,7 +535,15 @@ func sanitizeUTF8(s string) string {
 	return strings.ToValidUTF8(s, "")
 }
 
-func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress string, playerInfo *PlayerInfo, backendHostPort string, scalingTarget ScalingTarget, cleanupMetrics bool, checkScaleDown bool) {
+func (c *Connector) cleanupBackendConnection(
+	clientAddr net.Addr,
+	serverAddress string,
+	playerInfo *PlayerInfo,
+	backendHostPort string,
+	scalingTarget ScalingTarget,
+	cleanupMetrics bool,
+	checkScaleDown bool,
+) {
 	if c.connectionNotifier != nil {
 		err := c.connectionNotifier.NotifyDisconnected(c.ctx, clientAddr, serverAddress, playerInfo, backendHostPort)
 		if err != nil {
@@ -569,7 +578,7 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 		WithField("player", playerInfo).
 		WithField("connectionCount", c.activeConnections.GetCount(backendHostPort)).
 		Info("Closed connection to backend")
-	if checkScaleDown && scalingTarget != nil && c.scaleActiveConnections.GetCount(scalingTarget.ScalingKey()) <= 0 {
+	if checkScaleDown && scalingTarget != nil && c.downScaler != nil && c.scaleActiveConnections.GetCount(scalingTarget.ScalingKey()) <= 0 {
 		c.downScaler.Start(c.ctx, scalingTarget, c.routes)
 	}
 	c.connectionsCond.Signal()
@@ -598,7 +607,9 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			defer scalingTarget.EndScaling()
 
 			// Cancel down scaler if active before scale up
-			c.downScaler.Cancel(scalingTarget)
+			if c.downScaler != nil {
+				c.downScaler.Cancel(scalingTarget)
+			}
 			cleanupCheckScaleDown = true
 
 			logrus.WithField("serverAddress", serverAddress).Info("Waking up backend server")
@@ -730,6 +741,14 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 	c.activeConnections.Increment(backendHostPort)
 	if scalingTarget != nil {
 		c.scaleActiveConnections.Increment(scalingTarget.ScalingKey())
+		// Cancel any pending scale-down timer — the Docker event that fires during
+		// wake-up may have started a new timer after our pre-wake Cancel call.
+		// Also covers status pings: they cancel the timer here, and cleanupCheckScaleDown
+		// ensures the timer is restarted when the ping connection closes.
+		if c.downScaler != nil {
+			c.downScaler.Cancel(scalingTarget)
+			cleanupCheckScaleDown = true
+		}
 	}
 	c.metrics.ServerActiveConnections.
 		With("server_address", sanitizeUTF8(serverAddress)).

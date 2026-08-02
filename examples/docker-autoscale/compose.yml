@@ -1,5 +1,5 @@
 # This is a verbose example with comments and explanations for configuring auto-scaling behavior
-# for Docker backend servers. See compose.yml for a simple minimal example.
+# for Docker backend servers. See compose-minimal.yml for a simple minimal example.
 services:
   router:
     image: itzg/mc-router
