@@ -47,7 +47,7 @@ dockers_v2:
       - linux/arm/v6
     tags:
       - "{{ .Version }}"
-      - "latest"
+      - "{{ if not .Prerelease }}latest{{ end }}"
     labels:
       org.opencontainers.image.authors: "Geoff Bourne <itzgeoff@gmail.com>"
       org.opencontainers.image.title: "mc-router"
