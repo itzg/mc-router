@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -62,6 +63,13 @@ type WebhookScalingTarget struct {
 	backend string
 }
 
+func NewWebhookScalingTarget(backend string) *WebhookScalingTarget {
+	return &WebhookScalingTarget{
+		ScalingIndicator: ScalingIndicator{scaling: &atomic.Bool{}},
+		backend:          backend,
+	}
+}
+
 func (t *WebhookScalingTarget) String() string {
 	if t == nil {
 		return ""
@@ -79,7 +87,7 @@ func (s *WebhookScaler) routeFuncs(serverAddress string, backend string) (WakerF
 	if s == nil || s.url == "" {
 		return nil, nil, nil
 	}
-	return s.makeWakerFunc(serverAddress, backend), s.makeSleeperFunc(serverAddress, backend), &WebhookScalingTarget{backend: backend}
+	return s.makeWakerFunc(serverAddress, backend), s.makeSleeperFunc(serverAddress, backend), NewWebhookScalingTarget(backend)
 }
 
 func (s *WebhookScaler) makeWakerFunc(serverAddress string, backend string) WakerFunc {
