@@ -1,8 +1,17 @@
-FROM cgr.dev/chainguard/static
+# 1. Alias the architectures to their corresponding base images
+FROM cgr.dev/chainguard/static AS base-amd64
+FROM cgr.dev/chainguard/static AS base-arm64
+# Fall back to a light 32-bit ARM image (e.g. Alpine) for arm/v6
+FROM alpine:3.19 AS base-armv6
+
+# 2. Capture automatic buildx arguments
+ARG TARGETARCH
+ARG TARGETVARIANT
+
+# 3. Dynamically load the base image stage
+FROM base-${TARGETARCH}${TARGETVARIANT} AS final
 
 ARG TARGETPLATFORM
 
-COPY --from=certs /etc/ssl/certs/ /etc/ssl/certs
-COPY --from=certs /usr/share/zoneinfo /usr/share/zoneinfo
 COPY $TARGETPLATFORM/mc-router /
 ENTRYPOINT ["/mc-router"]

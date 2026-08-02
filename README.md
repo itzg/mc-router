@@ -881,69 +881,7 @@ In this case the `status` is `"failed-backend-connection"` indicating that a bac
 
 ## Development
 
-### Building locally with Docker
-
-```bash
-docker build -t mc-router .
-```
-
-### Build locally without Docker
-
-After [installing Go](https://go.dev/doc/install) and doing a `go mod download` to install all required prerequisites, just like the [Dockerfile](Dockerfile) does, you can:
-
-```bash
-make test # go test -v ./...
-go build ./cmd/mc-router/
-```
-
-### Skaffold
-
-For "in-cluster development" it's convenient to use https://skaffold.dev. Any changes to Go source code
-will trigger a go build, new container image pushed to registry with a new tag, and refresh in Kubernetes
-with the image tag used in the deployment transparently updated to the new tag and thus new pod created pulling new images,
-as configured by [skaffold.yaml](skaffold.yaml):
-
-    skaffold dev
-
-When using Google Cloud (GCP), first create a _Docker Artifact Registry_,
-then add the _Artifact Registry Reader_ Role to the _Compute Engine default service account_ of your _GKE `clusterService` Account_ (to avoid error like "container mc-router is waiting to start: ...-docker.pkg.dev/... can't be pulled"),
-then use e.g. `gcloud auth configure-docker europe-docker.pkg.dev` or equivalent one time (to create a `~/.docker/config.json`),
-and then use e.g. `--default-repo=europe-docker.pkg.dev/YOUR-PROJECT/YOUR-ARTIFACT-REGISTRY` option for `skaffold dev`.
-
-### Running in devcontainer
-
-This approach is useful for testing changes for [Docker auto scaling](#docker-auto-scale-updown).
-
-With IntelliJ Ultimate, [use these instructions](https://www.jetbrains.com/help/idea/start-dev-container-inside-ide.html). It is recommended to use the option to mount sources.
-
-![Start devcontainer in IntelliJ](docs/intellij-devcontainer.png)
-
-Use the example compose file [in examples/docker-discovery](examples/docker-discovery/compose.yml) or similar with `network_mode` set to "bridge" to ensure that the mc-router instance running within the devcontainer can reach the backend servers.
-
-When applying the `mc-router.host` label to containers to be auto-discovered, it's easiest to use an external host of "localhost":
-
-```yaml
-  vanilla:
-    image: itzg/minecraft-server
-    environment:
-      EULA: "TRUE"
-    labels:
-      mc-router.host: "localhost"
-```
-
-Run one of the labeled services by clicking the run icon in the gutter.
-
-
-
-### Performing snapshot release with Docker
-
-```bash
-docker run -it --rm \
-  -v ${PWD}:/build -w /build \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  goreleaser/goreleaser \
-  release --snapshot --rm-dist
-```
+Refer to [DEVELOPMENT.md](DEVELOPMENT.md)
 
 ## Related Projects
 
