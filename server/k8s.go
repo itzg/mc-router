@@ -317,7 +317,6 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 	endpoint := net.JoinHostPort(clusterIp, port)
 
 	routingEndpoint := endpoint
-	scalingTarget := NewK8sScalingTarget(endpoint, service.Name)
 
 	if proxyServerName, exists := service.Annotations[AnnotationProxyServerName]; exists && proxyServerName != "" {
 		// Ensure the proxy address has a port
@@ -327,6 +326,7 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 		routingEndpoint = proxyServerName
 		// scalingTarget remains the service endpoint (already set above)
 	}
+	scalingTarget := NewK8sScalingTarget(service.Namespace, service.Name)
 
 	autoScaleAsleepMOTD := ""
 	autoScaleLoadingMOTD := ""
@@ -515,14 +515,13 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 
 type K8sScalingTarget struct {
 	ScalingIndicator
-	endpoint    string
+	namespace   string
 	serviceName string
 }
 
-func NewK8sScalingTarget(endpoint string, serviceName string) *K8sScalingTarget {
+func NewK8sScalingTarget(namespace string, serviceName string) *K8sScalingTarget {
 	return &K8sScalingTarget{
 		ScalingIndicator: ScalingIndicator{scaling: &atomic.Bool{}},
-		endpoint:         endpoint,
 		serviceName:      serviceName,
 	}
 }
@@ -531,9 +530,9 @@ func (t *K8sScalingTarget) String() string {
 	if t == nil {
 		return ""
 	}
-	return fmt.Sprintf("k8s{endpoint=%s, serviceName=%s}", t.endpoint, t.serviceName)
+	return fmt.Sprintf("k8s{serviceName=%s, namespace=%s}", t.serviceName, t.namespace)
 }
 
 func (t *K8sScalingTarget) ScalingKey() string {
-	return t.endpoint
+	return t.namespace + ":" + t.serviceName
 }

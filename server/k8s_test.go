@@ -445,13 +445,13 @@ func TestK8s_proxyServerNameScaleEndpoint(t *testing.T) {
 	}
 
 	svc := v1.Service{}
-	err := json.Unmarshal([]byte(`{"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/proxyServerName": "velocity:25577"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &svc)
+	err := json.Unmarshal([]byte(`{"metadata": {"name": "mc-example", "annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/proxyServerName": "velocity:25577"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &svc)
 	require.NoError(t, err)
 
 	watcher.handleAdd(&svc)
 
 	// Verify CreateMapping was called with the correct scaleKey (original endpoint)
-	routesHandler.AssertCalled(t, "CreateMapping", "mc.example.com", "velocity:25577", NewK8sScalingTarget("10.0.0.5:25565"), mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	routesHandler.AssertCalled(t, "CreateMapping", "mc.example.com", "velocity:25577", NewK8sScalingTarget("default", "mc-example"), mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func setupRoutesHandlerMock() *MockedRoutesHandler {
@@ -473,7 +473,7 @@ func TestK8s_proxyServerNameUpdate(t *testing.T) {
 
 	// Start with proxy
 	initialSvc := v1.Service{}
-	err := json.Unmarshal([]byte(`{"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/proxyServerName": "velocity:25577"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &initialSvc)
+	err := json.Unmarshal([]byte(`{"metadata": {"name": "mc-example", "annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/proxyServerName": "velocity:25577"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &initialSvc)
 	require.NoError(t, err)
 
 	watcher.handleAdd(&initialSvc)
@@ -498,7 +498,7 @@ func TestK8s_autoScaleWithoutProxy(t *testing.T) {
 
 	// Service WITHOUT proxyServerName but WITH autoScaleUp/Down annotations
 	svc := v1.Service{}
-	err := json.Unmarshal([]byte(`{"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "atm-10.example.com", "mc-router.itzg.me/autoScaleUp": "true", "mc-router.itzg.me/autoScaleDown": "true"}}, "spec":{"clusterIP": "10.0.0.10"}}`), &svc)
+	err := json.Unmarshal([]byte(`{"metadata": {"name": "atm-10", "annotations": {"mc-router.itzg.me/externalServerName": "atm-10.example.com", "mc-router.itzg.me/autoScaleUp": "true", "mc-router.itzg.me/autoScaleDown": "true"}}, "spec":{"clusterIP": "10.0.0.10"}}`), &svc)
 	require.NoError(t, err)
 
 	watcher.handleAdd(&svc)
@@ -508,7 +508,7 @@ func TestK8s_autoScaleWithoutProxy(t *testing.T) {
 
 	// CRITICAL: Verify scaleKey is set to the service endpoint (not empty)
 	// This ensures auto-scaling targets the correct StatefulSet
-	routesHandler.AssertCalled(t, "CreateMapping", "atm-10.example.com", "10.0.0.10:25565", NewK8sScalingTarget("10.0.0.10:25565"), mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	routesHandler.AssertCalled(t, "CreateMapping", "atm-10.example.com", "10.0.0.10:25565", NewK8sScalingTarget("default", "atm-10"), mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestBuildK8sWaker_NilScaleUp(t *testing.T) {
@@ -579,10 +579,10 @@ func TestK8s_motdAnnotations(t *testing.T) {
 	}
 
 	svc := v1.Service{}
-	err := json.Unmarshal([]byte(`{"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/autoScaleUp": "true", "mc-router.itzg.me/autoScaleAsleepMOTD": "Server is sleeping", "mc-router.itzg.me/autoScaleLoadingMOTD": "Server is starting"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &svc)
+	err := json.Unmarshal([]byte(`{"metadata": {"name": "mc-example", "annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/autoScaleUp": "true", "mc-router.itzg.me/autoScaleAsleepMOTD": "Server is sleeping", "mc-router.itzg.me/autoScaleLoadingMOTD": "Server is starting"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &svc)
 	require.NoError(t, err)
 
 	watcher.handleAdd(&svc)
 
-	routesHandler.AssertCalled(t, "CreateMapping", "mc.example.com", "10.0.0.5:25565", NewK8sScalingTarget("10.0.0.5:25565"), mock.Anything, mock.Anything, "Server is sleeping", "Server is starting")
+	routesHandler.AssertCalled(t, "CreateMapping", "mc.example.com", "10.0.0.5:25565", NewK8sScalingTarget("default", "mc-example"), mock.Anything, mock.Anything, "Server is sleeping", "Server is starting")
 }
