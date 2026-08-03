@@ -628,7 +628,9 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			// immediately schedule a scale-down — the server was just started. The
 			// scale-down timer is only armed below once a connection is established.
 
-			logrus.WithField("serverAddress", serverAddress).Info("Scaling up backend server")
+			logrus.WithField("serverAddress", serverAddress).
+				WithField("scalingTarget", scalingTarget).
+				Info("Scaling up backend server")
 			c.wakingServers.Increment(serverAddress)
 			newBackendHostPort, err := waker(c.ctx)
 			c.wakingServers.Decrement(serverAddress)

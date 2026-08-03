@@ -535,7 +535,7 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 			endpoint = fmt.Sprintf("%s:%d", data.ip, data.port)
 		}
 
-		scalingTarget := NewDockerSwarmScalingTarget(data.serviceID)
+		scalingTarget := NewDockerSwarmScalingTarget(data.serviceID, data.serviceName)
 		for _, host := range data.hosts {
 			result = append(result, newRoutableSwarmService(endpoint, host, data, scalingTarget))
 		}
@@ -963,12 +963,14 @@ func classifyServiceState(data *parsedDockerServiceData, service *swarm.Service,
 type DockerSwarmScalingTarget struct {
 	ScalingIndicator
 	serviceID string
+	name      string
 }
 
-func NewDockerSwarmScalingTarget(serviceID string) *DockerSwarmScalingTarget {
+func NewDockerSwarmScalingTarget(serviceID string, name string) *DockerSwarmScalingTarget {
 	return &DockerSwarmScalingTarget{
 		ScalingIndicator: ScalingIndicator{scaling: &atomic.Bool{}},
 		serviceID:        serviceID,
+		name:             name,
 	}
 }
 
@@ -976,7 +978,7 @@ func (t *DockerSwarmScalingTarget) String() string {
 	if t == nil {
 		return ""
 	}
-	return "dockerSwarm{" + t.serviceID + "}"
+	return fmt.Sprintf("dockerSwarm{id=%s, name=%s}", t.serviceID, t.name)
 }
 
 func (t *DockerSwarmScalingTarget) ScalingKey() string {

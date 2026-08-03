@@ -38,6 +38,8 @@ const (
 	DockerRouterLabelAutoScaleRestartDelayMOTD = "mc-router.auto-scale-restart-delay-motd"
 )
 
+const containerIdLen = 12
+
 type dockerWatcherConfig struct {
 	autoScaleUp   bool
 	autoScaleDown bool
@@ -276,7 +278,7 @@ func (w *dockerWatcherImpl) containersForID(ctx context.Context, containerId str
 		endpoint = dockerBackendEndpoint(data.ip, data.port)
 	}
 	var result []*routableContainer
-	scalingTarget := NewDockerScalingTarget(containerId)
+	scalingTarget := NewDockerScalingTarget(containerId, data.name)
 	for _, host := range data.hosts {
 		result = append(result, &routableContainer{
 			containerEndpoint:    endpoint,
@@ -495,10 +497,10 @@ func (w *dockerWatcherImpl) listContainers(ctx context.Context) ([]*routableCont
 			endpoint = dockerBackendEndpoint(data.ip, data.port)
 		}
 		logrus.WithField("backendEndpoint", endpoint).
-			WithField("containerId", containerId).
+			WithField("containerId", shortContainerId(containerId)).
 			Debug("Found routable Docker container")
 
-		scalingTarget := NewDockerScalingTarget(containerId)
+		scalingTarget := NewDockerScalingTarget(containerId, data.name)
 		for _, host := range data.hosts {
 			result = append(result, newRoutableContainer(endpoint, host, containerId, data, scalingTarget))
 		}
@@ -524,6 +526,7 @@ func newRoutableContainer(endpoint string, host string, containerId string, data
 }
 
 type parsedDockerContainerData struct {
+	name                 string
 	hosts                []string
 	port                 uint64
 	def                  *bool
@@ -553,6 +556,7 @@ func dockerBackendEndpoint(ip string, port uint64) string {
 func (w *dockerWatcherImpl) parseContainerData(container *container.InspectResponse) (data parsedDockerContainerData, ok bool) {
 	data.autoScaleUp = w.config.autoScaleUp
 	data.autoScaleDown = w.config.autoScaleDown
+	data.name = container.Name
 	for key, value := range container.Config.Labels {
 		if key == DockerRouterLabelHost {
 			if data.hosts != nil {
@@ -712,18 +716,24 @@ type routableContainer struct {
 
 func (r *routableContainer) String() string {
 	return fmt.Sprintf("routableContainer{externalName=%s, endpoint=%s, id=%s, autoScaleUp=%t, autoScaleDown=%t, autoScaleAsleepMOTD=%s, autoScaleLoadingMOTD=%s, scalingTarget=%v}",
-		r.externalName, r.containerEndpoint, r.containerId, r.autoScaleUp, r.autoScaleDown, r.autoScaleAsleepMOTD, r.autoScaleLoadingMOTD, r.scalingTarget)
+		r.externalName, r.containerEndpoint, shortContainerId(r.containerId), r.autoScaleUp, r.autoScaleDown, r.autoScaleAsleepMOTD, r.autoScaleLoadingMOTD, r.scalingTarget)
+}
+
+func shortContainerId(containerId string) string {
+	return containerId[0:containerIdLen]
 }
 
 type DockerScalingTarget struct {
 	ScalingIndicator
 	containerId string
+	name        string
 }
 
-func NewDockerScalingTarget(containerId string) *DockerScalingTarget {
+func NewDockerScalingTarget(containerId, name string) *DockerScalingTarget {
 	return &DockerScalingTarget{
 		ScalingIndicator: ScalingIndicator{scaling: &atomic.Bool{}},
 		containerId:      containerId,
+		name:             name,
 	}
 }
 
@@ -731,7 +741,7 @@ func (t *DockerScalingTarget) String() string {
 	if t == nil {
 		return ""
 	}
-	return "docker{" + t.containerId + "}"
+	return fmt.Sprintf("docker{containerId=%s, name=%s}", shortContainerId(t.containerId), t.name)
 }
 
 func (t *DockerScalingTarget) ScalingKey() string {

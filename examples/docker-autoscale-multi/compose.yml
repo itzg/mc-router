@@ -1,6 +1,6 @@
 services:
   router:
-    image: itzg/mc-router:1.46.0-rc1
+    image: itzg/mc-router
     environment:
       IN_DOCKER: true
       AUTO_SCALE_DOWN: true

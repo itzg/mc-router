@@ -83,7 +83,7 @@ func (ds *downScalerImpl) Start(ctx context.Context, scalingTarget ScalingTarget
 		if scalingTarget.StartScaling() {
 			defer scalingTarget.EndScaling()
 
-			logrus.WithField("scalingTarget", scalingTarget).Info("Scaling-down")
+			logrus.WithField("scalingTarget", scalingTarget).Info("Scaling down backend server")
 			if err := sleeper(ctx); err != nil {
 				logrus.WithError(err).
 					WithField("scalingTarget", scalingTarget).
