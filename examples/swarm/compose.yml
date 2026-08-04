@@ -1,9 +1,22 @@
-version: '3.8'
-
 services:
+  # Isolate root-level access to the docker socket
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    user: root
+    environment:
+      CONTAINERS: 1
+      SERVICES: 1
+      NODES: 1
+      TASKS: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - minecraft
+
+  # ...to be used by other services such as mc-router
   router:
     image: itzg/mc-router:latest
-    command: --in-docker-swarm
+    command: --in-docker-swarm --docker-socket=tcp://socket-proxy:2375
     deploy:
       mode: replicated
       replicas: 1
@@ -11,12 +24,6 @@ services:
       - "25565:25565"
     networks:
       - minecraft
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    # If getting "Permission denied" errors for the docker socket
-    # change this group ID to match your system. Group ID 999 is the default for Docker Desktop's VM.
-    # Find the group ID by using `stat -c '%g' /var/run/docker.sock` on your host
-    user: ":999"
 
   mcfoobar:
     image: itzg/minecraft-server:latest

@@ -193,11 +193,26 @@ When using in Docker, make sure to volume mount the Docker socket into the conta
 #### User access to docker socket
 
 > [!IMPORTANT]
-> If getting "Permission denied" errors for the docker socket change this group ID to match your system. 
-> Group ID 999 is the default for Docker Desktop's VM, which is why that is used in the example.
+> If getting "Permission denied" errors for the Docker socket, change add the group ID of the docker system user to match your system. 
+> Group ID 999 is the default for Docker's native installatino on Linux. When using Docker Desktop it tends to assign the root group as the socket owner.
 >
-> Find the group ID by using `stat -c '%g' /var/run/docker.sock` on your host user: ":999". Note the colon before the group ID since
-> the `user` syntax is `user: <user>:<group>`
+> Find the group ID by using `stat -c '%g' /var/run/docker.sock` on your host.
+>
+> Typically on Linux, use
+> ```yaml
+> group_add:
+>   # docker system user's group ID
+>   - "999"
+> ```
+> 
+> or with Docker Desktop
+> ```yaml
+> group_add:
+>   # root user's group ID
+>   - "0"
+> ```
+
+With Docker Swarm and even regular Docker, a socket proxy can be used such as [this example compose file](examples/swarm/compose.yml).
 
 These are the labels scanned:
 
@@ -242,13 +257,15 @@ Behavior:
 
 #### Example Docker deployment
 
-Refer to [this example docker-compose.yml](docs/sd-docker.docker-compose.yml) to see how to
+Refer to [this example compose file](docs/sd-docker.docker-compose.yml) to see how to
 configure two different Minecraft servers and a `mc-router` instance for use with Docker service discovery.
 
 #### Example Docker Swarm deployment
 
-Refer to [this example docker-compose.yml](docs/swarm.docker-compose.yml) to see how to
+Refer to [this example compose file](examples/swarm/compose.yml) to see how to
 configure two different Minecraft servers and a `mc-router` instance for use with Docker Swarm service discovery.
+
+Refer to the [section above](#user-access-to-docker-socket) for information on how to configure the Docker socket access.
 
 ### Webhook Auto Scale
 
