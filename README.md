@@ -193,12 +193,16 @@ When using in Docker, make sure to volume mount the Docker socket into the conta
 #### User access to docker socket
 
 > [!IMPORTANT]
-> If getting "Permission denied" errors for the Docker socket, change add the group ID of the docker system user to match your system. 
-> Group ID 999 is the default for Docker's native installatino on Linux. When using Docker Desktop it tends to assign the root group as the socket owner.
+> If getting "Permission denied" errors for the Docker socket, `/var/run/docker.sock`, then it is because **the image now runs the container as a non-root user by default**. The Docker socket is not readable or writable a regular user/group.
+> Refer to one of the following notes for solutions.
+
+> [!NOTE]
+> One solution is to add the group ID of the docker system user to match your system. 
+> Group ID 999 is the default for Docker's native installation on Linux. When using Docker Desktop it tends to assign the **root** group through as the socket owner.
 >
 > Find the group ID by using `stat -c '%g' /var/run/docker.sock` on your host.
 >
-> Typically on Linux, use
+> Typically on Linux, add the following to the container/service definition:
 > ```yaml
 > group_add:
 >   # docker system user's group ID
@@ -211,10 +215,20 @@ When using in Docker, make sure to volume mount the Docker socket into the conta
 >   # root user's group ID
 >   - "0"
 > ```
+> 
+> You can also simply "revert" to the previous behavior add add the following to the container/service definition:
+> ```yaml
+> user: root
+> ```
+> to the container/service definition.
+ 
 
-With Docker Swarm and even regular Docker, a socket proxy can be used such as [this example compose file](examples/swarm/compose.yml).
+> [!NOTE]
+> If you would like to instead isolate the elevated access to the Docker socket, a socket proxy can be used such as [this example compose file for Docker Swarm](examples/swarm/compose.yml) and [this example Docker Compose file](examples/docker-autoscale-socket-proxy/compose.yml).
 
-These are the labels scanned:
+### Docker discovery labels
+
+These are the labels on the containers are scanned for discovery and auto-scaling:
 
 - `mc-router.host`: Used to configure the hostname the Minecraft clients would use to connect to the server. The container/service endpoint will be used as the routed backend. You can use more than one hostname by splitting it with a comma or newline. Whitespace around commas is automatically trimmed. For example: `"host1.com,host2.com"`, `"host1.com, host2.com"`, or `"host1.com\nhost2.com"`.
 - `mc-router.port`: This value must be set to the port the Minecraft server is listening on. The default value is 25565.
