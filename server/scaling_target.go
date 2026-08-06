@@ -16,6 +16,7 @@ type ScalingTarget interface {
 	EndScaling() bool
 	// ScalingKey returns a unique identifier for the target suitable for use as a map key.
 	ScalingKey() string
+	IsScaling() bool
 }
 
 type ScalingIndicator struct {
@@ -24,6 +25,10 @@ type ScalingIndicator struct {
 
 func (i *ScalingIndicator) StartScaling() bool {
 	return i.scaling.CompareAndSwap(false, true)
+}
+
+func (i *ScalingIndicator) IsScaling() bool {
+	return i.scaling.Load()
 }
 
 func (i *ScalingIndicator) EndScaling() bool {

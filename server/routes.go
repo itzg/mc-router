@@ -388,9 +388,9 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, scaling
 	}
 }
 
-// UpdateMapping atomically replaces the backend for an existing route without touching the
-// scale-down timer — the connector owns the timer once a connection is active. When backend
-// is empty (container stopped externally) the timer is cancelled so it doesn't fire needlessly.
+// UpdateMapping atomically replaces the backend for an existing route.
+// It will also cancel the down scaler if backend is now "down" and start the down scaler timer
+// if the backend is now routable but previous mapping entry wasn't, much like CreateMapping
 func (r *routesImpl) UpdateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
 	r.Lock()
 	defer r.Unlock()
@@ -401,6 +401,7 @@ func (r *routesImpl) UpdateMapping(serverAddress string, backend string, scaling
 		"serverAddress": serverAddress,
 		"backend":       backend,
 	}).Info("Updated route mapping")
+	prev, hasPrevious := r.mappings[serverAddress]
 	r.mappings[serverAddress] = mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD, loadingMOTD: loadingMOTD}
 
 	for _, listener := range r.routesListeners {
@@ -408,10 +409,14 @@ func (r *routesImpl) UpdateMapping(serverAddress string, backend string, scaling
 		listener.OnRouteAdded(serverAddress, backend)
 	}
 
-	// Cancel the timer when the backend disappears (container stopped externally).
-	// Don't start a new timer when backend is non-empty — the connector manages that.
-	if r.downScaler != nil && scalingTarget != nil && backend == "" {
-		r.downScaler.Cancel(scalingTarget)
+	if r.downScaler != nil && scalingTarget != nil {
+		// Cancel the timer when the backend disappears (container stopped externally).
+		if backend == "" {
+			r.downScaler.Cancel(scalingTarget)
+			// start timer on a backend transition from down/waking to ready
+		} else if hasPrevious && prev.backend == "" && !scalingTarget.IsScaling() {
+			r.downScaler.Start(r.ctx, scalingTarget, r)
+		}
 	}
 }
 

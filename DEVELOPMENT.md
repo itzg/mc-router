@@ -119,3 +119,36 @@ When applying the `mc-router.host` label to containers to be auto-discovered, it
 
 Run one of the labeled services by clicking the run icon in the gutter.
 
+## Docker Swarm
+
+In order to make development images available to the mc-router service, you need to run an in-cluster retry and push to it.
+
+Start an in-cluster retry service:
+
+```shell
+docker service create \
+  --name registry \
+  --publish published=5000,target=5000 \
+  registry:2
+```
+
+Build the image like normal and tag it as `localhost:5000/itzg/mc-router:r1` using the tag as a distinct version to test.
+
+```shell
+docker tag itzg/mc-router:latest localhost:5000/itzg/mc-router:r1
+```
+
+Finally, push the image to the in-cluster retry service:
+
+```shell
+docker push localhost:5000/itzg/mc-router:r1
+```
+
+Be sure to update the `image` in the stack's compose file, such as
+
+```yaml
+  router:
+     image: 127.0.0.1:5000/itzg/mc-router:r1
+     environment:
+        IN_DOCKER_SWARM: "true"
+```
