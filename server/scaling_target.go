@@ -19,6 +19,14 @@ type ScalingTarget interface {
 	IsScaling() bool
 }
 
+// safeScalingKey nil-safe function to return the scaling key of the given target, or an empty string if the target is nil.
+func safeScalingKey(scalingTarget ScalingTarget) string {
+	if scalingTarget == nil {
+		return ""
+	}
+	return scalingTarget.ScalingKey()
+}
+
 type ScalingIndicator struct {
 	scaling *atomic.Bool
 }

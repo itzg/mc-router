@@ -144,7 +144,10 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	}
 
 	if config.ApiBinding != "" {
-		StartApiServer(config.ApiBinding, routes, routesConfigLoader, webhookScaler)
+		_, err := StartApiServer(ctx, config.ApiBinding, routes, routesConfigLoader, webhookScaler)
+		if err != nil {
+			return nil, fmt.Errorf("could not start API server: %w", err)
+		}
 	}
 
 	routeWatchers := make([]RouteFinder, 0)

@@ -326,3 +326,114 @@ func TestRoutesListener_NilListenersHandled(t *testing.T) {
 	r.RemoveMapping("mc.example.com")
 	r.Reset()
 }
+
+type MockRoutes struct {
+	mock.Mock
+}
+
+func (m *MockRoutes) CreateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
+	m.MethodCalled("CreateMapping", serverAddress, backend, scalingTarget, waker, sleeper, asleepMOTD, loadingMOTD)
+}
+
+func (m *MockRoutes) UpdateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
+	m.MethodCalled("UpdateMapping", serverAddress, backend, scalingTarget, waker, sleeper, asleepMOTD, loadingMOTD)
+}
+
+func (m *MockRoutes) SetDefaultRoute(backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
+	m.MethodCalled("SetDefaultRoute", backend, scalingTarget, waker, sleeper, asleepMOTD, loadingMOTD)
+}
+
+func (m *MockRoutes) RemoveDefaultRoute() {
+	m.MethodCalled("RemoveDefaultRoute")
+}
+
+func (m *MockRoutes) RemoveMapping(serverAddress string) bool {
+	args := m.MethodCalled("RemoveMapping", serverAddress)
+	return args.Bool(0)
+}
+
+func (m *MockRoutes) Reset() {
+	m.MethodCalled("Reset")
+}
+
+func nillableScalingTarget(in interface{}) ScalingTarget {
+	var scalingTarget ScalingTarget
+	if in != nil {
+		scalingTarget = in.(ScalingTarget)
+	}
+	return scalingTarget
+}
+
+func nillableWaker(in interface{}) WakerFunc {
+	var waker WakerFunc
+	if in != nil {
+		waker = in.(WakerFunc)
+	}
+	return waker
+}
+
+func nillableSleeper(in interface{}) SleeperFunc {
+	var sleeper SleeperFunc
+	if in != nil {
+		sleeper = in.(SleeperFunc)
+	}
+	return sleeper
+}
+
+func (m *MockRoutes) FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, ScalingTarget, WakerFunc, SleeperFunc) {
+	args := m.MethodCalled("FindBackendForServerAddress", ctx, serverAddress)
+
+	return args.String(0), args.String(1), nillableScalingTarget(args.Get(2)), nillableWaker(args.Get(3)), nillableSleeper(args.Get(4))
+}
+
+func (m *MockRoutes) HasRoute(serverAddress string) bool {
+	args := m.MethodCalled("HasRoute", serverAddress)
+	return args.Bool(0)
+}
+
+func (m *MockRoutes) GetSleeper(scalingTarget ScalingTarget) SleeperFunc {
+	args := m.MethodCalled("GetSleeper", scalingTarget)
+	return args.Get(0).(SleeperFunc)
+}
+
+func (m *MockRoutes) GetMappings() map[string]string {
+	args := m.MethodCalled("GetMappings")
+	return args.Get(0).(map[string]string)
+}
+
+func (m *MockRoutes) GetDefaultRoute() (string, ScalingTarget, WakerFunc, SleeperFunc) {
+	args := m.MethodCalled("GetDefaultRoute")
+	return args.String(0), args.Get(1).(ScalingTarget), args.Get(2).(WakerFunc), args.Get(3).(SleeperFunc)
+}
+
+func (m *MockRoutes) GetAsleepMOTD(serverAddress string) string {
+	args := m.MethodCalled("GetAsleepMOTD", serverAddress)
+	return args.String(0)
+}
+
+func (m *MockRoutes) GetLoadingMOTD(serverAddress string) string {
+	args := m.MethodCalled("GetLoadingMOTD", serverAddress)
+	return args.String(0)
+}
+
+func (m *MockRoutes) SetCountdownDeadline(serverAddress string, deadline time.Time) {
+	m.MethodCalled("SetCountdownDeadline", serverAddress, deadline)
+}
+
+func (m *MockRoutes) SimplifySRV(srvEnabled bool) {
+	m.MethodCalled("SimplifySRV", srvEnabled)
+}
+
+func (m *MockRoutes) BulkRegister(scaler *WebhookScaler, mappings map[string]string) {
+	m.MethodCalled("BulkRegister", scaler, mappings)
+}
+
+func (m *MockRoutes) WithDownScaler(downScaler IDownScaler) IRoutes {
+	args := m.MethodCalled("WithDownScaler", downScaler)
+	return args.Get(0).(IRoutes)
+}
+
+func (m *MockRoutes) WithListener(listener RoutesListener) IRoutes {
+	args := m.MethodCalled("WithListener", listener)
+	return args.Get(0).(IRoutes)
+}
