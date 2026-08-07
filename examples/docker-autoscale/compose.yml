@@ -20,6 +20,10 @@ services:
       - "25565:25565"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    # Refer to the "User access to docker socket" section in the README
+    group_add:
+      - "0"
+
   vanilla:
     image: itzg/minecraft-server
     environment:

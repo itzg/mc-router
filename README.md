@@ -190,7 +190,45 @@ When using in Docker, make sure to volume mount the Docker socket into the conta
       - /var/run/docker.sock:/var/run/docker.sock:ro
 ```
 
-These are the labels scanned:
+#### User access to docker socket
+
+> [!IMPORTANT]
+> If getting "Permission denied" errors for the Docker socket, `/var/run/docker.sock`, then it is because **the image now runs the container as a non-root user by default**. The Docker socket is not readable or writable a regular user/group.
+> Refer to one of the following notes for solutions.
+
+> [!NOTE]
+> One solution is to add the group ID of the docker system user to match your system. 
+> Group ID 999 is the default for Docker's native installation on Linux. When using Docker Desktop it tends to assign the **root** group through as the socket owner.
+>
+> Find the group ID by using `stat -c '%g' /var/run/docker.sock` on your host.
+>
+> Typically on Linux, add the following to the container/service definition:
+> ```yaml
+> group_add:
+>   # docker system user's group ID
+>   - "999"
+> ```
+> 
+> or with Docker Desktop
+> ```yaml
+> group_add:
+>   # root user's group ID
+>   - "0"
+> ```
+> 
+> You can also simply "revert" to the previous behavior add add the following to the container/service definition:
+> ```yaml
+> user: root
+> ```
+> to the container/service definition.
+ 
+
+> [!NOTE]
+> If you would like to instead isolate the elevated access to the Docker socket, a socket proxy can be used such as [this example compose file for Docker Swarm](examples/swarm/compose.yml) and [this example Docker Compose file](examples/docker-autoscale-socket-proxy/compose.yml).
+
+### Docker discovery labels
+
+These are the labels on the containers are scanned for discovery and auto-scaling:
 
 - `mc-router.host`: Used to configure the hostname the Minecraft clients would use to connect to the server. The container/service endpoint will be used as the routed backend. You can use more than one hostname by splitting it with a comma or newline. Whitespace around commas is automatically trimmed. For example: `"host1.com,host2.com"`, `"host1.com, host2.com"`, or `"host1.com\nhost2.com"`.
 - `mc-router.port`: This value must be set to the port the Minecraft server is listening on. The default value is 25565.
@@ -233,13 +271,15 @@ Behavior:
 
 #### Example Docker deployment
 
-Refer to [this example docker-compose.yml](docs/sd-docker.docker-compose.yml) to see how to
+Refer to [this example compose file](docs/sd-docker.docker-compose.yml) to see how to
 configure two different Minecraft servers and a `mc-router` instance for use with Docker service discovery.
 
 #### Example Docker Swarm deployment
 
-Refer to [this example docker-compose.yml](docs/swarm.docker-compose.yml) to see how to
+Refer to [this example compose file](examples/swarm/compose.yml) to see how to
 configure two different Minecraft servers and a `mc-router` instance for use with Docker Swarm service discovery.
+
+Refer to the [section above](#user-access-to-docker-socket) for information on how to configure the Docker socket access.
 
 ### Webhook Auto Scale
 
@@ -881,69 +921,7 @@ In this case the `status` is `"failed-backend-connection"` indicating that a bac
 
 ## Development
 
-### Building locally with Docker
-
-```bash
-docker build -t mc-router .
-```
-
-### Build locally without Docker
-
-After [installing Go](https://go.dev/doc/install) and doing a `go mod download` to install all required prerequisites, just like the [Dockerfile](Dockerfile) does, you can:
-
-```bash
-make test # go test -v ./...
-go build ./cmd/mc-router/
-```
-
-### Skaffold
-
-For "in-cluster development" it's convenient to use https://skaffold.dev. Any changes to Go source code
-will trigger a go build, new container image pushed to registry with a new tag, and refresh in Kubernetes
-with the image tag used in the deployment transparently updated to the new tag and thus new pod created pulling new images,
-as configured by [skaffold.yaml](skaffold.yaml):
-
-    skaffold dev
-
-When using Google Cloud (GCP), first create a _Docker Artifact Registry_,
-then add the _Artifact Registry Reader_ Role to the _Compute Engine default service account_ of your _GKE `clusterService` Account_ (to avoid error like "container mc-router is waiting to start: ...-docker.pkg.dev/... can't be pulled"),
-then use e.g. `gcloud auth configure-docker europe-docker.pkg.dev` or equivalent one time (to create a `~/.docker/config.json`),
-and then use e.g. `--default-repo=europe-docker.pkg.dev/YOUR-PROJECT/YOUR-ARTIFACT-REGISTRY` option for `skaffold dev`.
-
-### Running in devcontainer
-
-This approach is useful for testing changes for [Docker auto scaling](#docker-auto-scale-updown).
-
-With IntelliJ Ultimate, [use these instructions](https://www.jetbrains.com/help/idea/start-dev-container-inside-ide.html). It is recommended to use the option to mount sources.
-
-![Start devcontainer in IntelliJ](docs/intellij-devcontainer.png)
-
-Use the example compose file [in examples/docker-discovery](examples/docker-discovery/compose.yml) or similar with `network_mode` set to "bridge" to ensure that the mc-router instance running within the devcontainer can reach the backend servers.
-
-When applying the `mc-router.host` label to containers to be auto-discovered, it's easiest to use an external host of "localhost":
-
-```yaml
-  vanilla:
-    image: itzg/minecraft-server
-    environment:
-      EULA: "TRUE"
-    labels:
-      mc-router.host: "localhost"
-```
-
-Run one of the labeled services by clicking the run icon in the gutter.
-
-
-
-### Performing snapshot release with Docker
-
-```bash
-docker run -it --rm \
-  -v ${PWD}:/build -w /build \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  goreleaser/goreleaser \
-  release --snapshot --rm-dist
-```
+Refer to [DEVELOPMENT.md](DEVELOPMENT.md)
 
 ## Related Projects
 

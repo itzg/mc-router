@@ -1,19 +1,29 @@
 services:
+  # Isolate root-level access to the docker socket
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    user: root
+    environment:
+      CONTAINERS: 1
+      POST: 1
+      NETWORKS: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
   router:
+    depends_on:
+      - socket-proxy
     image: itzg/mc-router
     environment:
       IN_DOCKER: true
+      DOCKER_SOCKET: "tcp://socket-proxy:2375"
       AUTO_SCALE_DOWN: true
       AUTO_SCALE_UP: true
-      AUTO_SCALE_DOWN_AFTER: 2h
+      AUTO_SCALE_DOWN_AFTER: 1m
       AUTO_SCALE_ASLEEP_MOTD: "Server is asleep. Join again to wake it up!"
+      DEBUG: true
     ports:
       - "25565:25565"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    # Refer to the "User access to docker socket" section in the README
-    group_add:
-      - "0"
 
   vanilla:
     image: itzg/minecraft-server

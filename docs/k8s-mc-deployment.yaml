@@ -5,6 +5,9 @@ metadata:
   name: mc-latest
   annotations:
     "mc-router.itzg.me/defaultServer": "true"
+    # Only enable these for testing since auto-scaling is not yet supported for deployment types
+#    "mc-router.itzg.me/autoScaleUp": "true"
+#    "mc-router.itzg.me/autoScaleDown": "true"
 spec:
   type: NodePort
   ports:
@@ -45,7 +48,8 @@ kind: Service
 metadata:
   name: mc-snapshot
   annotations:
-    "mc-router.itzg.me/externalServerName": "snapshot.your.domain"
+    # Replace localhost with public hostname of your mc-router host or port-forwarded address
+    "mc-router.itzg.me/externalServerName": "127.0.0.2,127.0.0.3"
 spec:
   type: NodePort
   ports:

@@ -160,7 +160,8 @@ func TestWebhookScaler_ErrorOnNon2xx(t *testing.T) {
 
 func TestWebhookScaler_RouteFuncsNilSafe(t *testing.T) {
 	var scaler *WebhookScaler // unconfigured
-	waker, sleeper := scaler.routeFuncs("mc.example.com", "10.0.0.5:25565")
+	waker, sleeper, scalingTarget := scaler.routeFuncs("mc.example.com", "10.0.0.5:25565")
 	assert.Nil(t, waker)
 	assert.Nil(t, sleeper)
+	assert.Nil(t, scalingTarget)
 }

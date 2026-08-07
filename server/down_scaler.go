@@ -8,42 +8,42 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// TODO need to re-evalute the awkwardness of DownScaler in the overall whole flow.
-// For example, I'm not sure where waker/sleeper fits and it's part of a Routes<->DownScaler cycle.
-// It also has an "enabled" flag, but why not just have this whole thing be optional/nil-able as the caller end.
+// TODO need to re-evaluate the awkwardness of DownScaler in the overall whole flow.
+// Maybe it needs to be renamed too, such as  DownScalingTimers
 
 type IDownScaler interface {
 	Reset()
-	Start(ctx context.Context, backendEndpoint string, routes IRoutes)
-	Cancel(backendEndpoint string)
+	Start(ctx context.Context, scalingTarget ScalingTarget, routes IRoutes)
+	Cancel(scalingTarget ScalingTarget)
+	HandleContextDone(ctx context.Context)
 }
 
 func NewDownScaler(enabled bool, delay time.Duration) IDownScaler {
-	ds := &downScalerImpl{
-		enabled:              enabled,
-		delay:                delay,
-		contextCancellations: make(map[string]context.CancelFunc),
+	return &downScalerImpl{
+		enabled: enabled,
+		delay:   delay,
+		timers:  make(map[string]*time.Timer),
 	}
-
-	return ds
 }
 
 type downScalerImpl struct {
-	sync.RWMutex
-	enabled              bool
-	delay                time.Duration
-	contextCancellations map[string]context.CancelFunc
+	sync.Mutex
+	enabled bool
+	delay   time.Duration
+	timers  map[string]*time.Timer
 }
 
 func (ds *downScalerImpl) Reset() {
-	// Cancel all existing scale down routines
-	for _, scaleDownCancel := range ds.contextCancellations {
-		scaleDownCancel()
+	ds.Lock()
+	defer ds.Unlock()
+
+	for _, t := range ds.timers {
+		t.Stop()
 	}
-	ds.contextCancellations = make(map[string]context.CancelFunc)
+	ds.timers = make(map[string]*time.Timer)
 }
 
-func (ds *downScalerImpl) Start(ctx context.Context, backendEndpoint string, routes IRoutes) {
+func (ds *downScalerImpl) Start(ctx context.Context, scalingTarget ScalingTarget, routes IRoutes) {
 	ds.Lock()
 	defer ds.Unlock()
 
@@ -51,58 +51,67 @@ func (ds *downScalerImpl) Start(ctx context.Context, backendEndpoint string, rou
 		return
 	}
 
-	// If an existing scale down routine exists, cancel it
-	if scaleDownCancel, ok := ds.contextCancellations[backendEndpoint]; ok {
-		scaleDownCancel()
-	}
-
-	scaleDownContext, scaleDownContextCancellation := context.WithCancel(ctx)
-	ds.contextCancellations[backendEndpoint] = scaleDownContextCancellation
-	go ds.scaleDown(scaleDownContext, backendEndpoint, routes)
-}
-
-func (ds *downScalerImpl) Cancel(backendEndpoint string) {
-	ds.Lock()
-	defer ds.Unlock()
-
-	if !ds.enabled {
+	key := scalingTarget.ScalingKey()
+	if _, exists := ds.timers[key]; exists {
+		// Already scheduled; prevent duplicate scale-down for same target
 		return
 	}
 
-	if scaleDownContextCancellation, ok := ds.contextCancellations[backendEndpoint]; ok {
-		logrus.WithField("backendEndpoint", backendEndpoint).Debug("Canceling scale down")
-		scaleDownContextCancellation()
-		delete(ds.contextCancellations, backendEndpoint)
-	}
-}
-
-func (ds *downScalerImpl) scaleDown(ctx context.Context, backendEndpoint string, routes IRoutes) {
-	logrus.WithField("backendEndpoint", backendEndpoint).
+	logrus.WithField("scalingTarget", scalingTarget).
 		WithField("delay", ds.delay).
 		Debug("Starting scale-down timer")
-	for {
+
+	ds.timers[key] = time.AfterFunc(ds.delay, func() {
+		ds.Lock()
+		delete(ds.timers, key)
+		ds.Unlock()
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(ds.delay):
-			sleepers := routes.GetSleepers(backendEndpoint)
-			logrus.WithField("backendEndpoint", backendEndpoint).
-				WithField("sleepers", len(sleepers)).
-				Debug("Found sleepers to use")
-			if len(sleepers) == 0 {
-				return
-			}
-			for _, sleeper := range sleepers {
-				go func(s SleeperFunc) {
-					err := s(ctx)
-					if err != nil {
-						logrus.WithError(err).
-							WithField("backendEndpoint", backendEndpoint).
-							Error("Error while executing sleeper function")
-					}
-				}(sleeper)
-			}
+		default:
+		}
+
+		sleeper := routes.GetSleeper(scalingTarget)
+		logrus.WithField("scalingTarget", scalingTarget).
+			WithField("found", sleeper != nil).
+			Debug("Looking for sleeper to use")
+		if sleeper == nil {
 			return
 		}
+
+		if scalingTarget.StartScaling() {
+			defer scalingTarget.EndScaling()
+
+			logrus.WithField("scalingTarget", scalingTarget).Info("Scaling down backend server")
+			if err := sleeper(ctx); err != nil {
+				logrus.WithError(err).
+					WithField("scalingTarget", scalingTarget).
+					Error("Error while executing sleeper function")
+			}
+		}
+	})
+}
+
+func (ds *downScalerImpl) Cancel(scalingTarget ScalingTarget) {
+	ds.Lock()
+	defer ds.Unlock()
+
+	if !ds.enabled {
+		return
 	}
+
+	key := scalingTarget.ScalingKey()
+	if t, ok := ds.timers[key]; ok {
+		logrus.WithField("scalingTarget", scalingTarget).Debug("Canceling scale-down timer")
+		t.Stop()
+		delete(ds.timers, key)
+	}
+}
+
+func (ds *downScalerImpl) HandleContextDone(ctx context.Context) {
+	go func() {
+		<-ctx.Done()
+		ds.Reset()
+	}()
 }

@@ -12,6 +12,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     # Matches MCs below
     network_mode: bridge
+    # Refer to the "User access to docker socket" section in the README
+    group_add:
+      - "0"
+
   vanilla:
     image: itzg/minecraft-server
     environment:

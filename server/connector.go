@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/avast/retry-go/v5"
 	"golang.ngrok.com/ngrok"
 	"golang.ngrok.com/ngrok/config"
 
@@ -38,10 +39,17 @@ const (
 	defaultBackendDialTimeout = 2 * time.Second
 )
 
+const (
+	backendReadyRetryDelay     = 500 * time.Millisecond
+	backendReadyConnectTimeout = 250 * time.Millisecond
+	backendReadyRetryMaxDelay  = 1 * time.Second
+)
+
 var noDeadline time.Time
 
 type ActiveConnections struct {
 	sync.RWMutex
+	// activeConnections key is either a backend address or scaling target key depending on metrics usage
 	activeConnections map[string]int
 }
 
@@ -51,24 +59,24 @@ func NewActiveConnections() *ActiveConnections {
 	}
 }
 
-func (sm *ActiveConnections) Increment(backendAddress string) {
+func (sm *ActiveConnections) Increment(key string) {
 	sm.Lock()
 	defer sm.Unlock()
-	if _, ok := sm.activeConnections[backendAddress]; !ok {
-		sm.activeConnections[backendAddress] = 1
+	if _, ok := sm.activeConnections[key]; !ok {
+		sm.activeConnections[key] = 1
 		return
 	}
-	sm.activeConnections[backendAddress] += 1
+	sm.activeConnections[key] += 1
 }
 
-func (sm *ActiveConnections) Decrement(backendAddress string) {
+func (sm *ActiveConnections) Decrement(key string) {
 	sm.Lock()
 	defer sm.Unlock()
-	if activeConnections, ok := sm.activeConnections[backendAddress]; ok && activeConnections <= 0 {
-		sm.activeConnections[backendAddress] = 0
+	if activeConnections, ok := sm.activeConnections[key]; ok && activeConnections <= 0 {
+		sm.activeConnections[key] = 0
 		return
 	}
-	sm.activeConnections[backendAddress] -= 1
+	sm.activeConnections[key] -= 1
 }
 
 func (sm *ActiveConnections) GetCount(backendAddress string) int {
@@ -115,9 +123,10 @@ type NgrokConnector struct {
 }
 
 type Connector struct {
-	ctx                        context.Context
-	state                      mcproto.State
-	routes                     IRoutes
+	ctx    context.Context
+	state  mcproto.State
+	routes IRoutes
+	// downScaler is used to scale up and down the number of backend connections. nil if disabled.
 	downScaler                 IDownScaler
 	metrics                    *ConnectorMetrics
 	sendProxyProto             bool
@@ -533,7 +542,15 @@ func sanitizeUTF8(s string) string {
 	return strings.ToValidUTF8(s, "")
 }
 
-func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress string, playerInfo *PlayerInfo, backendHostPort string, scalingTarget string, cleanupMetrics bool, checkScaleDown bool) {
+func (c *Connector) cleanupBackendConnection(
+	clientAddr net.Addr,
+	serverAddress string,
+	playerInfo *PlayerInfo,
+	backendHostPort string,
+	scalingTarget ScalingTarget,
+	cleanupMetrics bool,
+	checkScaleDown bool,
+) {
 	if c.connectionNotifier != nil {
 		err := c.connectionNotifier.NotifyDisconnected(c.ctx, clientAddr, serverAddress, playerInfo, backendHostPort)
 		if err != nil {
@@ -550,7 +567,9 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 			With("server_address", sanitizeUTF8(serverAddress)).
 			Set(float64(c.activeConnections.GetCount(backendHostPort)))
 
-		c.scaleActiveConnections.Decrement(scalingTarget)
+		if scalingTarget != nil {
+			c.scaleActiveConnections.Decrement(scalingTarget.ScalingKey())
+		}
 
 		if c.recordLogins && playerInfo != nil {
 			c.metrics.ServerActivePlayer.
@@ -566,8 +585,14 @@ func (c *Connector) cleanupBackendConnection(clientAddr net.Addr, serverAddress 
 		WithField("player", playerInfo).
 		WithField("connectionCount", c.activeConnections.GetCount(backendHostPort)).
 		Info("Closed connection to backend")
-	if checkScaleDown && c.scaleActiveConnections.GetCount(scalingTarget) <= 0 {
-		c.downScaler.Start(c.ctx, scalingTarget, c.routes)
+	if scalingTarget != nil && checkScaleDown {
+		scaleCount := c.scaleActiveConnections.GetCount(scalingTarget.ScalingKey())
+		logrus.WithField("scalingTarget", scalingTarget).
+			WithField("scaleActiveConnections", scaleCount).
+			Debug("Evaluating scale-down after connection close")
+		if c.downScaler != nil && scaleCount <= 0 {
+			c.downScaler.Start(c.ctx, scalingTarget, c.routes)
+		}
 	}
 	c.connectionsCond.Signal()
 }
@@ -591,13 +616,21 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			WithField("player", playerInfo).
 			WithField("serverAllowsPlayer", serverAllowsPlayer).
 			Debug("checked if player is allowed to wake up the server")
-		if serverAllowsPlayer {
+		if serverAllowsPlayer && scalingTarget.StartScaling() {
+			defer scalingTarget.EndScaling()
+
 			// Cancel down scaler if active before scale up
-			if scalingTarget != "" {
+			if c.downScaler != nil {
 				c.downScaler.Cancel(scalingTarget)
 			}
-			cleanupCheckScaleDown = true
-			logrus.WithField("serverAddress", serverAddress).Info("Waking up backend server")
+			// Note: cleanupCheckScaleDown is intentionally NOT set here. If the dial
+			// fails after a successful wake (backend still booting), we must not
+			// immediately schedule a scale-down — the server was just started. The
+			// scale-down timer is only armed below once a connection is established.
+
+			logrus.WithField("serverAddress", serverAddress).
+				WithField("scalingTarget", scalingTarget).
+				Info("Scaling up backend server")
 			c.wakingServers.Increment(serverAddress)
 			newBackendHostPort, err := waker(c.ctx)
 			c.wakingServers.Decrement(serverAddress)
@@ -611,11 +644,6 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 				c.metrics.Errors.With("type", "wakeup_no_address").Add(1)
 				return
 			}
-			if scalingTarget == "" {
-				scalingTarget = newBackendHostPort
-			}
-			// Cancel again in case any routes were changed during wake up
-			c.downScaler.Cancel(scalingTarget)
 			backendHostPort = newBackendHostPort
 			logrus.WithFields(logrus.Fields{
 				"serverAddress":   serverAddress,
@@ -691,6 +719,12 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			Warn("Unable to connect to backend")
 		c.metrics.Errors.With("type", "backend_failed").Add(1)
 
+		if waker != nil {
+			logrus.WithField("serverAddress", serverAddress).
+				WithField("backend", backendHostPort).
+				Debug("Backend not ready after wake; scale-down timer will not be started")
+		}
+
 		if c.connectionNotifier != nil {
 			notifyErr := c.connectionNotifier.NotifyFailedBackendConnection(c.ctx, clientAddr, serverAddress, playerInfo, backendHostPort, err)
 			if notifyErr != nil {
@@ -729,7 +763,17 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		atomic.AddInt32(&c.totalActiveConnections, 1)))
 
 	c.activeConnections.Increment(backendHostPort)
-	c.scaleActiveConnections.Increment(scalingTarget)
+	if scalingTarget != nil {
+		c.scaleActiveConnections.Increment(scalingTarget.ScalingKey())
+		// Cancel any pending scale-down timer — the Docker event that fires during
+		// wake-up may have started a new timer after our pre-wake Cancel call.
+		// Also covers status pings: they cancel the timer here, and cleanupCheckScaleDown
+		// ensures the timer is restarted when the ping connection closes.
+		if c.downScaler != nil {
+			c.downScaler.Cancel(scalingTarget)
+			cleanupCheckScaleDown = true
+		}
+	}
 	c.metrics.ServerActiveConnections.
 		With("server_address", sanitizeUTF8(serverAddress)).
 		Set(float64(c.activeConnections.GetCount(backendHostPort)))
@@ -925,4 +969,41 @@ func protocolToName(proto int) string {
 	default:
 		return "1.7+"
 	}
+}
+
+func waitForBackend(ctx context.Context, endpoint string, waitTimeout time.Duration) (string, error) {
+	// Apply overall deadline to retries
+	retryCtx, retryCancel := context.WithTimeout(ctx, waitTimeout)
+	defer retryCancel()
+
+	retryErr := retry.New(
+		retry.Context(retryCtx),
+		retry.DelayType(retry.BackOffDelay),
+		retry.Delay(backendReadyRetryDelay),
+		retry.MaxDelay(backendReadyRetryMaxDelay),
+		retry.UntilSucceeded(),
+		retry.OnRetry(func(n uint, err error) {
+			logrus.
+				WithField("endpoint", endpoint).
+				WithField("attempt", n).
+				WithError(err).
+				Debug("Retrying K8s backend reachability")
+		}),
+	).Do(func() error {
+		conn, err := net.DialTimeout("tcp", endpoint, backendReadyConnectTimeout)
+		if err == nil {
+			_ = conn.Close()
+			logrus.WithField("endpoint", endpoint).Debug("K8s backend is now reachable")
+			return nil
+		}
+		return err
+	})
+	if errors.Is(retryErr, context.DeadlineExceeded) {
+		return endpoint, fmt.Errorf("timeout waiting for K8s backend to become reachable at %s", endpoint)
+	} else if retryErr != nil {
+		return endpoint, fmt.Errorf("error waiting for K8s backend to become reachable at %s: %w", endpoint, retryErr)
+	}
+
+	return endpoint, nil
+
 }

@@ -55,10 +55,13 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	webhookScalerConfigured := config.AutoScale.Webhook.Url != ""
 	downScalerEnabled := (config.AutoScale.Down && (config.InKubeCluster || config.KubeConfig != "" || config.InDocker || config.InDockerSwarm)) || webhookScalerConfigured
 	downScalerDelay := config.AutoScale.DownAfter
-	// Only one instance should be created
-	// TODO why create it if not enabled? nil checks needed if optional
-	downscaler := NewDownScaler(downScalerEnabled, downScalerDelay)
-	routes.WithDownScaler(downscaler)
+	var downscaler IDownScaler
+	if downScalerEnabled {
+		downscaler = NewDownScaler(downScalerEnabled, downScalerDelay)
+		routes.WithDownScaler(downscaler)
+
+		downscaler.HandleContextDone(ctx)
+	}
 
 	// Build the webhook scaler and hand it to the objects that register static
 	// routes so they pick up its waker/sleeper. Discovery-based routes
@@ -94,8 +97,8 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 
 	routes.BulkRegister(webhookScaler, config.Mapping)
 	if config.Default != "" {
-		waker, sleeper := webhookScaler.routeFuncs("", config.Default)
-		routes.SetDefaultRoute(config.Default, "", waker, sleeper, "", "")
+		waker, sleeper, scalingTarget := webhookScaler.routeFuncs("", config.Default)
+		routes.SetDefaultRoute(config.Default, scalingTarget, waker, sleeper, "", "")
 	}
 
 	if config.ConnectionRateLimit < 1 {

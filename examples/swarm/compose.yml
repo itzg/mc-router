@@ -1,18 +1,39 @@
-version: '3.8'
-
 services:
+  # Isolate root-level access to the docker socket
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    user: root
+    environment:
+      CONTAINERS: 1
+      SERVICES: 1
+      POST: 1
+      NETWORKS: 1
+      TASKS: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - minecraft
+
+  # ...to be used by other services such as mc-router
   router:
-    image: itzg/mc-router:latest
-    command: --in-docker-swarm
+    image: itzg/mc-router
+    environment:
+      IN_DOCKER_SWARM: "true"
+      DOCKER_SOCKET: "tcp://socket-proxy:2375"
+      AUTO_SCALE_DOWN: "true"
+      AUTO_SCALE_UP: "true"
+      AUTO_SCALE_DOWN_AFTER: "1m"
+      AUTO_SCALE_ASLEEP_MOTD: "Server is asleep. Join again to wake it up!"
     deploy:
       mode: replicated
       replicas: 1
     ports:
-      - "25565:25565"
+      - target: 25565
+        published: 25565
+        protocol: tcp
+        mode: host
     networks:
       - minecraft
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
 
   mcfoobar:
     image: itzg/minecraft-server:latest
@@ -22,7 +43,7 @@ services:
       mode: replicated
       replicas: 1
       labels:
-        - "mc-router.host=foo.host.name,bar.host.name"
+        - "mc-router.host=foo.host.name,bar.host.name,localhost"
         - "mc-router.network=minecraft" # not required in this case
     volumes:
       - mcfoobardata:/data

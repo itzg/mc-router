@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -34,7 +35,7 @@ const (
 )
 
 // K8sWatcher is a RouteFinder that can find routes from kubernetes services.
-// It also watches for stateful sets to auto scale up/down, if enabled.
+// It also watches for stateful sets to auto-scale up/down, if enabled.
 type K8sWatcher struct {
 	sync.RWMutex
 	config        *rest.Config
@@ -106,6 +107,7 @@ func (w *K8sWatcher) Start(ctx context.Context, handler RoutesHandler) error {
 			UpdateFunc: w.handleUpdate,
 		},
 	})
+	logrus.Debug("Starting service informer")
 	go serviceController.RunWithContext(ctx)
 
 	w.mappings = make(map[string]string)
@@ -125,6 +127,7 @@ func (w *K8sWatcher) Start(ctx context.Context, handler RoutesHandler) error {
 			},
 		})
 
+		logrus.Debug("Starting stateful set informer")
 		go statefulSetController.RunWithContext(ctx)
 	}
 
@@ -132,20 +135,22 @@ func (w *K8sWatcher) Start(ctx context.Context, handler RoutesHandler) error {
 	return nil
 }
 
-func (w *K8sWatcher) handleAddStatefulSet() func(obj interface{}) {
-	return func(obj interface{}) {
+func (w *K8sWatcher) handleAddStatefulSet() func(obj any) {
+	return func(obj any) {
 		statefulSet, ok := obj.(*apps.StatefulSet)
 		if !ok {
 			return
 		}
+		logrus.WithField("statefulSet", infoForSts(statefulSet)).
+			Debug("ADD")
 		w.RLock()
 		defer w.RUnlock()
 		w.mappings[statefulSet.Spec.ServiceName] = statefulSet.Name
 	}
 }
 
-func (w *K8sWatcher) handleUpdateStatefulSet() func(oldObj interface{}, newObj interface{}) {
-	return func(oldObj, newObj interface{}) {
+func (w *K8sWatcher) handleUpdateStatefulSet() func(oldObj any, newObj any) {
+	return func(oldObj, newObj any) {
 		oldStatefulSet, ok := oldObj.(*apps.StatefulSet)
 		if !ok {
 			return
@@ -154,6 +159,8 @@ func (w *K8sWatcher) handleUpdateStatefulSet() func(oldObj interface{}, newObj i
 		if !ok {
 			return
 		}
+		logrus.WithFields(logrus.Fields{"old": infoForSts(oldStatefulSet), "new": infoForSts(newStatefulSet)}).
+			Debug("UPDATE")
 		w.RLock()
 		defer w.RUnlock()
 		delete(w.mappings, oldStatefulSet.Spec.ServiceName)
@@ -161,12 +168,24 @@ func (w *K8sWatcher) handleUpdateStatefulSet() func(oldObj interface{}, newObj i
 	}
 }
 
-func (w *K8sWatcher) handleDeleteStatefulSet() func(obj interface{}) {
-	return func(obj interface{}) {
+func infoForSts(sts *apps.StatefulSet) string {
+	return fmt.Sprintf("statefulSet{name=%s, replicas=%d, readyReplicas=%d, currentReplicas=%d, serviceName=%s}",
+		sts.Name,
+		sts.Status.Replicas,
+		sts.Status.ReadyReplicas,
+		sts.Status.CurrentReplicas,
+		sts.Spec.ServiceName,
+	)
+}
+
+func (w *K8sWatcher) handleDeleteStatefulSet() func(obj any) {
+	return func(obj any) {
 		statefulSet, ok := obj.(*apps.StatefulSet)
 		if !ok {
 			return
 		}
+		logrus.WithField("statefulSet", infoForSts(statefulSet)).
+			Debug("DELETE")
 		w.RLock()
 		defer w.RUnlock()
 		delete(w.mappings, statefulSet.Spec.ServiceName)
@@ -174,46 +193,56 @@ func (w *K8sWatcher) handleDeleteStatefulSet() func(obj interface{}) {
 }
 
 // oldObj and newObj are expected to be *v1.Service
-func (w *K8sWatcher) handleUpdate(oldObj interface{}, newObj interface{}) {
-	for _, oldRoutableService := range w.extractRoutableServices(oldObj) {
-		logrus.WithFields(logrus.Fields{
-			"old": oldRoutableService,
-		}).Debug("UPDATE")
-		if oldRoutableService.externalServiceName != "" {
-			w.routesHandler.DeleteMapping(oldRoutableService.externalServiceName)
+func (w *K8sWatcher) handleUpdate(oldObj any, newObj any) {
+	newServices := w.extractRoutableServices(newObj)
+
+	// Build a set of new service names for quick lookup
+	newNames := make(map[string]struct{}, len(newServices))
+	for _, rs := range newServices {
+		if rs.externalServiceName != "" {
+			newNames[rs.externalServiceName] = struct{}{}
 		}
 	}
 
-	for _, newRoutableService := range w.extractRoutableServices(newObj) {
-		logrus.WithFields(logrus.Fields{
-			"new": newRoutableService,
-		}).Debug("UPDATE")
-		if newRoutableService.externalServiceName != "" {
-			w.routesHandler.CreateMapping(newRoutableService.externalServiceName, newRoutableService.containerEndpoint, newRoutableService.scalingTarget, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown, newRoutableService.autoScaleAsleepMOTD, newRoutableService.autoScaleLoadingMOTD)
+	// Remove routes whose server address is no longer present in the new object
+	for _, oldRS := range w.extractRoutableServices(oldObj) {
+		logrus.WithFields(logrus.Fields{"old": oldRS}).Debug("UPDATE")
+		if oldRS.externalServiceName != "" {
+			if _, stillPresent := newNames[oldRS.externalServiceName]; !stillPresent {
+				w.routesHandler.RemoveMapping(oldRS.externalServiceName)
+			}
+		}
+	}
+
+	// Update or create routes for new addresses; use UpdateMapping (no timer bounce)
+	for _, newRS := range newServices {
+		logrus.WithFields(logrus.Fields{"new": newRS}).Debug("UPDATE")
+		if newRS.externalServiceName != "" {
+			w.routesHandler.UpdateMapping(newRS.externalServiceName, newRS.containerEndpoint, newRS.scalingTarget, newRS.autoScaleUp, newRS.autoScaleDown, newRS.autoScaleAsleepMOTD, newRS.autoScaleLoadingMOTD)
 		} else {
-			w.routesHandler.SetDefaultRoute(newRoutableService.containerEndpoint, newRoutableService.scalingTarget, newRoutableService.autoScaleUp, newRoutableService.autoScaleDown, newRoutableService.autoScaleAsleepMOTD, newRoutableService.autoScaleLoadingMOTD)
+			w.routesHandler.SetDefaultRoute(newRS.containerEndpoint, newRS.scalingTarget, newRS.autoScaleUp, newRS.autoScaleDown, newRS.autoScaleAsleepMOTD, newRS.autoScaleLoadingMOTD)
 		}
 	}
 }
 
 // obj is expected to be a *v1.Service
-func (w *K8sWatcher) handleDelete(obj interface{}) {
+func (w *K8sWatcher) handleDelete(obj any) {
 	routableServices := w.extractRoutableServices(obj)
 	for _, routableService := range routableServices {
 		if routableService != nil {
 			logrus.WithField("routableService", routableService).Debug("DELETE")
 
 			if routableService.externalServiceName != "" {
-				w.routesHandler.DeleteMapping(routableService.externalServiceName)
+				w.routesHandler.RemoveMapping(routableService.externalServiceName)
 			} else {
-				w.routesHandler.SetDefaultRoute("", "", nil, nil, "", "")
+				w.routesHandler.RemoveDefaultRoute()
 			}
 		}
 	}
 }
 
 // obj is expected to be a *v1.Service
-func (w *K8sWatcher) handleAdd(obj interface{}) {
+func (w *K8sWatcher) handleAdd(obj any) {
 	routableServices := w.extractRoutableServices(obj)
 	for _, routableService := range routableServices {
 		if routableService != nil {
@@ -231,15 +260,20 @@ func (w *K8sWatcher) handleAdd(obj interface{}) {
 type routableService struct {
 	externalServiceName  string
 	containerEndpoint    string
-	scalingTarget        string
+	scalingTarget        ScalingTarget
 	autoScaleUp          WakerFunc
 	autoScaleDown        SleeperFunc
 	autoScaleAsleepMOTD  string
 	autoScaleLoadingMOTD string
 }
 
+func (r *routableService) String() string {
+	return fmt.Sprintf("routableService{externalName=%s, endpoint=%s, scalingTarget=%s, autoScaleUp=%t, autoScaleDown=%t}",
+		r.externalServiceName, r.containerEndpoint, r.scalingTarget, r.autoScaleUp != nil, r.autoScaleDown != nil)
+}
+
 // obj is expected to be a *v1.Service
-func (w *K8sWatcher) extractRoutableServices(obj interface{}) []*routableService {
+func (w *K8sWatcher) extractRoutableServices(obj any) []*routableService {
 	service, ok := obj.(*core.Service)
 	if !ok {
 		return nil
@@ -283,7 +317,6 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 	endpoint := net.JoinHostPort(clusterIp, port)
 
 	routingEndpoint := endpoint
-	scalingTarget := endpoint // Default to service endpoint for scaling
 
 	if proxyServerName, exists := service.Annotations[AnnotationProxyServerName]; exists && proxyServerName != "" {
 		// Ensure the proxy address has a port
@@ -293,6 +326,7 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 		routingEndpoint = proxyServerName
 		// scalingTarget remains the service endpoint (already set above)
 	}
+	scalingTarget := NewK8sScalingTarget(service.Namespace, service.Name)
 
 	autoScaleAsleepMOTD := ""
 	autoScaleLoadingMOTD := ""
@@ -332,38 +366,28 @@ func buildK8sWaker(endpoint string, scaleUp SleeperFunc, waitTimeout time.Durati
 		return nil
 	}
 	return func(ctx context.Context) (string, error) {
+		// The connector already holds the StartScaling lock before calling the waker,
+		// so we go straight to scaling up without a redundant StartScaling check.
+		logrus.
+			WithField("endpoint", endpoint).
+			Debug("Scaling up K8s StatefulSet replicas to 1")
 		if err := scaleUp(ctx); err != nil {
 			return "", err
 		}
 
-		deadline := time.Now().Add(waitTimeout)
-		for {
-			conn, err := net.DialTimeout("tcp", endpoint, 1*time.Second)
-			if err == nil {
-				_ = conn.Close()
-				break
-			}
-			if ctx.Err() != nil {
-				return endpoint, ctx.Err()
-			}
-			if time.Now().After(deadline) {
-				return endpoint, fmt.Errorf("timeout waiting for K8s backend to become reachable at %s", endpoint)
-			}
-			select {
-			case <-ctx.Done():
-				return endpoint, ctx.Err()
-			case <-time.After(500 * time.Millisecond):
-			}
-		}
+		logrus.
+			WithField("endpoint", endpoint).
+			WithField("waitTimeout", waitTimeout).
+			Debug("Waiting for K8s backend to become reachable")
 
-		return endpoint, nil
+		return waitForBackend(ctx, endpoint, waitTimeout)
 	}
 }
 
 // buildScaleFunction generates a SleeperFunc to scale StatefulSets based on specified criteria and service annotations.
 // Will return nil if the service should not be auto-scaled due config or annotation.
 func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to int32) SleeperFunc {
-	// Currently, annotations can only be used to opt-out of auto-scaling.
+	// Currently, annotations can only be used to opt out of auto-scaling.
 	// However, this logic is prepared also for opt-in, as it returns a `SleeperFunc` when flags are false but annotations are set to `enabled`.
 	if from <= to {
 		enabled, exists := service.Annotations[AnnotationAutoScaleUp]
@@ -406,9 +430,21 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 		}
 
 	}
+
+	logrus.WithField("service", service.Name).
+		WithField("from", from).
+		WithField("to", to).
+		Debug("Service auto-scale enabled")
 	return func(ctx context.Context) error {
 		serviceName := service.Name
 		if statefulSetName, exists := w.mappings[serviceName]; exists {
+			logrus.
+				WithField("service", serviceName).
+				WithField("from", from).
+				WithField("to", to).
+				WithField("statefulSet", statefulSetName).
+				Debug("Scaling StatefulSet")
+
 			// Get current replicas to check if scaling is needed
 			if scale, err := w.clientset.AppsV1().StatefulSets(service.Namespace).GetScale(ctx, statefulSetName, meta.GetOptions{}); err == nil {
 				replicas := scale.Status.Replicas
@@ -472,6 +508,31 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 				return fmt.Errorf("GetScale failed for StatefulSet %s: %w", statefulSetName, err)
 			}
 		}
+		logrus.WithField("service", serviceName).Warn("Service has no StatefulSet associated - skipping scaling")
 		return nil
 	}
+}
+
+type K8sScalingTarget struct {
+	ScalingIndicator
+	namespace   string
+	serviceName string
+}
+
+func NewK8sScalingTarget(namespace string, serviceName string) *K8sScalingTarget {
+	return &K8sScalingTarget{
+		ScalingIndicator: ScalingIndicator{scaling: &atomic.Bool{}},
+		serviceName:      serviceName,
+	}
+}
+
+func (t *K8sScalingTarget) String() string {
+	if t == nil {
+		return ""
+	}
+	return fmt.Sprintf("k8s{serviceName=%s, namespace=%s}", t.serviceName, t.namespace)
+}
+
+func (t *K8sScalingTarget) ScalingKey() string {
+	return t.namespace + ":" + t.serviceName
 }

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -57,17 +58,40 @@ func NewWebhookScaler(url string, headers map[string]string, requestTimeout time
 	}
 }
 
+type WebhookScalingTarget struct {
+	ScalingIndicator
+	backend string
+}
+
+func NewWebhookScalingTarget(backend string) *WebhookScalingTarget {
+	return &WebhookScalingTarget{
+		ScalingIndicator: ScalingIndicator{scaling: &atomic.Bool{}},
+		backend:          backend,
+	}
+}
+
+func (t *WebhookScalingTarget) String() string {
+	if t == nil {
+		return ""
+	}
+	return t.backend
+}
+
+func (t *WebhookScalingTarget) ScalingKey() string {
+	return t.backend
+}
+
 // routeFuncs returns the waker/sleeper pair for a static route. It is nil-safe
 // so callers can invoke it on an unconfigured (nil) scaler.
-func (s *WebhookScaler) routeFuncs(serverAddress string, backend string) (WakerFunc, SleeperFunc) {
-	if s == nil {
-		return nil, nil
+func (s *WebhookScaler) routeFuncs(serverAddress string, backend string) (WakerFunc, SleeperFunc, ScalingTarget) {
+	if s == nil || s.url == "" {
+		return nil, nil, nil
 	}
-	return s.makeWakerFunc(serverAddress, backend), s.makeSleeperFunc(serverAddress, backend)
+	return s.makeWakerFunc(serverAddress, backend), s.makeSleeperFunc(serverAddress, backend), NewWebhookScalingTarget(backend)
 }
 
 func (s *WebhookScaler) makeWakerFunc(serverAddress string, backend string) WakerFunc {
-	if s.url == "" {
+	if s == nil || s.url == "" {
 		return nil
 	}
 	return func(ctx context.Context) (string, error) {
@@ -84,10 +108,7 @@ func (s *WebhookScaler) makeWakerFunc(serverAddress string, backend string) Wake
 				"override":          override,
 			}).Debug("Using backend address from scale-up response")
 		}
-		if err := s.waitForBackendReachable(ctx, effectiveBackend, s.wakeTimeout); err != nil {
-			return effectiveBackend, err
-		}
-		return effectiveBackend, nil
+		return waitForBackend(ctx, effectiveBackend, s.wakeTimeout)
 	}
 }
 

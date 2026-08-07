@@ -30,20 +30,25 @@ func (m *MockedRoutesHandler) GetBackendForServer(server string) string {
 	}
 }
 
-func (m *MockedRoutesHandler) CreateMapping(serverAddress string, backend string, scaleKey string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
-	m.MethodCalled("CreateMapping", serverAddress, backend, scaleKey, waker, sleeper, asleepMOTD, loadingMOTD)
+func (m *MockedRoutesHandler) CreateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
+	m.MethodCalled("CreateMapping", serverAddress, backend, scalingTarget, waker, sleeper, asleepMOTD, loadingMOTD)
 	if m.routes == nil {
 		m.routes = make(map[string]string)
 	}
 	m.routes[serverAddress] = backend
 }
 
-func (m *MockedRoutesHandler) SetDefaultRoute(backend string, scaleKey string, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
-	m.MethodCalled("SetDefaultRoute", backend, scaleKey, waker, sleeper, asleepMOTD, loadingMOTD)
+func (m *MockedRoutesHandler) SetDefaultRoute(backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
+	m.MethodCalled("SetDefaultRoute", backend, scalingTarget, waker, sleeper, asleepMOTD, loadingMOTD)
 	if m.routes == nil {
 		m.routes = make(map[string]string)
 	}
 	m.defaultBackend = backend
+}
+
+func (m *MockedRoutesHandler) RemoveDefaultRoute() {
+	m.MethodCalled("RemoveDefaultRoute")
+	m.defaultBackend = ""
 }
 
 func (m *MockedRoutesHandler) GetAsleepMOTD(serverAddress string) string {
@@ -51,13 +56,21 @@ func (m *MockedRoutesHandler) GetAsleepMOTD(serverAddress string) string {
 	return args.String(0)
 }
 
-func (m *MockedRoutesHandler) DeleteMapping(serverAddress string) bool {
-	args := m.MethodCalled("DeleteMapping", serverAddress)
+func (m *MockedRoutesHandler) RemoveMapping(serverAddress string) bool {
+	args := m.MethodCalled("RemoveMapping", serverAddress)
 	if m.routes == nil {
 		m.routes = make(map[string]string)
 	}
 	delete(m.routes, serverAddress)
 	return args.Bool(0)
+}
+
+func (m *MockedRoutesHandler) UpdateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
+	m.MethodCalled("UpdateMapping", serverAddress, backend, scalingTarget, waker, sleeper, asleepMOTD, loadingMOTD)
+	if m.routes == nil {
+		m.routes = make(map[string]string)
+	}
+	m.routes[serverAddress] = backend
 }
 
 func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
@@ -181,11 +194,7 @@ func TestK8sWatcherImpl_handleAddThenUpdate(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			routesHandler := new(MockedRoutesHandler)
-			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-			routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-			routesHandler.On("GetAsleepMOTD", mock.Anything).Return("")
-			routesHandler.On("DeleteMapping", mock.Anything).Return(true)
+			routesHandler := setupRoutesHandlerMock()
 
 			watcher := &K8sWatcher{
 				routesHandler: routesHandler,
@@ -259,11 +268,7 @@ func TestK8sWatcherImpl_handleAddThenDelete(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			routesHandler := new(MockedRoutesHandler)
-			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-			routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-			routesHandler.On("GetAsleepMOTD", mock.Anything).Return("")
-			routesHandler.On("DeleteMapping", mock.Anything).Return(true)
+			routesHandler := setupRoutesHandlerMock()
 
 			watcher := &K8sWatcher{
 				routesHandler: routesHandler,
@@ -355,12 +360,7 @@ func TestK8s_externalName(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			routesHandler := new(MockedRoutesHandler)
-			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-			routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-			routesHandler.On("GetAsleepMOTD", mock.Anything).Return("")
-			routesHandler.On("DeleteMapping", mock.Anything).Return(true)
-
+			routesHandler := setupRoutesHandlerMock()
 			watcher := &K8sWatcher{
 				routesHandler: routesHandler,
 			}
@@ -421,12 +421,7 @@ func TestK8s_proxyServerName(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			routesHandler := new(MockedRoutesHandler)
-			routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-			routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-			routesHandler.On("GetAsleepMOTD", mock.Anything).Return("")
-			routesHandler.On("DeleteMapping", mock.Anything).Return(true)
-
+			routesHandler := setupRoutesHandlerMock()
 			watcher := &K8sWatcher{
 				routesHandler: routesHandler,
 			}
@@ -444,40 +439,41 @@ func TestK8s_proxyServerName(t *testing.T) {
 }
 
 func TestK8s_proxyServerNameScaleEndpoint(t *testing.T) {
-	routesHandler := new(MockedRoutesHandler)
-	routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-	routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-	routesHandler.On("GetAsleepMOTD", mock.Anything).Return("")
-	routesHandler.On("DeleteMapping", mock.Anything).Return(true)
-
+	routesHandler := setupRoutesHandlerMock()
 	watcher := &K8sWatcher{
 		routesHandler: routesHandler,
 	}
 
 	svc := v1.Service{}
-	err := json.Unmarshal([]byte(`{"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/proxyServerName": "velocity:25577"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &svc)
+	err := json.Unmarshal([]byte(`{"metadata": {"name": "mc-example", "annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/proxyServerName": "velocity:25577"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &svc)
 	require.NoError(t, err)
 
 	watcher.handleAdd(&svc)
 
 	// Verify CreateMapping was called with the correct scaleKey (original endpoint)
-	routesHandler.AssertCalled(t, "CreateMapping", "mc.example.com", "velocity:25577", "10.0.0.5:25565", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	routesHandler.AssertCalled(t, "CreateMapping", "mc.example.com", "velocity:25577", NewK8sScalingTarget("default", "mc-example"), mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+func setupRoutesHandlerMock() *MockedRoutesHandler {
+	routesHandler := new(MockedRoutesHandler)
+	routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+	routesHandler.On("RemoveMapping", mock.Anything).Return(true)
+	routesHandler.On("UpdateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+	routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+	routesHandler.On("RemoveDefaultRoute").Return()
+	routesHandler.On("GetAsleepMOTD", mock.Anything).Return("")
+	return routesHandler
 }
 
 func TestK8s_proxyServerNameUpdate(t *testing.T) {
-	routesHandler := new(MockedRoutesHandler)
-	routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-	routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-	routesHandler.On("GetAsleepMOTD", mock.Anything).Return("")
-	routesHandler.On("DeleteMapping", mock.Anything).Return(true)
-
+	routesHandler := setupRoutesHandlerMock()
 	watcher := &K8sWatcher{
 		routesHandler: routesHandler,
 	}
 
 	// Start with proxy
 	initialSvc := v1.Service{}
-	err := json.Unmarshal([]byte(`{"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/proxyServerName": "velocity:25577"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &initialSvc)
+	err := json.Unmarshal([]byte(`{"metadata": {"name": "mc-example", "annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/proxyServerName": "velocity:25577"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &initialSvc)
 	require.NoError(t, err)
 
 	watcher.handleAdd(&initialSvc)
@@ -493,12 +489,7 @@ func TestK8s_proxyServerNameUpdate(t *testing.T) {
 }
 
 func TestK8s_autoScaleWithoutProxy(t *testing.T) {
-	routesHandler := new(MockedRoutesHandler)
-	routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-	routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-	routesHandler.On("GetAsleepMOTD", mock.Anything).Return("")
-	routesHandler.On("DeleteMapping", mock.Anything).Return(true)
-
+	routesHandler := setupRoutesHandlerMock()
 	watcher := &K8sWatcher{
 		autoScaleUp:   true,
 		autoScaleDown: true,
@@ -507,7 +498,7 @@ func TestK8s_autoScaleWithoutProxy(t *testing.T) {
 
 	// Service WITHOUT proxyServerName but WITH autoScaleUp/Down annotations
 	svc := v1.Service{}
-	err := json.Unmarshal([]byte(`{"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "atm-10.example.com", "mc-router.itzg.me/autoScaleUp": "true", "mc-router.itzg.me/autoScaleDown": "true"}}, "spec":{"clusterIP": "10.0.0.10"}}`), &svc)
+	err := json.Unmarshal([]byte(`{"metadata": {"name": "atm-10", "annotations": {"mc-router.itzg.me/externalServerName": "atm-10.example.com", "mc-router.itzg.me/autoScaleUp": "true", "mc-router.itzg.me/autoScaleDown": "true"}}, "spec":{"clusterIP": "10.0.0.10"}}`), &svc)
 	require.NoError(t, err)
 
 	watcher.handleAdd(&svc)
@@ -517,7 +508,7 @@ func TestK8s_autoScaleWithoutProxy(t *testing.T) {
 
 	// CRITICAL: Verify scaleKey is set to the service endpoint (not empty)
 	// This ensures auto-scaling targets the correct StatefulSet
-	routesHandler.AssertCalled(t, "CreateMapping", "atm-10.example.com", "10.0.0.10:25565", "10.0.0.10:25565", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	routesHandler.AssertCalled(t, "CreateMapping", "atm-10.example.com", "10.0.0.10:25565", NewK8sScalingTarget("default", "atm-10"), mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestBuildK8sWaker_NilScaleUp(t *testing.T) {
@@ -528,7 +519,10 @@ func TestBuildK8sWaker_NilScaleUp(t *testing.T) {
 func TestBuildK8sWaker_WaitsForEndpoint(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func(ln net.Listener) {
+		err := ln.Close()
+		assert.NoError(t, err)
+	}(ln)
 
 	endpoint := ln.Addr().String()
 
@@ -552,7 +546,8 @@ func TestBuildK8sWaker_ScaleUpError(t *testing.T) {
 		return fmt.Errorf("scale up failed")
 	}
 
-	waker := buildK8sWaker("10.0.0.1:25565", scaleUp, 60*time.Second)
+	endpoint := "10.0.0.1:25565"
+	waker := buildK8sWaker(endpoint, scaleUp, 60*time.Second)
 	require.NotNil(t, waker)
 
 	_, err := waker(context.Background())
@@ -565,7 +560,8 @@ func TestBuildK8sWaker_ContextCancellation(t *testing.T) {
 		return nil
 	}
 
-	waker := buildK8sWaker("192.0.2.1:65534", scaleUp, 60*time.Second)
+	endpoint := "192.0.2.1:65534"
+	waker := buildK8sWaker(endpoint, scaleUp, 60*time.Second)
 	require.NotNil(t, waker)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -576,22 +572,17 @@ func TestBuildK8sWaker_ContextCancellation(t *testing.T) {
 }
 
 func TestK8s_motdAnnotations(t *testing.T) {
-	routesHandler := new(MockedRoutesHandler)
-	routesHandler.On("CreateMapping", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-	routesHandler.On("SetDefaultRoute", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-	routesHandler.On("GetAsleepMOTD", mock.Anything).Return("")
-	routesHandler.On("DeleteMapping", mock.Anything).Return(true)
-
+	routesHandler := setupRoutesHandlerMock()
 	watcher := &K8sWatcher{
 		autoScaleUp:   true,
 		routesHandler: routesHandler,
 	}
 
 	svc := v1.Service{}
-	err := json.Unmarshal([]byte(`{"metadata": {"annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/autoScaleUp": "true", "mc-router.itzg.me/autoScaleAsleepMOTD": "Server is sleeping", "mc-router.itzg.me/autoScaleLoadingMOTD": "Server is starting"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &svc)
+	err := json.Unmarshal([]byte(`{"metadata": {"name": "mc-example", "annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/autoScaleUp": "true", "mc-router.itzg.me/autoScaleAsleepMOTD": "Server is sleeping", "mc-router.itzg.me/autoScaleLoadingMOTD": "Server is starting"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &svc)
 	require.NoError(t, err)
 
 	watcher.handleAdd(&svc)
 
-	routesHandler.AssertCalled(t, "CreateMapping", "mc.example.com", "10.0.0.5:25565", "10.0.0.5:25565", mock.Anything, mock.Anything, "Server is sleeping", "Server is starting")
+	routesHandler.AssertCalled(t, "CreateMapping", "mc.example.com", "10.0.0.5:25565", NewK8sScalingTarget("default", "mc-example"), mock.Anything, mock.Anything, "Server is sleeping", "Server is starting")
 }

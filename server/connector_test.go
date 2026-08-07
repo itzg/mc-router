@@ -103,7 +103,7 @@ func TestConnectorWakeTracking(t *testing.T) {
 
 func TestConnectorGetLoadingMOTD(t *testing.T) {
 	routes := NewRoutes(t.Context())
-	routes.CreateMapping("mc.example.com", "backend:25565", "", nil, nil, "",
+	routes.CreateMapping("mc.example.com", "backend:25565", nil, nil, nil, "",
 		"route loading")
 
 	c := NewConnector(t.Context(), routes, NewDownScaler(false, 5*time.Second), discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil)
@@ -111,7 +111,7 @@ func TestConnectorGetLoadingMOTD(t *testing.T) {
 	assert.Equal(t, "route loading", c.getLoadingMOTD("mc.example.com"))
 	assert.Equal(t, "global loading", c.getLoadingMOTD("other.example.com"))
 
-	routes.SetDefaultRoute("default:25565", "", nil, nil, "", "default loading")
+	routes.SetDefaultRoute("default:25565", nil, nil, nil, "", "default loading")
 	assert.Equal(t, "default loading", c.getLoadingMOTD(""))
 }
 
@@ -141,8 +141,9 @@ func TestConnectorMOTDFallback(t *testing.T) {
 		scaleUpCalled = true
 		return backendAddress, nil
 	}
+	scalingTarget := TestingScalingTarget(backendAddress)
 
-	routes.CreateMapping("mc.example.com", backendAddress, "", waker, nil, "fallback asleep", "fallback loading")
+	routes.CreateMapping("mc.example.com", backendAddress, scalingTarget, waker, nil, "fallback asleep", "fallback loading")
 
 	metricsBuilder := discardMetricsBuilder{}
 	c := NewConnector(t.Context(), routes, downScaler, metricsBuilder.BuildConnectorMetrics(), false, false, nil)
@@ -221,4 +222,3 @@ func TestConnectorNonUTF8Handshake(t *testing.T) {
 	buf := make([]byte, 10)
 	_, _ = clientConn.Read(buf)
 }
-
