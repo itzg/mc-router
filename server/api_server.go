@@ -82,7 +82,9 @@ func (a *apiServer) routesDeleteHandler(writer http.ResponseWriter, request *htt
 		} else {
 			writer.WriteHeader(http.StatusNotFound)
 		}
-		a.configLoader.SaveRoutes()
+		if a.configLoader != nil {
+			a.configLoader.SaveRoutes()
+		}
 	}
 }
 
@@ -105,7 +107,9 @@ func (a *apiServer) routesCreateHandler(writer http.ResponseWriter, request *htt
 
 	waker, sleeper, scalingTarget := a.scaler.routeFuncs(definition.ServerAddress, definition.Backend)
 	a.routes.CreateMapping(definition.ServerAddress, definition.Backend, scalingTarget, waker, sleeper, "", "")
-	a.configLoader.SaveRoutes()
+	if a.configLoader != nil {
+		a.configLoader.SaveRoutes()
+	}
 	writer.WriteHeader(http.StatusCreated)
 }
 
@@ -127,6 +131,8 @@ func (a *apiServer) routesSetDefault(writer http.ResponseWriter, request *http.R
 
 	waker, sleeper, scalingTarget := a.scaler.routeFuncs("", body.Backend)
 	a.routes.SetDefaultRoute(body.Backend, scalingTarget, waker, sleeper, "", "")
-	a.configLoader.SaveRoutes()
+	if a.configLoader != nil {
+		a.configLoader.SaveRoutes()
+	}
 	writer.WriteHeader(http.StatusOK)
 }
