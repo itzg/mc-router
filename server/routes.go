@@ -351,7 +351,9 @@ func (r *routesImpl) RemoveMapping(serverAddress string) bool {
 
 	serverAddress = strings.ToLower(serverAddress)
 	if m, ok := r.mappings[serverAddress]; ok {
-		r.downScaler.Cancel(m.scalingTarget)
+		if r.downScaler != nil {
+			r.downScaler.Cancel(m.scalingTarget)
+		}
 		delete(r.mappings, serverAddress)
 
 		for _, listener := range r.routesListeners {

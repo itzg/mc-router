@@ -225,6 +225,22 @@ func TestRoutesListener_OnRouteRemoved(t *testing.T) {
 	listener.AssertCalled(t, "OnRouteRemoved", "mc.example.com")
 }
 
+func TestRoutesListener_OnRouteRemoved_withoutDownScaler(t *testing.T) {
+	listener := &mockRoutesListener{}
+	listener.On("OnRouteAdded", "mc.example.com", "backend:25565").Return()
+	listener.On("OnRouteRemoved", "mc.example.com").Return()
+
+	r := NewRoutes(t.Context()).
+		WithListener(listener)
+	r.WithDownScaler(nil)
+
+	r.CreateMapping("mc.example.com", "backend:25565", TestingScalingTarget("mc.example.com"), nil, nil, "", "")
+
+	assert.True(t, r.RemoveMapping("mc.example.com"))
+	listener.AssertCalled(t, "OnRouteRemoved", "mc.example.com")
+	assert.False(t, r.HasRoute("mc.example.com"))
+}
+
 func TestRoutesListener_OnDefaultRouteAdded(t *testing.T) {
 	listener := &mockRoutesListener{}
 	listener.On("OnDefaultRouteSet", "default:25565").Return()
