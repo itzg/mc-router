@@ -376,16 +376,19 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, scaling
 		"serverAddress": serverAddress,
 		"backend":       backend,
 	}).Info("Created route mapping")
+	previous, hasPrevious := r.mappings[serverAddress]
 	r.mappings[serverAddress] = mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD, loadingMOTD: loadingMOTD}
 
 	for _, listener := range r.routesListeners {
 		listener.OnRouteAdded(serverAddress, backend)
 	}
 
-	// Trigger auto-scale down when mapping is created to ensure servers are shut down if router restarts.
-	// Only start the timer when backend is non-empty — an empty backend means the server is already
-	// asleep/stopped (e.g. a Docker stop event updated the route), so there is nothing to scale down.
-	if r.downScaler != nil && scalingTarget != nil && backend != "" {
+	// Trigger auto-scale down when a mapping first makes a scaling target routable to ensure servers
+	// are shut down if the router restarts. Re-registering an already-routable target must preserve
+	// its timer state since an active connection may have cancelled the timer in the meantime.
+	shouldStartDownTimer := scalingTarget != nil && (!hasPrevious || previous.backend == "" || previous.scalingTarget == nil ||
+		previous.scalingTarget.ScalingKey() != scalingTarget.ScalingKey())
+	if r.downScaler != nil && backend != "" && shouldStartDownTimer {
 		r.downScaler.Start(r.ctx, scalingTarget, r)
 	}
 }
