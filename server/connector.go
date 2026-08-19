@@ -373,7 +373,7 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 				Debug("Got user info")
 		}
 
-		c.findAndConnectBackend(frontendConn, clientAddr, inspectionBuffer, handshake.ServerAddress, playerInfo, handshake.NextState, false, int(handshake.ProtocolVersion))
+		c.findAndConnectBackend(frontendConn, clientAddr, inspectionBuffer, packet.Length, handshake.ServerAddress, playerInfo, handshake.NextState, false, int(handshake.ProtocolVersion))
 
 	} else if packet.PacketID == mcproto.PacketIdLegacyServerListPing {
 		handshake, ok := packet.Data.(*mcproto.LegacyServerListPing)
@@ -393,7 +393,7 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 
 		serverAddress := handshake.ServerAddress
 
-		c.findAndConnectBackend(frontendConn, clientAddr, inspectionBuffer, serverAddress, nil, mcproto.StateStatus, true, 0)
+		c.findAndConnectBackend(frontendConn, clientAddr, inspectionBuffer, 0, serverAddress, nil, mcproto.StateStatus, true, 0)
 	} else {
 		logrus.
 			WithField("client", clientAddr).
@@ -423,7 +423,7 @@ func (c *Connector) serveStatus(frontendConn net.Conn, reader *bufio.Reader, ser
 	var pingVal int64
 	if err == nil && firstPkt != nil {
 		if firstPkt.PacketID == mcproto.PacketIdPingRequest {
-			if payload, ok := firstPkt.Data.(mcproto.PingPayload); ok {
+			if payload, ok := firstPkt.Data.(*mcproto.PingPayload); ok {
 				pingPending = true
 				pingVal = payload.Timestamp
 				logrus.WithFields(logrus.Fields{
@@ -461,7 +461,7 @@ func (c *Connector) serveStatus(frontendConn net.Conn, reader *bufio.Reader, ser
 		_ = frontendConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 		if nextPkt, err2 := mcproto.ReadPacket(reader, frontendConn.RemoteAddr(), mcproto.StateStatus); err2 == nil && nextPkt != nil {
 			if nextPkt.PacketID == mcproto.PacketIdPingRequest {
-				if payload, ok := nextPkt.Data.(mcproto.PingPayload); ok {
+				if payload, ok := nextPkt.Data.(*mcproto.PingPayload); ok {
 					pingPending = true
 					pingVal = payload.Timestamp
 					logrus.WithFields(logrus.Fields{
@@ -598,7 +598,7 @@ func (c *Connector) cleanupBackendConnection(
 }
 
 func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
-	clientAddr net.Addr, preReadContent io.Reader, serverAddress string, playerInfo *PlayerInfo, nextState mcproto.State, isLegacy bool, clientProtocol int) {
+	clientAddr net.Addr, preReadContent io.Reader, handshakeBytes int, serverAddress string, playerInfo *PlayerInfo, nextState mcproto.State, isLegacy bool, clientProtocol int) {
 
 	backendHostPort, resolvedHost, scalingTarget, waker, _ := c.routes.FindBackendForServerAddress(c.ctx, serverAddress)
 	cleanupMetrics := false
@@ -677,8 +677,10 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 				"isLegacy": isLegacy,
 			}).Debug("Missing backend: serving predefined status response")
 
-			// Read Status Request and Ping directly from the client connection
-			br := bufio.NewReader(frontendConn)
+			// continue from content already buffered during handshake inspection,
+			// skipping the handshake frame, then fall through to the live connection
+			_, _ = io.CopyN(io.Discard, preReadContent, int64(handshakeBytes))
+			br := bufio.NewReader(io.MultiReader(preReadContent, frontendConn))
 			if isLegacy {
 				c.serveLegacyStatus(frontendConn, serverAddress)
 			} else {
@@ -739,7 +741,10 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 				"isLegacy": isLegacy,
 			}).Debug("Scalable backend unreachable: serving predefined status response")
 
-			br := bufio.NewReader(frontendConn)
+			// Continue from content already buffered during handshake inspection,
+			// skipping the handshake frame, then fall through to the live connection
+			_, _ = io.CopyN(io.Discard, preReadContent, int64(handshakeBytes))
+			br := bufio.NewReader(io.MultiReader(preReadContent, frontendConn))
 			if isLegacy {
 				c.serveLegacyStatus(frontendConn, resolvedHost)
 			} else {
