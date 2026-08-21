@@ -169,6 +169,9 @@ func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget ScalingTarget
 }
 
 func (r *routesImpl) GetDefaultRoute() (string, ScalingTarget, WakerFunc, SleeperFunc) {
+	if r.defaultRoute == nil {
+		return "", nil, nil, nil
+	}
 	return r.defaultRoute.backend, r.defaultRoute.scalingTarget, r.defaultRoute.waker, r.defaultRoute.sleeper
 }
 
@@ -242,7 +245,9 @@ func (r *routesImpl) SetCountdownDeadline(serverAddress string, deadline time.Ti
 	defer r.Unlock()
 
 	if serverAddress == "" {
-		r.defaultRoute.countdownDeadline = deadline
+		if r.defaultRoute != nil {
+			r.defaultRoute.countdownDeadline = deadline
+		}
 		return
 	}
 

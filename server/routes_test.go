@@ -453,3 +453,24 @@ func (m *MockRoutes) WithListener(listener RoutesListener) IRoutes {
 	args := m.MethodCalled("WithListener", listener)
 	return args.Get(0).(IRoutes)
 }
+
+func Test_routesImpl_GetDefaultRouteWithoutDefaultRoute(t *testing.T) {
+	// A fresh instance (no config file read, no default route set yet) must
+	// not panic when the routes config loader saves on the first API route
+	// creation (#603).
+	routes := NewRoutes(context.Background())
+
+	backend, scalingTarget, waker, sleeper := routes.GetDefaultRoute()
+	assert.Empty(t, backend)
+	assert.Nil(t, scalingTarget)
+	assert.Nil(t, waker)
+	assert.Nil(t, sleeper)
+}
+
+func Test_routesImpl_SetCountdownDeadlineWithoutDefaultRoute(t *testing.T) {
+	routes := NewRoutes(context.Background())
+
+	require.NotPanics(t, func() {
+		routes.SetCountdownDeadline("", time.Now().Add(time.Minute))
+	})
+}
