@@ -28,12 +28,12 @@ Some other features included:
     	Path to config for server allowlists and denylists. If a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up when -auto-scale-up is enabled or cancel active down scalers when -auto-scale-down is enabled (env AUTO_SCALE_ALLOW_DENY)
   -auto-scale-asleep-motd string
     	MOTD to display when auto-scaled down servers are accessed; if empty, no status will be served (env AUTO_SCALE_ASLEEP_MOTD)
-  -auto-scale-loading-motd string
-    	MOTD to display while auto-scaled Docker servers are waking up; if empty, asleep status will be served (env AUTO_SCALE_LOADING_MOTD)
   -auto-scale-down
     	Scale to zero after idle. For Kubernetes, decreases StatefulSet replicas from 1 to 0. For Docker, gracefully stops the container when there are no connections (env AUTO_SCALE_DOWN)
-  -auto-scale-down-after string
-    	Server scale down delay after there are no connections (env AUTO_SCALE_DOWN_AFTER) (default "10m")
+  -auto-scale-down-after duration
+    	Server scale down delay after there are no connections (env AUTO_SCALE_DOWN_AFTER) (default 10m0s)
+  -auto-scale-loading-motd string
+    	MOTD to display while auto-scaled Docker servers are waking up; if empty, asleep status will be served (env AUTO_SCALE_LOADING_MOTD)
   -auto-scale-up
     	Scale from zero on access. For Kubernetes, increases StatefulSet replicas from 0 to 1. For Docker, starts or unpauses the container when accessed (env AUTO_SCALE_UP)
   -auto-scale-webhook-headers value
@@ -60,10 +60,12 @@ Some other features included:
     	host:port of a default Minecraft server to use when mapping not found (env DEFAULT)
   -docker-api-version string
     	Instead of auto-negotiating, use specific Docker API version (env DOCKER_API_VERSION)
+  -docker-refresh-interval duration
+    	Deprecated and ignored: Docker discovery is now event-driven (env DOCKER_REFRESH_INTERVAL)
   -docker-socket string
-    	Path to Docker socket to use (env DOCKER_SOCKET) (default "unix:///var/run/docker.sock")
-  -docker-timeout int
-    	Timeout configuration in seconds for the Docker integrations (env DOCKER_TIMEOUT)
+    	Path to Docker socket to use (env DOCKER_SOCKET)
+  -docker-timeout duration
+    	Timeout (as duration) for the Docker integrations (env DOCKER_TIMEOUT)
   -in-docker
     	Use Docker service discovery (env IN_DOCKER)
   -in-docker-swarm
@@ -95,6 +97,8 @@ Some other features included:
     	any extra tags to be included with all reported metrics (env METRICS_BACKEND_CONFIG_INFLUXDB_TAGS)
   -metrics-backend-config-influxdb-username string
     	 (env METRICS_BACKEND_CONFIG_INFLUXDB_USERNAME)
+  -metrics-rate-limit-period duration
+    	The period at which the rate limit bucket's metrics are set: 0 to disable (default 1s) (env METRICS_RATE_LIMIT_PERIOD) (default 1s)
   -ngrok-remote-addr string
     	If set, the TCP address to request for this edge (env NGROK_REMOTE_ADDR)
   -ngrok-token string
@@ -119,6 +123,8 @@ Some other features included:
     	Send PROXY protocol to backend servers (env USE_PROXY_PROTOCOL)
   -version
     	Output version and exit (env VERSION)
+  -webhook-events value
+    	Comma delimited list of events to send to the webhook. Valid values are connect, disconnect, route-added, route-removed, default-route-set, default-route-removed (env WEBHOOK_EVENTS) (default connect,disconnect)
   -webhook-require-user
     	Indicates if the webhook will only be called if a user is connecting rather than just server list/ping (env WEBHOOK_REQUIRE_USER)
   -webhook-timeout duration
@@ -475,7 +481,8 @@ and if using StatefulSet auto-scaling additionally
     verbs: ["get"]
 ```
 
-**Note:** The `patch` verb is preferred for scaling operations as it provides atomic updates and prevents concurrency conflicts. For backward compatibility, mc-router will automatically fall back to using `get` + `update` if `patch` is not permitted, but this may result in occasional scaling conflicts in high-traffic scenarios.
+> [!NOTE]
+> The `patch` verb is preferred for scaling operations as it provides atomic updates and prevents concurrency conflicts. For backward compatibility, mc-router will automatically fall back to using `get` + `update` if `patch` is not permitted, but this may result in occasional scaling conflicts in high-traffic scenarios.
 
 ### Service parsing
 
@@ -529,7 +536,8 @@ rules:
   verbs: ["get"]
 ```
 
-**Note:** The `patch` verb is preferred for scaling operations as it provides atomic updates and prevents concurrency conflicts. For backward compatibility, mc-router will automatically fall back to using `get` + `update` if `patch` is not permitted, but this may result in occasional scaling conflicts in high-traffic scenarios.
+> [!NOTE]
+> The `patch` verb is preferred for scaling operations as it provides atomic updates and prevents concurrency conflicts. For backward compatibility, mc-router will automatically fall back to using `get` + `update` if `patch` is not permitted, but this may result in occasional scaling conflicts in high-traffic scenarios.
 
 Make sure to set `StatefulSet.metadata.name` and `StatefulSet.spec.serviceName` to the same value;
 otherwise, autoscaling will not trigger:
@@ -667,7 +675,8 @@ In this configuration:
 - The proxy handles the actual game connections to the backend server
 - When idle, mc-router scales the StatefulSet back to 0 replicas
 
-**Note:** The proxy server must be configured to connect to the backend server at `mc-survival:25565` (the Service endpoint) and handle the case where the backend may not be available immediately during scale-up.
+> [!NOTE]
+> The proxy server must be configured to connect to the backend server at `mc-survival:25565` (the Service endpoint) and handle the case where the backend may not be available immediately during scale-up.
 
 ### Troubleshooting
 
@@ -687,7 +696,7 @@ If the client reports "Connection refused" check:
 * `GET /routes` (with `Accept: application/json`)
 
   Retrieves the currently configured routes
-  ```json
+  ```json5
   {
     "serverAddress": {
       "backend": "HOST:PORT", // The address the client is routed to
@@ -801,11 +810,13 @@ The following are sample payloads for the `connect` webhook events.
 }
 ```
 
-**NOTE** `client` refers to the machine where the Minecraft client is connecting from and is conveyed separately from the `player` starting a session. As seen below, the player information may not always be present, such as when the client is pinging the server list.
+> [!NOTE]
+> `client` refers to the machine where the Minecraft client is connecting from and is conveyed separately from the `player` starting a session. As seen below, the player information may not always be present, such as when the client is pinging the server list.
 
 #### Successful server ping backend connection
 
-**NOTE** the absence of `player` in this payload since the Minecraft client does not send player information in the server ping request.
+> [!NOTE]
+> The `player` is absent in this payload since the Minecraft client does not send player information in the server ping request.
 
 ```json
 {
@@ -868,7 +879,8 @@ In this case the `status` is `"failed-backend-connection"` indicating that a bac
 
 #### Route added
 
-> [!NOTE] This event type is disabled by default
+> [!IMPORTANT] 
+> This event type is disabled by default. Enable with `-webhook-events route-added`
 
 ```json
 {
@@ -881,7 +893,8 @@ In this case the `status` is `"failed-backend-connection"` indicating that a bac
 
 #### Route removed
 
-> [!NOTE] This event type is disabled by default
+> [!IMPORTANT]
+> This event type is disabled by default. Enable with `-webhook-events route-removed`
 
 ```json
 {
@@ -893,7 +906,8 @@ In this case the `status` is `"failed-backend-connection"` indicating that a bac
 
 #### Default route set
 
-> [!NOTE] This event type is disabled by default
+> [!IMPORTANT]
+> This event type is disabled by default. Enable with `-webhook-events default-route-set`
 
 ```json
 {
@@ -905,7 +919,8 @@ In this case the `status` is `"failed-backend-connection"` indicating that a bac
 
 #### Default route removed
 
-> [!NOTE] This event type is disabled by default
+> [!IMPORTANT]
+> This event type is disabled by default. Enable with `-webhook-events default-route-removed`
 
 ```json
 {
