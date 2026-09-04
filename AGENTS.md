@@ -80,7 +80,7 @@ Wakers/sleepers (`WakerFunc`/`SleeperFunc` in `routes.go`) are attached per rout
 ### Concurrency Model
 
 - **`routes.go`**: global singleton `var Routes = NewRoutes()`. `sync.RWMutex` protects `mappings` and `defaultRoute` — `RLock` for all reads, `Lock` for mutations.
-- **`connector.go`**: `ActiveConnections` map guarded by `sync.RWMutex`; `totalActiveConnections` counter uses `atomic.AddInt32`. Shutdown drain uses `sync.Cond` in `WaitForConnections()`.
+- **`connector.go`**: `totalActiveConnections` counter uses `atomic.AddInt32`. Shutdown drain uses `sync.Cond` in `WaitForConnections()`.
 - **Bidirectional proxy**: two goroutines per connection (client→backend, backend→client) communicate via a buffered `chan error` (size 2) — first error triggers mutual close.
 - All goroutines respect context cancellation via `select { case <-ctx.Done() }`.
 
