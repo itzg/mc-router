@@ -88,7 +88,7 @@ func (sm *ActiveConnections) GetCount(backendAddress string) int {
 	return 0
 }
 
-func NewConnector(ctx context.Context, routes IRoutes, downScaler IDownScaler, metrics *ConnectorMetrics, sendProxyProto bool, recordLogins bool, autoScaleUpAllowDenyConfig *AllowDenyConfig) *Connector {
+func NewConnector(ctx context.Context, routes IRoutes, downScaler IDownScaler, metrics ConnectorMetrics, sendProxyProto bool, recordLogins bool, autoScaleUpAllowDenyConfig *AllowDenyConfig) *Connector {
 
 	return &Connector{
 		ctx:                        ctx,
@@ -128,7 +128,7 @@ type Connector struct {
 	routes IRoutes
 	// downScaler is used to scale up and down the number of backend connections. nil if disabled.
 	downScaler                 IDownScaler
-	metrics                    *ConnectorMetrics
+	metrics                    ConnectorMetrics
 	sendProxyProto             bool
 	receiveProxyProto          bool
 	recordLogins               bool

@@ -21,7 +21,7 @@ import (
 )
 
 type MetricsBuilder interface {
-	BuildConnectorMetrics() *ConnectorMetrics
+	BuildConnectorMetrics() ConnectorMetrics
 	Start(ctx context.Context) error
 }
 
@@ -70,7 +70,19 @@ func (b expvarMetricsBuilder) Start(ctx context.Context) error {
 	return nil
 }
 
-type ConnectorMetrics struct {
+type ConnectorMetrics interface {
+	IncrementErrors(errorType string)
+	AddBytesTransmitted(amount int64)
+	IncrementConnectionsFrontend()
+	IncrementConnectionsBackend(host string)
+	SetActiveConnections(count int32)
+	SetServerActivePlayerCounts(playerName string, playerUuid string, serverAddress string, count int)
+	IncrementServerLogins(playerName string, playerUuid string, serverAddress string)
+	SetServerActiveConnections(serverAddress string, value int)
+	SetRateLimitAvailable(value int64)
+}
+
+type goKitConnectorMetrics struct {
 	errorsCounter           metrics.Counter
 	bytesTransmitted        metrics.Counter
 	connectionsFrontend     metrics.Counter
@@ -82,29 +94,29 @@ type ConnectorMetrics struct {
 	rateLimitAvailable      metrics.Gauge
 }
 
-func (cm *ConnectorMetrics) IncrementErrors(errorType string) {
+func (cm *goKitConnectorMetrics) IncrementErrors(errorType string) {
 	cm.errorsCounter.With("type", errorType).Add(1)
 }
 
-func (cm *ConnectorMetrics) AddBytesTransmitted(amount int64) {
+func (cm *goKitConnectorMetrics) AddBytesTransmitted(amount int64) {
 	cm.bytesTransmitted.Add(float64(amount))
 }
 
-func (cm *ConnectorMetrics) IncrementConnectionsFrontend() {
+func (cm *goKitConnectorMetrics) IncrementConnectionsFrontend() {
 	cm.connectionsFrontend.Add(1)
 }
 
 // IncrementConnectionsBackend increments the counter for backend connections for the given host, which must be sanitized
-func (cm *ConnectorMetrics) IncrementConnectionsBackend(host string) {
+func (cm *goKitConnectorMetrics) IncrementConnectionsBackend(host string) {
 	cm.connectionsBackend.With("host", host).Add(1)
 }
 
-func (cm *ConnectorMetrics) SetActiveConnections(count int32) {
+func (cm *goKitConnectorMetrics) SetActiveConnections(count int32) {
 	cm.activeConnections.Set(float64(count))
 }
 
 // SetServerActivePlayerCounts sets the count of active players for the given player and server, all of which must be sanitized
-func (cm *ConnectorMetrics) SetServerActivePlayerCounts(playerName string, playerUuid string, serverAddress string, count int) {
+func (cm *goKitConnectorMetrics) SetServerActivePlayerCounts(playerName string, playerUuid string, serverAddress string, count int) {
 	cm.serverActivePlayer.
 		With("player_name", playerName).
 		With("player_uuid", playerUuid).
@@ -113,22 +125,22 @@ func (cm *ConnectorMetrics) SetServerActivePlayerCounts(playerName string, playe
 }
 
 // IncrementServerLogins increments the count of server logins for the given player and server, all of which must be sanitized
-func (cm *ConnectorMetrics) IncrementServerLogins(playerName string, playerUuid string, serverAddress string) {
+func (cm *goKitConnectorMetrics) IncrementServerLogins(playerName string, playerUuid string, serverAddress string) {
 	cm.serverLogins.With("player_name", playerName).With("player_uuid", playerUuid).With("server_address", serverAddress).Add(1)
 }
 
 // SetServerActiveConnections sets the count of active connections for the given server, which must be sanitized
-func (cm *ConnectorMetrics) SetServerActiveConnections(serverAddress string, value int) {
+func (cm *goKitConnectorMetrics) SetServerActiveConnections(serverAddress string, value int) {
 	cm.serverActiveConnections.With("server_address", serverAddress).Set(float64(value))
 }
 
-func (cm *ConnectorMetrics) SetRateLimitAvailable(value int64) {
+func (cm *goKitConnectorMetrics) SetRateLimitAvailable(value int64) {
 	cm.rateLimitAvailable.Set(float64(value))
 }
 
-func (b expvarMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
+func (b expvarMetricsBuilder) BuildConnectorMetrics() ConnectorMetrics {
 	c := expvarMetrics.NewCounter("connections")
-	return &ConnectorMetrics{
+	return &goKitConnectorMetrics{
 		errorsCounter:           expvarMetrics.NewCounter("errors").With("subsystem", "connector"),
 		bytesTransmitted:        expvarMetrics.NewCounter("bytes"),
 		connectionsFrontend:     c,
@@ -149,8 +161,8 @@ func (b discardMetricsBuilder) Start(ctx context.Context) error {
 	return nil
 }
 
-func (b discardMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
-	return &ConnectorMetrics{
+func (b discardMetricsBuilder) BuildConnectorMetrics() ConnectorMetrics {
+	return &goKitConnectorMetrics{
 		errorsCounter:           discardMetrics.NewCounter(),
 		bytesTransmitted:        discardMetrics.NewCounter(),
 		connectionsFrontend:     discardMetrics.NewCounter(),
@@ -183,6 +195,9 @@ func (b *influxMetricsBuilder) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create influx http client: %w", err)
 	}
+	context.AfterFunc(ctx, func() {
+		_ = client.Close()
+	})
 
 	go b.metrics.WriteLoop(ctx, ticker.C, client)
 
@@ -194,27 +209,27 @@ func (b *influxMetricsBuilder) Start(ctx context.Context) error {
 	return nil
 }
 
-func (b *influxMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
+func (b *influxMetricsBuilder) BuildConnectorMetrics() ConnectorMetrics {
 	influxConfig := &b.config.Influxdb
 
-	metrics := kitinflux.New(influxConfig.Tags, influx.BatchPointsConfig{
+	influxClient := kitinflux.New(influxConfig.Tags, influx.BatchPointsConfig{
 		Database:        influxConfig.Database,
 		RetentionPolicy: influxConfig.RetentionPolicy,
 	}, kitlogrus.NewLogger(logrus.StandardLogger()))
 
-	b.metrics = metrics
+	b.metrics = influxClient
 
-	c := metrics.NewCounter("mc_router_connections")
-	return &ConnectorMetrics{
-		errorsCounter:           metrics.NewCounter("mc_router_errors"),
-		bytesTransmitted:        metrics.NewCounter("mc_router_transmitted_bytes"),
+	c := influxClient.NewCounter("mc_router_connections")
+	return &goKitConnectorMetrics{
+		errorsCounter:           influxClient.NewCounter("mc_router_errors"),
+		bytesTransmitted:        influxClient.NewCounter("mc_router_transmitted_bytes"),
 		connectionsFrontend:     c.With("side", "frontend"),
 		connectionsBackend:      c.With("side", "backend"),
-		activeConnections:       metrics.NewGauge("mc_router_connections_active"),
-		serverActivePlayer:      metrics.NewGauge("mc_router_server_player_active"),
-		serverLogins:            metrics.NewCounter("mc_router_server_logins"),
-		serverActiveConnections: metrics.NewGauge("mc_router_server_active_connections"),
-		rateLimitAvailable:      metrics.NewGauge("mc_router_rate_limit_available"),
+		activeConnections:       influxClient.NewGauge("mc_router_connections_active"),
+		serverActivePlayer:      influxClient.NewGauge("mc_router_server_player_active"),
+		serverLogins:            influxClient.NewCounter("mc_router_server_logins"),
+		serverActiveConnections: influxClient.NewGauge("mc_router_server_active_connections"),
+		rateLimitAvailable:      influxClient.NewGauge("mc_router_rate_limit_available"),
 	}
 }
 
@@ -229,13 +244,13 @@ func (b prometheusMetricsBuilder) Start(ctx context.Context) error {
 	return nil
 }
 
-func (b prometheusMetricsBuilder) BuildConnectorMetrics() *ConnectorMetrics {
+func (b prometheusMetricsBuilder) BuildConnectorMetrics() ConnectorMetrics {
 	pcv = prometheusMetrics.NewCounter(promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "mc_router",
 		Name:      "errors",
 		Help:      "The total number of errors",
 	}, []string{"type"}))
-	return &ConnectorMetrics{
+	return &goKitConnectorMetrics{
 		errorsCounter: pcv,
 		bytesTransmitted: prometheusMetrics.NewCounter(promauto.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "mc_router",
