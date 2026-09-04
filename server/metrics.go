@@ -189,6 +189,8 @@ func (b *influxMetricsBuilder) Start(ctx context.Context) error {
 	logrus.WithField("addr", influxConfig.Addr).
 		Debug("reporting metrics to influxdb")
 
+	logrus.Warn("InfluxDB support within mc-router is going to be removed in the future. Refer to https://github.com/itzg/mc-router/issues/615")
+
 	return nil
 }
 
