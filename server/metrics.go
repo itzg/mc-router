@@ -83,7 +83,7 @@ type ConnectorMetrics struct {
 }
 
 func (cm *ConnectorMetrics) IncrementErrors(errorType string) {
-	cm.IncrementErrors(errorType)
+	cm.errorsCounter.With("type", errorType).Add(1)
 }
 
 func (cm *ConnectorMetrics) AddBytesTransmitted(amount int64) {
