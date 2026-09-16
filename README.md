@@ -66,6 +66,8 @@ Some other features included:
     	Path to Docker socket to use (env DOCKER_SOCKET)
   -docker-timeout duration
     	Timeout (as duration) for the Docker integrations (env DOCKER_TIMEOUT)
+  -dynamic-proxy-protocol
+    	Accept connections with or without PROXY protocol. When a connection supplies a PROXY header, it is forwarded to the backend. Cannot be combined with -receive-proxy-protocol or -use-proxy-protocol (env DYNAMIC_PROXY_PROTOCOL)
   -in-docker
     	Use Docker service discovery (env IN_DOCKER)
   -in-docker-swarm

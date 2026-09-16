@@ -22,6 +22,10 @@ type Server struct {
 }
 
 func NewServer(ctx context.Context, config *Config) (*Server, error) {
+	if config.DynamicProxyProtocol && (config.ReceiveProxyProtocol || config.UseProxyProtocol) {
+		return nil, fmt.Errorf("--dynamic-proxy-protocol cannot be combined with --receive-proxy-protocol or --use-proxy-protocol")
+	}
+
 	if config.CpuProfile != "" {
 		cpuProfileFile, err := os.Create(config.CpuProfile)
 		if err != nil {
@@ -130,7 +134,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		connector.UseNgrok(config.Ngrok)
 	}
 
-	if config.ReceiveProxyProtocol {
+	if config.ReceiveProxyProtocol || config.DynamicProxyProtocol {
 		trustedIpNets := make([]*net.IPNet, 0)
 		for _, ip := range config.TrustedProxies {
 			_, ipNet, err := net.ParseCIDR(ip)
@@ -140,7 +144,11 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 			trustedIpNets = append(trustedIpNets, ipNet)
 		}
 
-		connector.UseReceiveProxyProto(trustedIpNets)
+		if config.DynamicProxyProtocol {
+			connector.UseDynamicProxyProtocol(trustedIpNets)
+		} else {
+			connector.UseReceiveProxyProto(trustedIpNets)
+		}
 	}
 
 	if config.ApiBinding != "" {

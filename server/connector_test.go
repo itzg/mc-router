@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -221,4 +222,81 @@ func TestConnectorNonUTF8Handshake(t *testing.T) {
 	_ = clientConn.SetReadDeadline(time.Now().Add(1 * time.Second))
 	buf := make([]byte, 10)
 	_, _ = clientConn.Read(buf)
+}
+
+func TestConnectorDynamicProxyProtocol(t *testing.T) {
+	tests := []struct {
+		name       string
+		sendHeader bool
+	}{
+		{name: "forwards supplied header", sendHeader: true},
+		{name: "no header when connection has none", sendHeader: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			routes := NewRoutes(t.Context())
+			downScaler := NewDownScaler(false, 5*time.Second)
+
+			backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			defer backendListener.Close()
+
+			backendConnChan := make(chan net.Conn, 1)
+			go func() {
+				conn, acceptErr := backendListener.Accept()
+				if acceptErr == nil {
+					backendConnChan <- conn
+				}
+			}()
+
+			routes.CreateMapping("mc.example.com", backendListener.Addr().String(), nil, nil, nil, "", "")
+
+			c := NewConnector(t.Context(), routes, downScaler, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil)
+			c.UseDynamicProxyProtocol(nil)
+
+			ln, err := c.createListener("127.0.0.1:0")
+			require.NoError(t, err)
+			defer ln.Close()
+			go c.acceptConnections(ln, 100, 0)
+
+			clientConn, err := net.Dial("tcp", ln.Addr().String())
+			require.NoError(t, err)
+			defer clientConn.Close()
+
+			if test.sendHeader {
+				_, err = fmt.Fprintf(clientConn, "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n")
+				require.NoError(t, err)
+			}
+
+			err = writeTestPacket(clientConn, 0x00, func(w io.Writer) {
+				_ = mcproto.WriteVarInt(w, 758)
+				_ = mcproto.WriteString(w, "mc.example.com")
+				w.Write([]byte{0x63, 0xdd})
+				_ = mcproto.WriteVarInt(w, 1)
+			})
+			require.NoError(t, err)
+
+			var backendConn net.Conn
+			select {
+			case backendConn = <-backendConnChan:
+			case <-time.After(5 * time.Second):
+				t.Fatal("backend did not receive a connection")
+			}
+			defer backendConn.Close()
+
+			proxyConn := proxyproto.NewConn(backendConn)
+			_ = proxyConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			header := proxyConn.ProxyHeader()
+
+			if test.sendHeader {
+				require.NotNil(t, header, "expected forwarded PROXY header")
+				assert.Equal(t, byte(1), header.Version)
+				assert.Equal(t, "1.2.3.4:12345", header.SourceAddr.String())
+				assert.Equal(t, "5.6.7.8:25565", header.DestinationAddr.String())
+			} else {
+				assert.Nil(t, header, "expected no PROXY header to be forwarded")
+			}
+		})
+	}
 }

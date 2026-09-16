@@ -61,6 +61,7 @@ type Config struct {
 	MetricsRateLimitPeriod time.Duration `default:"1s" usage:"The period at which the rate limit bucket's metrics are set: 0 to disable (default 1s)"`
 	UseProxyProtocol       bool          `default:"false" usage:"Send PROXY protocol to backend servers"`
 	ReceiveProxyProtocol   bool          `default:"false" usage:"Receive PROXY protocol from backend servers, by default trusts every proxy header that it receives, combine with -trusted-proxies to specify a list of trusted proxies"`
+	DynamicProxyProtocol   bool          `default:"false" usage:"Accept connections with or without PROXY protocol. When a connection supplies a PROXY header, it is forwarded to the backend. Cannot be combined with -receive-proxy-protocol or -use-proxy-protocol"`
 	TrustedProxies         []string      `usage:"Comma delimited list of CIDR notation IP blocks to trust when receiving PROXY protocol"`
 	RecordLogins           bool          `default:"false" usage:"Log and generate metrics on player logins. Metrics only supported with influxdb or prometheus backend"`
 	Routes                 RoutesConfig
