@@ -15,12 +15,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/avast/retry-go/v5"
+	"github.com/pires/go-proxyproto"
 	"golang.ngrok.com/ngrok"
 	"golang.ngrok.com/ngrok/config"
 
 	"github.com/itzg/mc-router/mcproto"
 	"github.com/juju/ratelimit"
-	"github.com/pires/go-proxyproto"
 	"github.com/sirupsen/logrus"
 )
 
@@ -131,6 +131,7 @@ type Connector struct {
 	metrics                    ConnectorMetrics
 	sendProxyProto             bool
 	receiveProxyProto          bool
+	dynamicProxyProto          bool
 	recordLogins               bool
 	trustedProxyNets           []*net.IPNet
 	totalActiveConnections     int32
@@ -222,6 +223,13 @@ func (c *Connector) createProxyProtoPolicy() proxyproto.ConnPolicyFunc {
 		logrus.WithField("upstream", upstream).Debug("IP is not in trusted proxies, discarding PROXY header")
 		return proxyproto.IGNORE, nil
 	}
+}
+
+func frontendProxyHeader(conn net.Conn) *proxyproto.Header {
+	if proxyConn, ok := conn.(*proxyproto.Conn); ok {
+		return proxyConn.ProxyHeader()
+	}
+	return nil
 }
 
 func (c *Connector) WaitForConnections() {
@@ -801,6 +809,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 	cleanupMetrics = true
 
 	// PROXY protocol implementation
+	var header *proxyproto.Header
 	if c.sendProxyProto {
 
 		// Determine transport protocol for the PROXY header by "analyzing" the frontend connection's address
@@ -819,14 +828,18 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			transportProtocol = proxyproto.TCPv6
 		}
 
-		header := &proxyproto.Header{
+		header = &proxyproto.Header{
 			Version:           2,
 			Command:           proxyproto.PROXY,
 			TransportProtocol: transportProtocol,
 			SourceAddr:        clientAddr,
 			DestinationAddr:   frontendConn.LocalAddr(), // our end of the client's connection
 		}
+	} else if c.dynamicProxyProto {
+		header = frontendProxyHeader(frontendConn)
+	}
 
+	if header != nil {
 		_, err = header.WriteTo(backendConn)
 		if err != nil {
 			logrus.
@@ -915,6 +928,12 @@ func (c *Connector) UseNgrok(config NgrokConfig) {
 func (c *Connector) UseReceiveProxyProto(trustedProxyNets []*net.IPNet) {
 	c.trustedProxyNets = trustedProxyNets
 	c.receiveProxyProto = true
+}
+
+func (c *Connector) UseDynamicProxyProtocol(trustedProxyNets []*net.IPNet) {
+	c.trustedProxyNets = trustedProxyNets
+	c.receiveProxyProto = true
+	c.dynamicProxyProto = true
 }
 
 // UseAsleepMOTD configures a predefined MOTD to serve when backends are asleep
