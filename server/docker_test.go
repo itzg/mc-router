@@ -5,9 +5,29 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDockerWatcherClientOpts(t *testing.T) {
+	t.Run("uses Docker host from environment when no socket is configured", func(t *testing.T) {
+		t.Setenv("DOCKER_HOST", "tcp://docker.example:2376")
+
+		cli, err := client.NewClientWithOpts((&dockerWatcherConfig{}).clientOpts()...)
+		require.NoError(t, err)
+		assert.Equal(t, "tcp://docker.example:2376", cli.DaemonHost())
+	})
+
+	t.Run("explicit socket overrides environment", func(t *testing.T) {
+		t.Setenv("DOCKER_HOST", "tcp://docker.example:2376")
+
+		config := &dockerWatcherConfig{socket: "unix:///var/run/custom.sock"}
+		cli, err := client.NewClientWithOpts(config.clientOpts()...)
+		require.NoError(t, err)
+		assert.Equal(t, "unix:///var/run/custom.sock", cli.DaemonHost())
+	})
+}
 
 func TestDockerEndpointIP(t *testing.T) {
 	t.Run("prefers IPv4 when both exist", func(t *testing.T) {
