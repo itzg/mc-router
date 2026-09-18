@@ -8,11 +8,11 @@ import (
 
 type AllowDenyLists struct {
 	Allowlist []PlayerInfo
-	Denylist []PlayerInfo
+	Denylist  []PlayerInfo
 }
 
 type AllowDenyConfig struct {
-	Global AllowDenyLists
+	Global  AllowDenyLists
 	Servers map[string]AllowDenyLists
 }
 
@@ -35,7 +35,7 @@ func entryMatchesPlayer(entry *PlayerInfo, userInfo *PlayerInfo) bool {
 	if entry.Name == "" && entry.Uuid == uuid.Nil {
 		return false
 	}
-	
+
 	if entry.Name != "" && entry.Uuid != uuid.Nil {
 		return *entry == *userInfo
 	}
@@ -50,6 +50,9 @@ func entryMatchesPlayer(entry *PlayerInfo, userInfo *PlayerInfo) bool {
 func (allowDenyConfig *AllowDenyConfig) ServerAllowsPlayer(serverAddress string, userInfo *PlayerInfo) bool {
 	if allowDenyConfig == nil {
 		return true
+	}
+	if userInfo == nil {
+		return false
 	}
 
 	allowlist := allowDenyConfig.Global.Allowlist
