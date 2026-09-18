@@ -303,16 +303,7 @@ func (w *dockerSwarmWatcherImpl) makeServiceLifecycleFuncs(rs *routableSwarmServ
 func (w *dockerSwarmWatcherImpl) Start(ctx context.Context) error {
 	var err error
 
-	opts := []client.Opt{
-		client.WithHost(w.config.socket),
-		client.WithTimeout(w.config.timeout),
-		client.WithHTTPHeaders(map[string]string{
-			"User-Agent": "mc-router ",
-		}),
-		client.WithAPIVersionNegotiation(),
-	}
-
-	w.client, err = client.NewClientWithOpts(opts...)
+	w.client, err = client.NewClientWithOpts(w.config.clientOpts()...)
 	if err != nil {
 		return err
 	}

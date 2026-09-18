@@ -59,6 +59,21 @@ func (c *dockerWatcherConfig) apiVersionOpt() client.Opt {
 	return client.WithAPIVersionNegotiation()
 }
 
+func (c *dockerWatcherConfig) clientOpts() []client.Opt {
+	opts := []client.Opt{
+		client.FromEnv,
+		client.WithTimeout(c.timeout),
+		client.WithHTTPHeaders(map[string]string{
+			"User-Agent": "mc-router ",
+		}),
+		c.apiVersionOpt(),
+	}
+	if c.socket != "" {
+		opts = append(opts, client.WithHost(c.socket))
+	}
+	return opts
+}
+
 func NewDockerWatcher(socket string, timeout time.Duration, autoScaleUp bool, autoScaleDown bool, dockerApiVersion string, routes IRoutes) IDockerWatcher {
 	return &dockerWatcherImpl{
 		config: dockerWatcherConfig{
@@ -368,19 +383,7 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerId string, desir
 func (w *dockerWatcherImpl) Start(ctx context.Context) error {
 	var err error
 
-	opts := []client.Opt{
-		client.FromEnv,
-		client.WithTimeout(w.config.timeout),
-		client.WithHTTPHeaders(map[string]string{
-			"User-Agent": "mc-router ",
-		}),
-		w.config.apiVersionOpt(),
-	}
-	if w.config.socket != "" {
-		opts = append(opts, client.WithHost(w.config.socket))
-	}
-
-	w.client, err = client.NewClientWithOpts(opts...)
+	w.client, err = client.NewClientWithOpts(w.config.clientOpts()...)
 	if err != nil {
 		return err
 	}
