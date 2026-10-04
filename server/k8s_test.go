@@ -445,7 +445,7 @@ func TestK8s_proxyServerNameScaleEndpoint(t *testing.T) {
 	}
 
 	svc := v1.Service{}
-	err := json.Unmarshal([]byte(`{"metadata": {"name": "mc-example", "annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/proxyServerName": "velocity:25577"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &svc)
+	err := json.Unmarshal([]byte(`{"metadata": {"name": "mc-example", "namespace": "default", "annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/proxyServerName": "velocity:25577"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &svc)
 	require.NoError(t, err)
 
 	watcher.handleAdd(&svc)
@@ -498,7 +498,7 @@ func TestK8s_autoScaleWithoutProxy(t *testing.T) {
 
 	// Service WITHOUT proxyServerName but WITH autoScaleUp/Down annotations
 	svc := v1.Service{}
-	err := json.Unmarshal([]byte(`{"metadata": {"name": "atm-10", "annotations": {"mc-router.itzg.me/externalServerName": "atm-10.example.com", "mc-router.itzg.me/autoScaleUp": "true", "mc-router.itzg.me/autoScaleDown": "true"}}, "spec":{"clusterIP": "10.0.0.10"}}`), &svc)
+	err := json.Unmarshal([]byte(`{"metadata": {"name": "atm-10", "namespace": "default", "annotations": {"mc-router.itzg.me/externalServerName": "atm-10.example.com", "mc-router.itzg.me/autoScaleUp": "true", "mc-router.itzg.me/autoScaleDown": "true"}}, "spec":{"clusterIP": "10.0.0.10"}}`), &svc)
 	require.NoError(t, err)
 
 	watcher.handleAdd(&svc)
@@ -579,7 +579,7 @@ func TestK8s_motdAnnotations(t *testing.T) {
 	}
 
 	svc := v1.Service{}
-	err := json.Unmarshal([]byte(`{"metadata": {"name": "mc-example", "annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/autoScaleUp": "true", "mc-router.itzg.me/autoScaleAsleepMOTD": "Server is sleeping", "mc-router.itzg.me/autoScaleLoadingMOTD": "Server is starting"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &svc)
+	err := json.Unmarshal([]byte(`{"metadata": {"name": "mc-example", "namespace": "default", "annotations": {"mc-router.itzg.me/externalServerName": "mc.example.com", "mc-router.itzg.me/autoScaleUp": "true", "mc-router.itzg.me/autoScaleAsleepMOTD": "Server is sleeping", "mc-router.itzg.me/autoScaleLoadingMOTD": "Server is starting"}}, "spec":{"clusterIP": "10.0.0.5"}}`), &svc)
 	require.NoError(t, err)
 
 	watcher.handleAdd(&svc)
