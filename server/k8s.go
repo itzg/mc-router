@@ -522,6 +522,7 @@ type K8sScalingTarget struct {
 func NewK8sScalingTarget(namespace string, serviceName string) *K8sScalingTarget {
 	return &K8sScalingTarget{
 		ScalingIndicator: ScalingIndicator{scaling: &atomic.Bool{}},
+		namespace:        namespace,
 		serviceName:      serviceName,
 	}
 }
