@@ -5,7 +5,6 @@ services:
       IN_DOCKER: true
       AUTO_SCALE_DOWN: true
       AUTO_SCALE_UP: true
-      DEBUG: true
       AUTO_SCALE_DOWN_AFTER: 2h
       AUTO_SCALE_ASLEEP_MOTD: "Server is asleep. Join again to wake it up!"
     ports:
@@ -21,7 +20,7 @@ services:
     environment:
       EULA: "TRUE"
     labels:
-      mc-router.host: "localhost"
+      mc-router.host: "vanilla.example.com"
   paper:
     image: itzg/minecraft-server
     environment:
