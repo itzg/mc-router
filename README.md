@@ -32,6 +32,8 @@ Some other features included:
     	Scale to zero after idle. For Kubernetes, decreases StatefulSet replicas from 1 to 0. For Docker, gracefully stops the container when there are no connections (env AUTO_SCALE_DOWN)
   -auto-scale-down-after duration
     	Server scale down delay after there are no connections (env AUTO_SCALE_DOWN_AFTER) (default 10m0s)
+  -auto-scale-status-resets-down-timer
+        Reset the scale down timer when status requests are proxied; by default only player login connections reset it (env AUTO_SCALE_STATUS_RESETS_DOWN_TIMER)
   -auto-scale-loading-motd string
     	MOTD to display while auto-scaled Docker servers are waking up; if empty, asleep status will be served (env AUTO_SCALE_LOADING_MOTD)
   -auto-scale-up

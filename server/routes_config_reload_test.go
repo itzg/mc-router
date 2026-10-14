@@ -48,6 +48,7 @@ func TestRouteConfigReloadDoesNotScaleDownActiveConnection(t *testing.T) {
 		false,
 		false,
 		nil,
+		false,
 	)
 
 	frontendListener, err := net.Listen("tcp", "127.0.0.1:0")

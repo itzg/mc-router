@@ -107,7 +107,7 @@ func TestConnectorGetLoadingMOTD(t *testing.T) {
 	routes.CreateMapping("mc.example.com", "backend:25565", nil, nil, nil, "",
 		"route loading")
 
-	c := NewConnector(t.Context(), routes, NewDownScaler(false, 5*time.Second), discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil)
+	c := NewConnector(t.Context(), routes, NewDownScaler(false, 5*time.Second), discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
 	c.UseLoadingMOTD("global loading")
 	assert.Equal(t, "route loading", c.getLoadingMOTD("mc.example.com"))
 	assert.Equal(t, "global loading", c.getLoadingMOTD("other.example.com"))
@@ -147,7 +147,7 @@ func TestConnectorMOTDFallback(t *testing.T) {
 	routes.CreateMapping("mc.example.com", backendAddress, scalingTarget, waker, nil, "fallback asleep", "fallback loading")
 
 	metricsBuilder := discardMetricsBuilder{}
-	c := NewConnector(t.Context(), routes, downScaler, metricsBuilder.BuildConnectorMetrics(), false, false, nil)
+	c := NewConnector(t.Context(), routes, downScaler, metricsBuilder.BuildConnectorMetrics(), false, false, nil, false)
 	c.UseAsleepMOTD("global asleep")
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -196,7 +196,7 @@ func TestConnectorNonUTF8Handshake(t *testing.T) {
 	downScaler := NewDownScaler(false, 5*time.Second)
 
 	metricsBuilder := prometheusMetricsBuilder{}
-	c := NewConnector(t.Context(), routes, downScaler, metricsBuilder.BuildConnectorMetrics(), false, false, nil)
+	c := NewConnector(t.Context(), routes, downScaler, metricsBuilder.BuildConnectorMetrics(), false, false, nil, false)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -252,7 +252,7 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 
 			routes.CreateMapping("mc.example.com", backendListener.Addr().String(), nil, nil, nil, "", "")
 
-			c := NewConnector(t.Context(), routes, downScaler, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil)
+			c := NewConnector(t.Context(), routes, downScaler, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
 			c.UseDynamicProxyProtocol(nil)
 
 			ln, err := c.createListener("127.0.0.1:0")
