@@ -356,6 +356,7 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 		logrus.
 			WithField("client", clientAddr).
 			WithField("handshake", handshake).
+			WithField("nextState", handshake.NextState).
 			Debug("Got handshake")
 
 		var playerInfo *PlayerInfo = nil
