@@ -2,7 +2,7 @@
 FROM cgr.dev/chainguard/static AS base-amd64
 FROM cgr.dev/chainguard/static AS base-arm64
 # Fall back to a light 32-bit ARM image (e.g. Alpine) for arm/v6
-FROM alpine:3.19 AS base-armv6
+FROM alpine:3.24 AS base-armv6
 
 # 2. Capture automatic buildx arguments
 ARG TARGETARCH
