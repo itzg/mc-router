@@ -109,7 +109,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		config.ConnectionRateLimit = 1
 	}
 
-	connector := NewConnector(ctx, routes, downscaler, metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.RecordLogins, autoScaleAllowDenyConfig)
+	connector := NewConnector(ctx, routes, downscaler, metricsBuilder.BuildConnectorMetrics(), config.UseProxyProtocol, config.RecordLogins, autoScaleAllowDenyConfig, config.AutoScale.StatusResetsDownTimer)
 
 	connector.UseBackendDialTimeout(config.BackendDialTimeout)
 	connector.UseAsleepMOTD(config.AutoScale.AsleepMOTD)

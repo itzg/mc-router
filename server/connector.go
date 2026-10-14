@@ -88,7 +88,7 @@ func (sm *ActiveConnections) GetCount(backendAddress string) int {
 	return 0
 }
 
-func NewConnector(ctx context.Context, routes IRoutes, downScaler IDownScaler, metrics ConnectorMetrics, sendProxyProto bool, recordLogins bool, autoScaleUpAllowDenyConfig *AllowDenyConfig) *Connector {
+func NewConnector(ctx context.Context, routes IRoutes, downScaler IDownScaler, metrics ConnectorMetrics, sendProxyProto bool, recordLogins bool, autoScaleUpAllowDenyConfig *AllowDenyConfig, statusResetsDownTimer bool) *Connector {
 
 	return &Connector{
 		ctx:                        ctx,
@@ -99,6 +99,7 @@ func NewConnector(ctx context.Context, routes IRoutes, downScaler IDownScaler, m
 		connectionsCond:            sync.NewCond(&sync.Mutex{}),
 		recordLogins:               recordLogins,
 		autoScaleUpAllowDenyConfig: autoScaleUpAllowDenyConfig,
+		statusResetsDownTimer:      statusResetsDownTimer,
 		activeConnections:          NewActiveConnections(),
 		scaleActiveConnections:     NewActiveConnections(),
 		wakingServers:              NewActiveConnections(),
@@ -128,6 +129,7 @@ type Connector struct {
 	routes IRoutes
 	// downScaler is used to scale up and down the number of backend connections. nil if disabled.
 	downScaler                 IDownScaler
+	statusResetsDownTimer      bool
 	metrics                    ConnectorMetrics
 	sendProxyProto             bool
 	receiveProxyProto          bool
@@ -774,11 +776,10 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 	c.activeConnections.Increment(backendHostPort)
 	if scalingTarget != nil {
 		c.scaleActiveConnections.Increment(scalingTarget.ScalingKey())
-		// Cancel any pending scale-down timer — the Docker event that fires during
-		// wake-up may have started a new timer after our pre-wake Cancel call.
-		// Also covers status pings: they cancel the timer here, and cleanupCheckScaleDown
-		// ensures the timer is restarted when the ping connection closes.
-		if c.downScaler != nil {
+		// Status connections only reset the timer when explicitly configured.
+		if (nextState == mcproto.StateLogin || (nextState == mcproto.StateStatus && c.statusResetsDownTimer)) && c.downScaler != nil {
+			// The Docker event that fires during wake-up may have started a new
+			// timer after our pre-wake Cancel call.
 			c.downScaler.Cancel(scalingTarget)
 			cleanupCheckScaleDown = true
 		}
