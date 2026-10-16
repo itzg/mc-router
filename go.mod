@@ -19,6 +19,7 @@ require (
 	github.com/sirupsen/logrus v1.10.2
 	github.com/stretchr/testify v1.12.1
 	golang.ngrok.com/ngrok v1.13.0
+	golang.ngrok.com/ngrok/v2 v2.2.1
 	golang.org/x/text v0.43.0
 	k8s.io/api v0.37.1
 	k8s.io/apimachinery v0.37.1
