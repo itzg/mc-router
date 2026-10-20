@@ -62,6 +62,8 @@ Some other features included:
     	host:port of a default Minecraft server to use when mapping not found (env DEFAULT)
   -docker-api-version string
     	Instead of auto-negotiating, use specific Docker API version (env DOCKER_API_VERSION)
+  -docker-network string
+    	Default network for Docker containers attached to more than one network, matched like the mc-router.network label, which takes precedence (env DOCKER_NETWORK)
   -docker-refresh-interval duration
     	Deprecated and ignored: Docker discovery is now event-driven (env DOCKER_REFRESH_INTERVAL)
   -docker-socket string
@@ -243,7 +245,7 @@ These are the labels on the containers are scanned for discovery and auto-scalin
 - `mc-router.host`: Used to configure the hostname the Minecraft clients would use to connect to the server. The container/service endpoint will be used as the routed backend. You can use more than one hostname by splitting it with a comma or newline. Whitespace around commas is automatically trimmed. For example: `"host1.com,host2.com"`, `"host1.com, host2.com"`, or `"host1.com\nhost2.com"`.
 - `mc-router.port`: This value must be set to the port the Minecraft server is listening on. The default value is 25565.
 - `mc-router.default`: Set this to a truthy value to make this server the default backend. Please note that `mc-router.host` is still required to be set.
-- `mc-router.network`: Specify the network you are using for the router if multiple are present in the container/service. You can either use the network ID, it's full name or an alias.
+- `mc-router.network`: Specify the network you are using for the router if multiple are present in the container/service. You can either use the network ID, it's full name or an alias. For Docker containers, `-docker-network` sets a default for all containers without this label.
 - `mc-router.auto-scale-up`: Per-container/service override to enable/disable auto scale up for Docker/Swarm. When true (or left unspecified and the global `-auto-scale-up` flag is enabled), mc-router will start the container or scale up the Swarm service when a client connects.
 - `mc-router.auto-scale-down`: Per-container/service override to enable/disable auto scale down for Docker/Swarm. When true (or left unspecified and the global `-auto-scale-down` flag is enabled), mc-router will stop the container or scale down the Swarm service to 0 after it has been idle.
 - `mc-router.auto-scale-asleep-motd`: Per-container/service override for MOTD to show when scaled to zero. If empty or not set the host will appear unresponsive.

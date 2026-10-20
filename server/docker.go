@@ -47,6 +47,7 @@ type dockerWatcherConfig struct {
 	socket     string
 	timeout    time.Duration
 	apiVersion string
+	network    string
 }
 
 func (c *dockerWatcherConfig) apiVersionOpt() client.Opt {
@@ -74,7 +75,7 @@ func (c *dockerWatcherConfig) clientOpts() []client.Opt {
 	return opts
 }
 
-func NewDockerWatcher(socket string, timeout time.Duration, autoScaleUp bool, autoScaleDown bool, dockerApiVersion string, routes IRoutes) IDockerWatcher {
+func NewDockerWatcher(socket string, timeout time.Duration, autoScaleUp bool, autoScaleDown bool, dockerApiVersion string, network string, routes IRoutes) IDockerWatcher {
 	return &dockerWatcherImpl{
 		config: dockerWatcherConfig{
 			socket:        socket,
@@ -82,6 +83,7 @@ func NewDockerWatcher(socket string, timeout time.Duration, autoScaleUp bool, au
 			autoScaleUp:   autoScaleUp,
 			autoScaleDown: autoScaleDown,
 			apiVersion:    dockerApiVersion,
+			network:       network,
 		},
 		routes: routes,
 	}
@@ -652,6 +654,10 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 		data.port = 25565
 	}
 
+	if data.network == nil && w.config.network != "" && len(container.NetworkSettings.Networks) > 1 {
+		data.network = &w.config.network
+	}
+
 	if data.network != nil {
 		// Loop through all the container's networks and attempt to find one whose Network ID, Name, or Aliases match the
 		// specified network
@@ -675,7 +681,7 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 		// weird problems.
 		if len(container.NetworkSettings.Networks) > 1 {
 			logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
-				Warnf("ignoring container, multiple networks found and none specified using label %s", DockerRouterLabelNetwork)
+				Warnf("ignoring container, multiple networks found and none specified using label %s or -docker-network", DockerRouterLabelNetwork)
 			return
 		}
 

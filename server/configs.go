@@ -57,6 +57,7 @@ type Config struct {
 	DockerTimeout          time.Duration     `usage:"Timeout (as duration) for the Docker integrations"`
 	DockerRefreshInterval  time.Duration     `usage:"Deprecated and ignored: Docker discovery is now event-driven"`
 	DockerApiVersion       string            `usage:"Instead of auto-negotiating, use specific Docker API version"`
+	DockerNetwork          string            `usage:"Default network for Docker containers attached to more than one network, matched like the mc-router.network label, which takes precedence"`
 	MetricsBackend         string            `default:"discard" usage:"Backend to use for metrics exposure/publishing: discard,expvar,influxdb,prometheus"`
 	MetricsBackendConfig   MetricsBackendConfig
 	MetricsRateLimitPeriod time.Duration `default:"1s" usage:"The period at which the rate limit bucket's metrics are set: 0 to disable (default 1s)"`

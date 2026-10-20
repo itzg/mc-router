@@ -146,4 +146,49 @@ func TestDockerWatcherParseContainerData_IPSelection(t *testing.T) {
 		_, ok := w.parseContainerData(inspect)
 		assert.False(t, ok)
 	})
+
+	twoNetworks := map[string]*network.EndpointSettings{
+		"proxy":   {IPAddress: "172.20.0.5"},
+		"backend": {IPAddress: "172.21.0.5"},
+	}
+
+	t.Run("rejects multi-network container without label or default network", func(t *testing.T) {
+		inspect := makeInspect(map[string]string{DockerRouterLabelHost: "mc.example.com"}, twoNetworks)
+
+		_, ok := w.parseContainerData(inspect)
+		assert.False(t, ok)
+	})
+
+	t.Run("uses default network for multi-network container without label", func(t *testing.T) {
+		wd := &dockerWatcherImpl{config: dockerWatcherConfig{network: "backend"}}
+		inspect := makeInspect(map[string]string{DockerRouterLabelHost: "mc.example.com"}, twoNetworks)
+
+		data, ok := wd.parseContainerData(inspect)
+		require.True(t, ok)
+		assert.Equal(t, "172.21.0.5", data.ip)
+	})
+
+	t.Run("network label takes precedence over default network", func(t *testing.T) {
+		wd := &dockerWatcherImpl{config: dockerWatcherConfig{network: "backend"}}
+		inspect := makeInspect(map[string]string{
+			DockerRouterLabelHost:    "mc.example.com",
+			DockerRouterLabelNetwork: "proxy",
+		}, twoNetworks)
+
+		data, ok := wd.parseContainerData(inspect)
+		require.True(t, ok)
+		assert.Equal(t, "172.20.0.5", data.ip)
+	})
+
+	t.Run("default network does not apply to single-network container", func(t *testing.T) {
+		wd := &dockerWatcherImpl{config: dockerWatcherConfig{network: "backend"}}
+		inspect := makeInspect(
+			map[string]string{DockerRouterLabelHost: "mc.example.com"},
+			map[string]*network.EndpointSettings{"proxy": {IPAddress: "172.20.0.5"}},
+		)
+
+		data, ok := wd.parseContainerData(inspect)
+		require.True(t, ok)
+		assert.Equal(t, "172.20.0.5", data.ip)
+	})
 }
