@@ -1,0 +1,27 @@
+name: Release on merge
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  release:
+    # Optional since release-on-merge-action will also narrow on the event state
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Run Release on Merge Action
+        id: release-on-merge
+        uses: itzg/release-on-merge-action@v1.1.1
+        with:
+          # Be sure to allocate and assign a Personal Access Token with write access to the repository.
+          # Required when the creation of the release will need to trigger another Github workflow.
+          token: ${{ secrets.GH_RELEASE_TOKEN }}
+
+      - name: Display Release Output
+        if: steps.release-on-merge.outputs.release-version != ''
+        run: |
+          echo "Created release version: ${{ steps.release-on-merge.outputs.release-version }}"
