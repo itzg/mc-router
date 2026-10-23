@@ -139,6 +139,26 @@ Some other features included:
     	If set, a POST request that contains connection status notifications will be sent to this HTTP address (env WEBHOOK_URL)
 ```
 
+## PROXY Protocol
+
+mc-router can pass the real client IP address through to backend servers using the [PROXY protocol](https://www.haproxy.org/download/2.4/doc/proxy-protocol.txt). Without it, backend servers see every connection as coming from mc-router itself, which breaks IP-based banning, allow-listing, and similar protections. Three mutually exclusive modes are available, each with a matching environment variable:
+
+- `-use-proxy-protocol` (`USE_PROXY_PROTOCOL`): prepend a PROXY protocol v2 header carrying the real client address to the connection opened towards the backend. This is the common choice when mc-router fronts Minecraft servers directly.
+- `-receive-proxy-protocol` (`RECEIVE_PROXY_PROTOCOL`): expect and consume a PROXY header sent by an upstream proxy or load balancer, so that mc-router itself sees the real client address. The header is not forwarded to the backend. By default, every received header is trusted; pass `-trusted-proxies` (`TRUSTED_PROXIES`), a comma-delimited list of CIDR blocks, to only honor headers sent from those upstream addresses.
+- `-dynamic-proxy-protocol` (`DYNAMIC_PROXY_PROTOCOL`): accept connections with or without a PROXY header. When a trusted upstream supplies a header, it is forwarded to the backend. Cannot be combined with either of the other two flags.
+
+### Accepting PROXY protocol on the backend
+
+Backend servers must be configured to expect the header, otherwise the leading bytes are read as garbage and the connection fails. The setup differs per server "flavor":
+
+- BungeeCord / Waterfall: set `proxy_protocol: true` on the listener in `config.yml`
+- Velocity: set `haproxy-protocol = true` under `[advanced]` in `velocity.toml`
+- Paper: set `proxies.proxy-protocol: true` in `config/paper-global.yml`, and keep `prevent-proxy-connections` set to `false` in `server.properties`
+- Servers without built-in support, such as Spigot: use a plugin such as SpigotProxy, or [FabricProxy-Lite](https://modrinth.com/mod/fabricproxy-lite) for Fabric
+
+> [!IMPORTANT]
+> Only accept PROXY protocol on ports that are not directly reachable by untrusted clients: any client able to open a raw TCP connection can forge a header. When receiving with `-receive-proxy-protocol` or `-dynamic-proxy-protocol`, restrict trust with `-trusted-proxies`.
+
 ## Docker Multi-Architecture Image
 
 The [multi-architecture image published at Docker Hub](https://hub.docker.com/repository/docker/itzg/mc-router) supports amd64, arm64, and arm32v6 (i.e. RaspberryPi).
