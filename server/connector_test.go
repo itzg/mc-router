@@ -227,10 +227,23 @@ func TestConnectorNonUTF8Handshake(t *testing.T) {
 func TestConnectorDynamicProxyProtocol(t *testing.T) {
 	tests := []struct {
 		name       string
-		sendHeader bool
+		header     string
+		wantSource string
+		wantDest   string
 	}{
-		{name: "forwards supplied header", sendHeader: true},
-		{name: "no header when connection has none", sendHeader: false},
+		{
+			name:       "forwards supplied header",
+			header:     "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n",
+			wantSource: "1.2.3.4:12345",
+			wantDest:   "5.6.7.8:25565",
+		},
+		{
+			name:       "rewrites NAT64 source of supplied header",
+			header:     "PROXY TCP6 64:ff9b::c000:221 2001:db8::21 12345 25565\r\n",
+			wantSource: "192.0.2.33:12345",
+			wantDest:   "0.0.0.0:25565",
+		},
+		{name: "no header when connection has none"},
 	}
 
 	for _, test := range tests {
@@ -254,6 +267,9 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 
 			c := NewConnector(t.Context(), routes, downScaler, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
 			c.UseDynamicProxyProtocol(nil)
+			prefixes, err := ParseNAT64Prefixes([]string{"64:ff9b::/96"})
+			require.NoError(t, err)
+			c.UseNAT64Prefixes(prefixes)
 
 			ln, err := c.createListener("127.0.0.1:0")
 			require.NoError(t, err)
@@ -264,8 +280,8 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 			require.NoError(t, err)
 			defer clientConn.Close()
 
-			if test.sendHeader {
-				_, err = fmt.Fprintf(clientConn, "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n")
+			if test.header != "" {
+				_, err = fmt.Fprint(clientConn, test.header)
 				require.NoError(t, err)
 			}
 
@@ -289,14 +305,128 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 			_ = proxyConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 			header := proxyConn.ProxyHeader()
 
-			if test.sendHeader {
+			if test.header != "" {
 				require.NotNil(t, header, "expected forwarded PROXY header")
 				assert.Equal(t, byte(1), header.Version)
-				assert.Equal(t, "1.2.3.4:12345", header.SourceAddr.String())
-				assert.Equal(t, "5.6.7.8:25565", header.DestinationAddr.String())
+				assert.Equal(t, proxyproto.TCPv4, header.TransportProtocol)
+				assert.Equal(t, test.wantSource, header.SourceAddr.String())
+				assert.Equal(t, test.wantDest, header.DestinationAddr.String())
 			} else {
 				assert.Nil(t, header, "expected no PROXY header to be forwarded")
 			}
+		})
+	}
+}
+
+// addrOverrideConn reports fixed addresses, simulating a client that reached
+// mc-router over IPv6 through a NAT64 translator.
+type addrOverrideConn struct {
+	net.Conn
+	remoteAddr net.Addr
+	localAddr  net.Addr
+}
+
+func (c *addrOverrideConn) RemoteAddr() net.Addr { return c.remoteAddr }
+func (c *addrOverrideConn) LocalAddr() net.Addr  { return c.localAddr }
+
+func TestConnectorNAT64UseProxyProtocol(t *testing.T) {
+	tests := []struct {
+		name         string
+		clientAddr   string
+		denyClients  []string
+		wantProtocol proxyproto.AddressFamilyAndProtocol
+		wantSource   string
+		wantDest     string
+		wantBlocked  bool
+	}{
+		{
+			name:         "NAT64 client is sent as IPv4",
+			clientAddr:   "[64:ff9b:1::c000:221]:12345",
+			wantProtocol: proxyproto.TCPv4,
+			wantSource:   "192.0.2.33:12345",
+			wantDest:     "0.0.0.0:25565",
+		},
+		{
+			name:         "native IPv6 client is unchanged",
+			clientAddr:   "[2001:db8::1]:12345",
+			wantProtocol: proxyproto.TCPv6,
+			wantSource:   "[2001:db8::1]:12345",
+			wantDest:     "[2001:db8::21]:25565",
+		},
+		{
+			name:        "NAT64 client is filtered by its IPv4 address",
+			clientAddr:  "[64:ff9b:1::c000:221]:12345",
+			denyClients: []string{"192.0.2.0/24"},
+			wantBlocked: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			routes := NewRoutes(t.Context())
+
+			backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			defer backendListener.Close()
+
+			backendConnChan := make(chan net.Conn, 1)
+			go func() {
+				conn, acceptErr := backendListener.Accept()
+				if acceptErr == nil {
+					backendConnChan <- conn
+				}
+			}()
+
+			routes.CreateMapping("mc.example.com", backendListener.Addr().String(), nil, nil, nil, "", "")
+
+			c := NewConnector(t.Context(), routes, NewDownScaler(false, 5*time.Second), discardMetricsBuilder{}.BuildConnectorMetrics(), true, false, nil, false)
+			prefixes, err := ParseNAT64Prefixes([]string{"64:ff9b:1::/96"})
+			require.NoError(t, err)
+			c.UseNAT64Prefixes(prefixes)
+			clientFilter, err := NewClientFilter(nil, test.denyClients)
+			require.NoError(t, err)
+			c.UseClientFilter(clientFilter)
+
+			clientConn, serverConn := net.Pipe()
+			defer clientConn.Close()
+
+			go c.HandleConnection(&addrOverrideConn{
+				Conn:       serverConn,
+				remoteAddr: tcpAddr(t, test.clientAddr),
+				localAddr:  tcpAddr(t, "[2001:db8::21]:25565"),
+			})
+
+			if test.wantBlocked {
+				_ = clientConn.SetReadDeadline(time.Now().Add(time.Second))
+				_, err = clientConn.Read(make([]byte, 1))
+				assert.ErrorIs(t, err, io.EOF, "expected the filter to close the connection")
+				return
+			}
+
+			err = writeTestPacket(clientConn, 0x00, func(w io.Writer) {
+				_ = mcproto.WriteVarInt(w, 758)
+				_ = mcproto.WriteString(w, "mc.example.com")
+				w.Write([]byte{0x63, 0xdd})
+				_ = mcproto.WriteVarInt(w, 1)
+			})
+			require.NoError(t, err)
+
+			var backendConn net.Conn
+			select {
+			case backendConn = <-backendConnChan:
+			case <-time.After(5 * time.Second):
+				t.Fatal("backend did not receive a connection")
+			}
+			defer backendConn.Close()
+
+			proxyConn := proxyproto.NewConn(backendConn)
+			_ = proxyConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			header := proxyConn.ProxyHeader()
+			require.NotNil(t, header, "expected a PROXY header")
+			assert.Equal(t, byte(2), header.Version)
+			assert.Equal(t, test.wantProtocol, header.TransportProtocol)
+			assert.Equal(t, test.wantSource, header.SourceAddr.String())
+			assert.Equal(t, test.wantDest, header.DestinationAddr.String())
 		})
 	}
 }

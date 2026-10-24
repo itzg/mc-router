@@ -122,6 +122,15 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	}
 	connector.UseClientFilter(clientFilter)
 
+	if len(config.NAT64Prefixes) > 0 {
+		nat64Prefixes, err := ParseNAT64Prefixes(config.NAT64Prefixes)
+		if err != nil {
+			return nil, err
+		}
+		logrus.WithField("prefixes", nat64Prefixes).Info("Recovering IPv4 addresses of clients connecting through NAT64")
+		connector.UseNAT64Prefixes(nat64Prefixes)
+	}
+
 	if config.Webhook.Url != "" {
 		logrus.WithField("url", config.Webhook.Url).
 			WithField("require-user", config.Webhook.RequireUser).
