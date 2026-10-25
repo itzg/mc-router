@@ -72,6 +72,22 @@ func WriteStatusFromStruct(w io.Writer, status StatusResponse) error {
 	return WriteStatusJSONPacket(w, string(b))
 }
 
+// WriteLoginDisconnect writes a Disconnect packet (0x00) in the login state. The reason is
+// sent as a JSON text component: the login state kept JSON reasons when the configuration
+// and play states moved to NBT, so this works for every 1.7+ client.
+func WriteLoginDisconnect(w io.Writer, reason string) error {
+	component, err := json.Marshal(map[string]string{"text": reason})
+	if err != nil {
+		return err
+	}
+	var payload bytes.Buffer
+	if err := WriteString(&payload, string(component)); err != nil {
+		return err
+	}
+	_, err = w.Write(buildPacket(PacketIdLoginDisconnect, payload.Bytes()))
+	return err
+}
+
 // WritePongPacket writes Pong (packet 0x01) with the same payload
 func WritePongPacket(w io.Writer, timestamp int64) error {
 	var pl bytes.Buffer

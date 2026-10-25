@@ -17,6 +17,7 @@ type AutoScale struct {
 	AllowDeny             string        `usage:"Path to config for server allowlists and denylists. If a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up when -auto-scale-up is enabled or cancel active down scalers when -auto-scale-down is enabled"`
 	AsleepMOTD            string        `usage:"MOTD to display when auto-scaled down servers are accessed; if empty, no status will be served"`
 	LoadingMOTD           string        `usage:"MOTD to display while auto-scaled Docker servers are waking up; if empty, asleep status will be served"`
+	WakeKickMessage       string        `usage:"If set, a player logging in to a scaled-down or still waking server is immediately disconnected with this message while the server keeps waking up, instead of holding the login until the server is ready (the Java client gives up after about 30 seconds)"`
 	Webhook               AutoScaleWebhookConfig
 }
 
