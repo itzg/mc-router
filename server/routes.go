@@ -271,19 +271,27 @@ func (r *routesImpl) HasRoute(serverAddress string) bool {
 	return exists
 }
 
-func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddress string) (string, string, ScalingTarget, WakerFunc, SleeperFunc) {
-	r.RLock()
-	defer r.RUnlock()
-
+// NormalizeServerAddress reduces a handshake server address to the form route keys use.
+// Clients reaching the router via an SRV record send the SRV target as a fully qualified
+// name with a trailing dot, so every lookup keyed by server address (routes, MOTDs and
+// wake-in-progress tracking) must use the same normalized form.
+func NormalizeServerAddress(serverAddress string) string {
 	// Trim off Forge null-delimited address parts like \x00FML3\x00
 	serverAddress = strings.Split(serverAddress, "\x00")[0]
 
 	// Trim off infinity-filter backslash address parts like \\GUID\\CLIENT_IP...
 	serverAddress = strings.Split(serverAddress, "\\")[0]
 
-	serverAddress = strings.ToLower(
+	return strings.ToLower(
 		// trim the root zone indicator, see https://en.wikipedia.org/wiki/Fully_qualified_domain_name
 		strings.TrimSuffix(serverAddress, "."))
+}
+
+func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddress string) (string, string, ScalingTarget, WakerFunc, SleeperFunc) {
+	r.RLock()
+	defer r.RUnlock()
+
+	serverAddress = NormalizeServerAddress(serverAddress)
 
 	logrus.WithFields(logrus.Fields{
 		"serverAddress": serverAddress,

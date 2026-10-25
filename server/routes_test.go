@@ -474,3 +474,15 @@ func Test_routesImpl_SetCountdownDeadlineWithoutDefaultRoute(t *testing.T) {
 		routes.SetCountdownDeadline("", time.Now().Add(time.Minute))
 	})
 }
+
+func TestNormalizeServerAddress(t *testing.T) {
+	for input, expected := range map[string]string{
+		"mc.example.com":                  "mc.example.com",
+		"MC.Example.com.":                 "mc.example.com",
+		"mc.example.com.\x00FML3\x00":     "mc.example.com",
+		"mc.example.com\\\\GUID\\\\1.2.3": "mc.example.com",
+		"":                                "",
+	} {
+		assert.Equal(t, expected, NormalizeServerAddress(input), "input %q", input)
+	}
+}

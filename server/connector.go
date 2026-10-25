@@ -608,6 +608,10 @@ func (c *Connector) cleanupBackendConnection(
 func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 	clientAddr net.Addr, preReadContent io.Reader, handshakeBytes int, serverAddress string, playerInfo *PlayerInfo, nextState mcproto.State, isLegacy bool, clientProtocol int) {
 
+	// Normalize once so that wake tracking and MOTD lookups agree with route lookups,
+	// e.g. "host.example." (SRV target) and "host.example" are the same server.
+	serverAddress = NormalizeServerAddress(serverAddress)
+
 	backendHostPort, resolvedHost, scalingTarget, waker, _ := c.routes.FindBackendForServerAddress(c.ctx, serverAddress)
 	cleanupMetrics := false
 	cleanupCheckScaleDown := false
