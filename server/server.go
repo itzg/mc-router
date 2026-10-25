@@ -114,6 +114,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	connector.UseBackendDialTimeout(config.BackendDialTimeout)
 	connector.UseAsleepMOTD(config.AutoScale.AsleepMOTD)
 	connector.UseLoadingMOTD(config.AutoScale.LoadingMOTD)
+	connector.UseWakeKickMessage(config.AutoScale.WakeKickMessage)
 
 	clientFilter, err := NewClientFilter(config.ClientsToAllow, config.ClientsToDeny)
 	if err != nil {

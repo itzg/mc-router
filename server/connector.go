@@ -147,6 +147,7 @@ type Connector struct {
 	connectionNotifier         ConnectionNotifier
 	asleepMOTD                 string
 	loadingMOTD                string
+	wakeKickMessage            string
 	backendDialTimeout         time.Duration
 }
 
@@ -628,6 +629,11 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			WithField("player", playerInfo).
 			WithField("serverAllowsPlayer", serverAllowsPlayer).
 			Debug("checked if player is allowed to wake up the server")
+		if serverAllowsPlayer && c.wakeKickMessage != "" && (backendHostPort == "" || c.isWakeInProgress(serverAddress)) {
+			c.wakeInBackground(serverAddress, scalingTarget, waker)
+			c.kickWhileWaking(frontendConn, clientAddr, serverAddress, playerInfo)
+			return
+		}
 		if serverAllowsPlayer && scalingTarget.StartScaling() {
 			defer scalingTarget.EndScaling()
 
@@ -950,6 +956,66 @@ func (c *Connector) UseAsleepMOTD(motd string) {
 // UseLoadingMOTD configures a predefined MOTD to serve when backends are waking up
 func (c *Connector) UseLoadingMOTD(motd string) {
 	c.loadingMOTD = motd
+}
+
+// UseWakeKickMessage configures the message used to disconnect players that log in while
+// their backend is scaled down or waking up. Empty keeps the login waiting for the backend.
+func (c *Connector) UseWakeKickMessage(message string) {
+	c.wakeKickMessage = message
+}
+
+// wakeInBackground starts waking the backend without tying it to a client connection, so a
+// player can be told to come back instead of waiting into the client's own timeout.
+func (c *Connector) wakeInBackground(serverAddress string, scalingTarget ScalingTarget, waker WakerFunc) {
+	if !scalingTarget.StartScaling() {
+		// a wake (or scale down) of this target is already in progress
+		return
+	}
+	if c.downScaler != nil {
+		c.downScaler.Cancel(scalingTarget)
+	}
+	logrus.WithField("serverAddress", serverAddress).
+		WithField("scalingTarget", scalingTarget).
+		Info("Scaling up backend server in background")
+	// Count the wake before returning, so status pings right after the kick see the loading MOTD
+	c.wakingServers.Increment(serverAddress)
+
+	go func() {
+		backendHostPort, err := waker(c.ctx)
+		c.wakingServers.Decrement(serverAddress)
+		scalingTarget.EndScaling()
+		if err != nil {
+			logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend")
+			c.metrics.IncrementErrors("wakeup_failed")
+			return
+		}
+		logrus.WithFields(logrus.Fields{
+			"serverAddress":   serverAddress,
+			"backendHostPort": backendHostPort,
+		}).Info("Woke up backend server")
+
+		// Normally the scale-down timer is armed when the last connection closes. The kicked
+		// player has no connection, so arm it here; otherwise a server whose player never
+		// comes back would stay up forever. A player that does come back cancels it again.
+		if c.downScaler != nil && c.scaleActiveConnections.GetCount(scalingTarget.ScalingKey()) <= 0 {
+			c.downScaler.Start(c.ctx, scalingTarget, c.routes)
+		}
+	}()
+}
+
+func (c *Connector) kickWhileWaking(frontendConn net.Conn, clientAddr net.Addr, serverAddress string, playerInfo *PlayerInfo) {
+	_ = frontendConn.SetWriteDeadline(time.Now().Add(handshakeTimeout))
+	if err := mcproto.WriteLoginDisconnect(frontendConn, c.wakeKickMessage); err != nil {
+		logrus.WithError(err).
+			WithField("client", clientAddr).
+			Warn("Failed to write wake-up disconnect message")
+		return
+	}
+	logrus.WithFields(logrus.Fields{
+		"client":        clientAddr,
+		"serverAddress": serverAddress,
+		"player":        playerInfo,
+	}).Info("Disconnected player with wake-up message while backend starts")
 }
 
 func (c *Connector) isWakeInProgress(serverAddress string) bool {

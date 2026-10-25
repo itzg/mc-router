@@ -84,8 +84,9 @@ const (
 )
 
 const (
-	PacketIdStatusResponse = 0x00
-	PackedIdPongResponse   = 0x01
+	PacketIdStatusResponse  = 0x00
+	PackedIdPongResponse    = 0x01
+	PacketIdLoginDisconnect = 0x00 // during StateLogin
 )
 
 type Handshake struct {

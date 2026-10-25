@@ -38,6 +38,8 @@ Some other features included:
     	MOTD to display while auto-scaled Docker servers are waking up; if empty, asleep status will be served (env AUTO_SCALE_LOADING_MOTD)
   -auto-scale-up
     	Scale from zero on access. For Kubernetes, increases StatefulSet replicas from 0 to 1. For Docker, starts or unpauses the container when accessed (env AUTO_SCALE_UP)
+  -auto-scale-wake-kick-message string
+    	If set, a player logging in to a scaled-down or still waking server is immediately disconnected with this message while the server keeps waking up, instead of holding the login until the server is ready (the Java client gives up after about 30 seconds) (env AUTO_SCALE_WAKE_KICK_MESSAGE)
   -auto-scale-webhook-headers value
     	Zero or more 'key=value' headers added to scaler webhook requests, e.g. for authentication tokens (env AUTO_SCALE_WEBHOOK_HEADERS)
   -auto-scale-webhook-timeout duration
@@ -297,6 +299,7 @@ Behavior:
 - When a client connects to a labeled hostname and the container is stopped or paused, mc-router will start/unpause it and wait until it becomes reachable (up to ~60s).
 - While that wake-up is in progress and status pings are received, mc-router can return a loading MOTD (per-container override or `-auto-scale-loading-motd`).
 - When no clients remain connected and the idle timer elapses (`-auto-scale-down-after`), mc-router gracefully stops the container.
+- With `-auto-scale-wake-kick-message` set, a login to a stopped or still waking container is answered right away with a disconnect screen showing that message, while the container keeps starting in the background. Without it, the login is held until the container is reachable, which can exceed the Java client's ~30 second timeout. A server woken this way is scheduled to scale down like any other, even if the player never comes back.
 
 > [!NOTE]
 > Native Swarm service scaling via `-auto-scale-up`/`-auto-scale-down` is supported in both VIP (Virtual IP) and DNSRR (DNS Round-Robin) modes. Bypassing the VIP (by routing directly to the task container IP) is automatically enabled when `replicas == 1` to prevent VIP routing delay. Note that DNSRR mode has not been actively tested.
