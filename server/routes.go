@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"net"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -281,6 +283,22 @@ func NormalizeServerAddress(serverAddress string) string {
 
 	// Trim off infinity-filter backslash address parts like \\GUID\\CLIENT_IP...
 	serverAddress = strings.Split(serverAddress, "\\")[0]
+
+	// Since 26.4 the host field may carry URI-query-style properties, e.g.
+	// "resolved.example.com?_o=mc.example.com:25565&_id=abc". When the client
+	// followed an SRV record, "_o" holds the address the player typed, which is
+	// what routes are keyed on.
+	if host, query, found := strings.Cut(serverAddress, "?"); found {
+		serverAddress = host
+		if values, err := url.ParseQuery(query); err == nil {
+			if origin := values.Get("_o"); origin != "" {
+				if originHost, _, err := net.SplitHostPort(origin); err == nil {
+					origin = originHost
+				}
+				serverAddress = origin
+			}
+		}
+	}
 
 	return strings.ToLower(
 		// trim the root zone indicator, see https://en.wikipedia.org/wiki/Fully_qualified_domain_name
