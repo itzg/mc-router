@@ -20,9 +20,9 @@ require (
 	github.com/stretchr/testify v1.12.1
 	golang.ngrok.com/ngrok v1.13.0
 	golang.org/x/text v0.43.0
-	k8s.io/api v0.37.1
-	k8s.io/apimachinery v0.37.1
-	k8s.io/client-go v0.37.1
+	k8s.io/api v0.37.2
+	k8s.io/apimachinery v0.37.2
+	k8s.io/client-go v0.37.2
 )
 
 // go-kit pulls in old, ambiguous package
