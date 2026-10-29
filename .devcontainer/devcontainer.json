@@ -2,7 +2,7 @@
 // README at: https://github.com/devcontainers/templates/tree/main/src/go
 {
   "name": "Go",
-  "image": "mcr.microsoft.com/devcontainers/go:2-1.26",
+  "image": "mcr.microsoft.com/devcontainers/go:1.27",
   // Features to add to the dev container. More info: https://containers.dev/features.
   "features": {
     // For in-docker discovery testing
@@ -26,7 +26,8 @@
     },
     "vscode": {
       "extensions": [
-        "golang.go"
+        "golang.go",
+        "ms-azuretools.vscode-docker"
       ]
     }
   }

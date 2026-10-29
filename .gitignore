@@ -7,5 +7,6 @@
 /dist/
 /*.private.env.json
 /kustomization.yml
+/out/
 
 /*.pem
