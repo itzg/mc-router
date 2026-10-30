@@ -4,7 +4,7 @@ resources:
   # The following use relative paths for example and local testing purposes.
   # Normally you will replace the `../..` paths with `https://github.com/itzg/mc-router/kustomize`
   - ../../kustomize/overlays/role
-  - ../../kustomize/overlays/examples
+  - ../../kustomize/servers/statefulset
 
 configMapGenerator:
   - name: mc-router-env
@@ -33,6 +33,19 @@ patches:
                 envFrom:
                   - configMapRef:
                       name: mc-router-env
+  # Start mc-latest scaled to zero so mc-router scales it up on first connection
+  - target:
+      group: apps
+      version: v1
+      kind: StatefulSet
+      name: mc-latest
+    patch: |-
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: not-used
+      spec:
+        replicas: 0
   # Example of patching in external server names, in this case using
   # RFC 6761 supported `*.localhost` domain.
   - target:
