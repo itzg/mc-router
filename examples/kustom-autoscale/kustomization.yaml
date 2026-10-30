@@ -1,0 +1,70 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  # The following use relative paths for example and local testing purposes.
+  # Normally you will replace the `../..` paths with `https://github.com/itzg/mc-router/kustomize`
+  - ../../kustomize/overlays/role
+  - ../../kustomize/servers/statefulset
+
+configMapGenerator:
+  - name: mc-router-env
+    envs:
+      - mc-router.env
+
+patches:
+  # Apply the mc-router.env as a ConfigMap
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: mc-router
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: mc-router
+      spec:
+        template:
+          spec:
+            containers:
+              - name: mc-router
+                # For example/test purposes, always want the latest-latest
+                imagePullPolicy: Always
+                envFrom:
+                  - configMapRef:
+                      name: mc-router-env
+  # Start mc-latest scaled to zero so mc-router scales it up on first connection
+  - target:
+      group: apps
+      version: v1
+      kind: StatefulSet
+      name: mc-latest
+    patch: |-
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: not-used
+      spec:
+        replicas: 0
+  # Example of patching in external server names, in this case using
+  # RFC 6761 supported `*.localhost` domain.
+  - target:
+      kind: Service
+      name: mc-latest
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: mc-latest
+        annotations:
+          mc-router.itzg.me/externalServerName: "latest.localhost"
+  - target:
+      kind: Service
+      name: mc-paper
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: mc-paper
+        annotations:
+          mc-router.itzg.me/externalServerName: "paper.localhost"

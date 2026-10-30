@@ -43,42 +43,42 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: mc-snapshot
+  name: mc-paper
   annotations:
-    "mc-router.itzg.me/externalServerName": "snapshot.your.domain"
+    "mc-router.itzg.me/externalServerName": "paper.localhost"
 spec:
   type: NodePort
   ports:
   - port: 25565
     name: minecraft
   selector:
-    app: mc-snapshot
+    app: mc-paper
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    app: mc-snapshot
-  name: mc-snapshot
+    app: mc-paper
+  name: mc-paper
 spec:
   selector:
     matchLabels:
-      app: mc-snapshot
+      app: mc-paper
   template:
     metadata:
       labels:
-        app: mc-snapshot
+        app: mc-paper
     spec:
       securityContext:
         runAsUser: 1000
         fsGroup: 1000
       containers:
       - image: itzg/minecraft-server
-        name: mc-snapshot
+        name: mc-paper
         env:
         - name: EULA
           value: "TRUE"
-        - name: VERSION
-          value: "SNAPSHOT"
+        - name: TYPE
+          value: "PAPER"
         ports:
         - containerPort: 25565

@@ -1,64 +1,113 @@
-https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/
+# mc-router Kustomize deployment
 
-## Example
+## Configure the deployment
 
-To use your own dev image, such as via [Github Packages](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry), create `kustomization.yml` and alter the overlay to choose `role` or `cluster-role`. This example assumes that a docker image pull secret has been created and named `ghrc-pull`, [see below](#creating-image-pull-secret).
+Create a `kustomization.yaml` in your working directory and reference the overlay you want to customize, typically one of the [role scope overlays](#role-scope).
+
+Apply your customized deployment from that directory with `kubectl apply -k .`. You can also use Kustomize patches to change deployment settings.
+
+### Role scope overlays
+
+The Kustomize overlays deploy mc-router with either a namespace-scoped `Role` or a `ClusterRole`. Choose the overlay that matches the permissions needed in your cluster:
+
+- `https://github.com/itzg/mc-router/kustomize/overlays/role`
+- `https://github.com/itzg/mc-router/kustomize/overlays/cluster-role`
+
+> [!NOTE]
+> The two role overlays will in turn bring in the `base` kustomization.
+
+### Set mc-router environment variables
+
+You can keep environment variables in a file and have Kustomize generate a ConfigMap from it. Create `mc-router.env` next to your `kustomization.yaml`, using `NAME=value` entries. mc-router options can be set using uppercase environment variable names; for example, `--api-binding` corresponds to `API_BINDING`:
+
+```dotenv
+DEBUG=true
+API_BINDING=:8080
+```
+
+Add the file to `configMapGenerator` and reference the generated ConfigMap from the Deployment with `envFrom`:
 
 ```yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - https://github.com/itzg/mc-router/kustomize/overlays/role
-  # OR
-  # - https://github.com/itzg/mc-router/kustomize/overlays/cluster-role
-images:
-  - name: itzg/mc-router
-    # replace your-user-org with your Github user/org and/or replace ghcr.io with your Docker registry
-    newName: ghcr.io/your-user-org/mc-router-dev
+configMapGenerator:
+  - name: mc-router-env
+    envs:
+      - mc-router.env
 patches:
   - target:
-      name: mc-router
+      group: apps
+      version: v1
       kind: Deployment
+      name: mc-router
     patch: |-
       apiVersion: apps/v1
       kind: Deployment
       metadata:
-        name: _
+        name: mc-router
       spec:
         template:
           spec:
-            imagePullSecrets:
-              - name: ghcr-pull
             containers:
-              - name:  mc-router
-                imagePullPolicy: Always
+              - name: mc-router
+                envFrom:
+                  - configMapRef:
+                      name: mc-router-env
 ```
 
-### Creating image pull secret
+Kustomize generates the ConfigMap and updates the reference to include its generated name. Apply the deployment with `kubectl apply -k .`; when the env file changes, Kustomize generates a new ConfigMap and updates the Deployment. ConfigMaps are not for secrets—use a Kubernetes Secret for sensitive values.
 
-The following is an example of [creating an image pull secret](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_create/kubectl_create_secret_docker-registry/) named `ghrc-pull`. Be sure to replace `your-user-org` and the password will be a [personal access token](https://github.com/settings/tokens) with `read:packages` scope.
+## Example servers
 
-```shell
-kubectl create secret docker-registry ghcr-pull --docker-server=ghcr.io --docker-username=your-user-org --docker-password=ghp_...
+The `servers` directory contains example manifests for both sample Minecraft servers (`mc-latest` as the default route and `mc-paper` at `paper.localhost`). Choose `servers/deployment` to run them as Deployments, or `servers/statefulset` to run them as StatefulSets with persistent storage and headless services. Add one of these server bundles alongside either the `role` or `cluster-role` overlay in your own `kustomization.yaml`:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/itzg/mc-router/kustomize/overlays/role
+  - https://github.com/itzg/mc-router/kustomize/servers/deployment
 ```
 
-### Build and push your image
+Replace `servers/deployment` with `servers/statefulset` to use the StatefulSet examples. Do not include both server bundles in the same kustomization, since they define the same service and server names.
 
-Be sure to replace `your-user-org`:
+See the [Kustomize documentation](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/) for more information about building and customizing deployments.
 
-```shell
-docker build -t ghcr.io/your-user-org/mc-router-dev
-docker push ghcr.io/your-user-org/mc-router-dev
+## Using development image
+
+If the image is in a private registry, create an image pull secret and add its name to the Deployment's pod template using a patch:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mc-router
+spec:
+  template:
+    spec:
+      imagePullSecrets:
+        - name: registry-pull
 ```
 
-### Apply the kustomization
+Create the secret in the same namespace as mc-router. For example:
 
 ```shell
-kubectl apply -k .
+kubectl create secret docker-registry registry-pull \
+  --docker-server=your-registry.example.com \
+  --docker-username=your-username \
+  --docker-password=your-password
 ```
 
-or if you want to preview what will be generated and applied:
+To use a custom image, use the `images` field in your `kustomization.yaml`:
 
-```shell
-kubectl kustomize
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/itzg/mc-router/kustomize/overlays/role
+images:
+  - name: itzg/mc-router
+    newName: your-registry.example.com/your-org/mc-router
 ```
