@@ -1,54 +1,20 @@
 # mc-router Kustomize deployment
 
-The Kustomize overlays deploy mc-router with either a namespace-scoped `Role` or a `ClusterRole`. Choose the overlay that matches the permissions needed in your cluster.
-
-Apply the namespace-scoped overlay:
-
-```shell
-kubectl apply -k https://github.com/itzg/mc-router/kustomize/overlays/role
-```
-
-Or apply the cluster-wide overlay:
-
-```shell
-kubectl apply -k https://github.com/itzg/mc-router/kustomize/overlays/cluster-role
-```
-
-To preview the resources before applying them:
-
-```shell
-kubectl kustomize https://github.com/itzg/mc-router/kustomize/overlays/role
-```
-
-## Example servers
-
-The `examples` overlay deploys two sample Minecraft servers (`mc-latest` as the default route and `mc-snapshot` at `snapshot.your.domain`). It is standalone, so it can be combined with either the `role` or `cluster-role` overlay in your own `kustomization.yaml`:
-
-```yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-  - https://github.com/itzg/mc-router/kustomize/overlays/role
-  - https://github.com/itzg/mc-router/kustomize/overlays/examples
-```
-
-See the [Kustomize documentation](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/) for more information about building and customizing deployments.
-
 ## Configure the deployment
 
-Create a `kustomization.yaml` in your working directory and reference the overlay you want to customize. For example, to use a custom image:
-
-```yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-  - https://github.com/itzg/mc-router/kustomize/overlays/role
-images:
-  - name: itzg/mc-router
-    newName: your-registry.example.com/your-org/mc-router
-```
+Create a `kustomization.yaml` in your working directory and reference the overlay you want to customize, typically one of the [role scope overlays](#role-scope).
 
 Apply your customized deployment from that directory with `kubectl apply -k .`. You can also use Kustomize patches to change deployment settings.
+
+### Role scope overlays
+
+The Kustomize overlays deploy mc-router with either a namespace-scoped `Role` or a `ClusterRole`. Choose the overlay that matches the permissions needed in your cluster:
+
+- `https://github.com/itzg/mc-router/kustomize/overlays/role`
+- `https://github.com/itzg/mc-router/kustomize/overlays/cluster-role`
+
+> [!NOTE]
+> The two role overlays will in turn bring in the `base` kustomization.
 
 ### Set mc-router environment variables
 
@@ -93,6 +59,20 @@ patches:
 
 Kustomize generates the ConfigMap and updates the reference to include its generated name. Apply the deployment with `kubectl apply -k .`; when the env file changes, Kustomize generates a new ConfigMap and updates the Deployment. ConfigMaps are not for secrets—use a Kubernetes Secret for sensitive values.
 
+## Example servers
+
+The `examples` overlay deploys two sample Minecraft servers (`mc-latest` as the default route and `mc-paper` at `paper.your.domain`). It is standalone, so it can be combined with either the `role` or `cluster-role` overlay in your own `kustomization.yaml`:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/itzg/mc-router/kustomize/overlays/role
+  - https://github.com/itzg/mc-router/kustomize/overlays/examples
+```
+
+See the [Kustomize documentation](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/) for more information about building and customizing deployments.
+
 ## Using development image
 
 If the image is in a private registry, create an image pull secret and add its name to the Deployment's pod template using a patch:
@@ -116,4 +96,16 @@ kubectl create secret docker-registry registry-pull \
   --docker-server=your-registry.example.com \
   --docker-username=your-username \
   --docker-password=your-password
+```
+
+To use a custom image, use the `images` field in your `kustomization.yaml`:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/itzg/mc-router/kustomize/overlays/role
+images:
+  - name: itzg/mc-router
+    newName: your-registry.example.com/your-org/mc-router
 ```
