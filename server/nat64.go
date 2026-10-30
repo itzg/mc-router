@@ -47,6 +47,7 @@ func (p NAT64Prefixes) ExtractIPv4(addr netip.Addr) (netip.Addr, bool) {
 	if !addr.Is6() || addr.Is4In6() {
 		return netip.Addr{}, false
 	}
+	// Find the longest matching prefix, since prefixes can overlap and aren't sorted
 	var matched netip.Prefix
 	for _, prefix := range p {
 		if prefix.Contains(addr) && (!matched.IsValid() || prefix.Bits() > matched.Bits()) {
