@@ -45,7 +45,7 @@ kind: Service
 metadata:
   name: mc-paper
   annotations:
-    "mc-router.itzg.me/externalServerName": "paper.your.domain"
+    "mc-router.itzg.me/externalServerName": "paper.localhost"
 spec:
   type: NodePort
   ports:

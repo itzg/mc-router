@@ -61,15 +61,17 @@ Kustomize generates the ConfigMap and updates the reference to include its gener
 
 ## Example servers
 
-The `examples` overlay deploys two sample Minecraft servers (`mc-latest` as the default route and `mc-paper` at `paper.your.domain`). It is standalone, so it can be combined with either the `role` or `cluster-role` overlay in your own `kustomization.yaml`:
+The `servers` directory contains example manifests for both sample Minecraft servers (`mc-latest` as the default route and `mc-paper` at `paper.localhost`). Choose `servers/deployment` to run them as Deployments, or `servers/statefulset` to run them as StatefulSets with persistent storage and headless services. Add one of these server bundles alongside either the `role` or `cluster-role` overlay in your own `kustomization.yaml`:
 
 ```yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - https://github.com/itzg/mc-router/kustomize/overlays/role
-  - https://github.com/itzg/mc-router/kustomize/overlays/examples
+  - https://github.com/itzg/mc-router/kustomize/servers/deployment
 ```
+
+Replace `servers/deployment` with `servers/statefulset` to use the StatefulSet examples. Do not include both server bundles in the same kustomization, since they define the same service and server names.
 
 See the [Kustomize documentation](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/) for more information about building and customizing deployments.
 
