@@ -136,6 +136,7 @@ type Connector struct {
 	dynamicProxyProto          bool
 	recordLogins               bool
 	trustedProxyNets           []*net.IPNet
+	nat64Prefixes              NAT64Prefixes
 	totalActiveConnections     int32
 	activeConnections          *ActiveConnections
 	scaleActiveConnections     *ActiveConnections
@@ -299,7 +300,7 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 	//noinspection GoUnhandledErrorResult
 	defer frontendConn.Close()
 
-	clientAddr := frontendConn.RemoteAddr()
+	clientAddr, _ := c.nat64Prefixes.RecoverIPv4Addr(frontendConn.RemoteAddr())
 
 	if tcpAddr, ok := clientAddr.(*net.TCPAddr); ok {
 		if c.clientFilter != nil {
@@ -315,6 +316,7 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 
 	logrus.
 		WithField("client", clientAddr).
+		WithField("remoteAddr", frontendConn.RemoteAddr()).
 		Debug("Got connection")
 	defer logrus.WithField("client", clientAddr).Debug("Closing frontend connection")
 
@@ -417,7 +419,7 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 }
 
 // serveStatus writes a predefined status JSON and optionally handles ping/pong
-func (c *Connector) serveStatus(frontendConn net.Conn, reader *bufio.Reader, serverAddress string, clientProtocol int) {
+func (c *Connector) serveStatus(frontendConn net.Conn, clientAddr net.Addr, reader *bufio.Reader, serverAddress string, clientProtocol int) {
 	motd := ""
 	if c.isWakeInProgress(serverAddress) {
 		motd = c.getLoadingMOTD(serverAddress)
@@ -430,7 +432,7 @@ func (c *Connector) serveStatus(frontendConn net.Conn, reader *bufio.Reader, ser
 
 	// Consume Status Request (0x00) if present; some clients may send Ping (0x01) directly
 	_ = frontendConn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	firstPkt, err := mcproto.ReadPacket(reader, frontendConn.RemoteAddr(), mcproto.StateStatus)
+	firstPkt, err := mcproto.ReadPacket(reader, clientAddr, mcproto.StateStatus)
 	var pingPending bool
 	var pingVal int64
 	if err == nil && firstPkt != nil {
@@ -439,7 +441,7 @@ func (c *Connector) serveStatus(frontendConn net.Conn, reader *bufio.Reader, ser
 				pingPending = true
 				pingVal = payload.Timestamp
 				logrus.WithFields(logrus.Fields{
-					"client":   frontendConn.RemoteAddr(),
+					"client":   clientAddr,
 					"ping_val": pingVal,
 				}).Debug("Predefined status: received immediate ping")
 			}
@@ -447,7 +449,7 @@ func (c *Connector) serveStatus(frontendConn net.Conn, reader *bufio.Reader, ser
 		// else 0x00 is the normal status request; proceed to write response
 	} else if err != nil {
 		logrus.WithFields(logrus.Fields{
-			"client": frontendConn.RemoteAddr(),
+			"client": clientAddr,
 			"error":  err,
 		}).Warn("Predefined status: error reading initial status packet")
 	}
@@ -471,20 +473,20 @@ func (c *Connector) serveStatus(frontendConn net.Conn, reader *bufio.Reader, ser
 	// If we didn't already get a ping, briefly wait for one
 	if !pingPending {
 		_ = frontendConn.SetReadDeadline(time.Now().Add(2 * time.Second))
-		if nextPkt, err2 := mcproto.ReadPacket(reader, frontendConn.RemoteAddr(), mcproto.StateStatus); err2 == nil && nextPkt != nil {
+		if nextPkt, err2 := mcproto.ReadPacket(reader, clientAddr, mcproto.StateStatus); err2 == nil && nextPkt != nil {
 			if nextPkt.PacketID == mcproto.PacketIdPingRequest {
 				if payload, ok := nextPkt.Data.(*mcproto.PingPayload); ok {
 					pingPending = true
 					pingVal = payload.Timestamp
 					logrus.WithFields(logrus.Fields{
-						"client":   frontendConn.RemoteAddr(),
+						"client":   clientAddr,
 						"ping_val": pingVal,
 					}).Debug("Predefined status: received ping after status")
 				}
 			}
 		} else if err2 != nil {
 			logrus.WithFields(logrus.Fields{
-				"client": frontendConn.RemoteAddr(),
+				"client": clientAddr,
 				"error":  err2,
 			}).Debug("Predefined status: error/timeout reading ping after status")
 		}
@@ -492,18 +494,18 @@ func (c *Connector) serveStatus(frontendConn net.Conn, reader *bufio.Reader, ser
 	if pingPending {
 		if err := mcproto.WritePongPacket(frontendConn, pingVal); err != nil {
 			logrus.WithFields(logrus.Fields{
-				"client": frontendConn.RemoteAddr(),
+				"client": clientAddr,
 				"error":  err,
 			}).Warn("Predefined status: failed to write pong")
 		} else {
 			logrus.WithFields(logrus.Fields{
-				"client":   frontendConn.RemoteAddr(),
+				"client":   clientAddr,
 				"ping_val": pingVal,
 			}).Debug("Predefined status: wrote pong")
 		}
 	} else {
 		logrus.WithFields(logrus.Fields{
-			"client": frontendConn.RemoteAddr(),
+			"client": clientAddr,
 		}).Debug("Predefined status: no ping received, closing")
 	}
 }
@@ -702,7 +704,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			if isLegacy {
 				c.serveLegacyStatus(frontendConn, serverAddress)
 			} else {
-				c.serveStatus(frontendConn, br, serverAddress, clientProtocol)
+				c.serveStatus(frontendConn, clientAddr, br, serverAddress, clientProtocol)
 			}
 		}
 		return
@@ -766,7 +768,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			if isLegacy {
 				c.serveLegacyStatus(frontendConn, resolvedHost)
 			} else {
-				c.serveStatus(frontendConn, br, resolvedHost, clientProtocol)
+				c.serveStatus(frontendConn, clientAddr, br, resolvedHost, clientProtocol)
 			}
 		}
 
@@ -844,7 +846,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			Version:           2,
 			Command:           proxyproto.PROXY,
 			TransportProtocol: transportProtocol,
-			SourceAddr:        clientAddr,
+			SourceAddr:        frontendConn.RemoteAddr(),
 			DestinationAddr:   frontendConn.LocalAddr(), // our end of the client's connection
 		}
 	} else if c.dynamicProxyProto {
@@ -852,6 +854,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 	}
 
 	if header != nil {
+		header = c.nat64Prefixes.proxyHeader(header)
 		_, err = header.WriteTo(backendConn)
 		if err != nil {
 			logrus.
@@ -884,14 +887,13 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		return
 	}
 
-	c.pumpConnections(frontendConn, backendConn, playerInfo)
+	c.pumpConnections(frontendConn, backendConn, clientAddr, playerInfo)
 }
 
-func (c *Connector) pumpConnections(frontendConn, backendConn net.Conn, playerInfo *PlayerInfo) {
+func (c *Connector) pumpConnections(frontendConn, backendConn net.Conn, clientAddr net.Addr, playerInfo *PlayerInfo) {
 	//noinspection GoUnhandledErrorResult
 	defer backendConn.Close()
 
-	clientAddr := frontendConn.RemoteAddr()
 	defer logrus.WithField("client", clientAddr).Debug("Closing backend connection")
 
 	errorsChan := make(chan error, 2)
@@ -946,6 +948,11 @@ func (c *Connector) UseDynamicProxyProtocol(trustedProxyNets []*net.IPNet) {
 	c.trustedProxyNets = trustedProxyNets
 	c.receiveProxyProto = true
 	c.dynamicProxyProto = true
+}
+
+// Configures the prefixes used to recover the IPv4 address of NAT64 clients
+func (c *Connector) UseNAT64Prefixes(prefixes NAT64Prefixes) {
+	c.nat64Prefixes = prefixes
 }
 
 // UseAsleepMOTD configures a predefined MOTD to serve when backends are asleep

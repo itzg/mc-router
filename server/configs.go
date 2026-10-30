@@ -66,6 +66,7 @@ type Config struct {
 	ReceiveProxyProtocol   bool          `default:"false" usage:"Receive PROXY protocol from backend servers, by default trusts every proxy header that it receives, combine with -trusted-proxies to specify a list of trusted proxies"`
 	DynamicProxyProtocol   bool          `default:"false" usage:"Accept connections with or without PROXY protocol. When a connection supplies a PROXY header, it is forwarded to the backend. Cannot be combined with -receive-proxy-protocol or -use-proxy-protocol"`
 	TrustedProxies         []string      `usage:"Comma delimited list of CIDR notation IP blocks to trust when receiving PROXY protocol"`
+	NAT64Prefixes          []string      `flag:"nat64-prefixes" env:"NAT64_PREFIXES" usage:"Comma delimited list of NAT64 prefixes, such as 64:ff9b::/96. For a client address within a prefix, the embedded IPv4 address is used for client filtering, logging, webhooks, and PROXY protocol"`
 	RecordLogins           bool          `default:"false" usage:"Log and generate metrics on player logins. Metrics only supported with influxdb or prometheus backend"`
 	Routes                 RoutesConfig
 	Ngrok                  NgrokConfig
