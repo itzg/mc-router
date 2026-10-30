@@ -107,6 +107,8 @@ Some other features included:
     	 (env METRICS_BACKEND_CONFIG_INFLUXDB_USERNAME)
   -metrics-rate-limit-period duration
     	The period at which the rate limit bucket's metrics are set: 0 to disable (default 1s) (env METRICS_RATE_LIMIT_PERIOD) (default 1s)
+  -nat64-prefixes value
+    	Comma delimited list of NAT64 prefixes, such as 64:ff9b::/96. For a client address within a prefix, the embedded IPv4 address is used for client filtering, logging, webhooks, and PROXY protocol (env NAT64_PREFIXES)
   -ngrok-remote-addr string
     	If set, the TCP address to request for this edge (env NGROK_REMOTE_ADDR)
   -ngrok-token string
@@ -160,6 +162,21 @@ Backend servers must be configured to expect the header, otherwise the leading b
 
 > [!IMPORTANT]
 > Only accept PROXY protocol on ports that are not directly reachable by untrusted clients: any client able to open a raw TCP connection can forge a header. When receiving with `-receive-proxy-protocol` or `-dynamic-proxy-protocol`, restrict trust with `-trusted-proxies`.
+
+### Clients connecting through NAT64
+
+If mc-router has only an IPv6 address, IPv4 clients can reach it through a NAT64 translator such as Jool or TAYGA. The translator embeds the client's IPv4 address in the IPv6 source address of the connection. To recover the IPv4 address, pass the translator's prefix to `-nat64-prefixes` (`NAT64_PREFIXES`), for example `64:ff9b::/96`. To pass several prefixes, separate them with commas.
+
+The prefix length must match the translator's configuration, because the length sets where the IPv4 address sits in the IPv6 address. mc-router accepts the lengths that [RFC 6052](https://www.rfc-editor.org/rfc/rfc6052) defines: /32, /40, /48, /56, /64, and /96.
+
+> [!IMPORTANT]
+> List only prefixes that route exclusively to your translator. A host that connects from an address in a listed prefix can claim any IPv4 address, and so can bypass `-clients-to-deny` and IP bans on the backend.
+
+mc-router uses the recovered address for `-clients-to-allow`, `-clients-to-deny`, logs, and webhooks. Native IPv6 clients are unaffected. `-trusted-proxies` still matches the IPv6 address of the connection, so list the IPv6 address of a proxy that connects through the translator.
+
+To send the recovered address to the backend, use `-use-proxy-protocol`. The recovered address becomes the source address of the PROXY header, so IP bans and allow lists work on the backend. A PROXY header uses one address family for both addresses, so mc-router sends the destination as `0.0.0.0` with the original port. For example, the client `[64:ff9b::c000:221]:54321` reaches the backend with source `192.0.2.33:54321` and destination `0.0.0.0:25565`.
+
+With `-dynamic-proxy-protocol`, mc-router rewrites a forwarded header the same way if its source address is in a listed prefix. A connection without a PROXY header still reaches the backend without one, so use `-use-proxy-protocol` for clients that connect directly through the translator.
 
 ## Docker Multi-Architecture Image
 
