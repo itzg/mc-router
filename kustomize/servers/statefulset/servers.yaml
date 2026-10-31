@@ -13,18 +13,6 @@ spec:
   selector:
     app: mc-latest
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: mc-latest-headless
-spec:
-  clusterIP: None
-  ports:
-  - port: 25565
-    name: minecraft
-  selector:
-    app: mc-latest
----
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -32,7 +20,7 @@ metadata:
     app: mc-latest
   name: mc-latest
 spec:
-  serviceName: mc-latest-headless
+  serviceName: mc-latest
   replicas: 1
   selector:
     matchLabels:
@@ -81,18 +69,6 @@ spec:
   selector:
     app: mc-paper
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: mc-paper-headless
-spec:
-  clusterIP: None
-  ports:
-  - port: 25565
-    name: minecraft
-  selector:
-    app: mc-paper
----
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -100,7 +76,7 @@ metadata:
     app: mc-paper
   name: mc-paper
 spec:
-  serviceName: mc-paper-headless
+  serviceName: mc-paper
   replicas: 1
   selector:
     matchLabels:
