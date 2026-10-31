@@ -32,10 +32,10 @@ Some other features included:
     	Scale to zero after idle. For Kubernetes, decreases StatefulSet replicas from 1 to 0. For Docker, gracefully stops the container when there are no connections (env AUTO_SCALE_DOWN)
   -auto-scale-down-after duration
     	Server scale down delay after there are no connections (env AUTO_SCALE_DOWN_AFTER) (default 10m0s)
-  -auto-scale-status-resets-down-timer
-        Reset the scale down timer when status requests are proxied; by default only player login connections reset it (env AUTO_SCALE_STATUS_RESETS_DOWN_TIMER)
   -auto-scale-loading-motd string
     	MOTD to display while auto-scaled Docker servers are waking up; if empty, asleep status will be served (env AUTO_SCALE_LOADING_MOTD)
+  -auto-scale-status-resets-down-timer
+    	Reset the scale down timer when status requests are proxied; by default only player login connections reset it (env AUTO_SCALE_STATUS_RESETS_DOWN_TIMER)
   -auto-scale-up
     	Scale from zero on access. For Kubernetes, increases StatefulSet replicas from 0 to 1. For Docker, starts or unpauses the container when accessed (env AUTO_SCALE_UP)
   -auto-scale-wake-kick-message string
@@ -79,7 +79,7 @@ Some other features included:
   -in-docker-swarm
     	Use Docker Swarm service discovery (env IN_DOCKER_SWARM)
   -in-kube-cluster
-    	Use in-cluster Kubernetes config (env IN_KUBE_CLUSTER)
+    	Use in-cluster Kubernetes config. This takes precedence over -kube-config. (env IN_KUBE_CLUSTER)
   -kube-config string
     	The path to a Kubernetes configuration file (env KUBE_CONFIG)
   -kube-namespace string
