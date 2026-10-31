@@ -49,7 +49,7 @@ type Config struct {
 	CpuProfile             string            `usage:"Enables CPU profiling and writes to given path"`
 	ConnectionRateLimit    int               `default:"1" usage:"Max number of connections to allow per second"`
 	BackendDialTimeout     time.Duration     `default:"2s" usage:"Timeout for establishing the TCP connection to a backend. Bounds how long a dial to a scaled-to-zero server's Service (no endpoints) waits before the auto-scale asleep MOTD / scale-up fallback is served; operators with fast on-cluster backends can lower it so that fallback fires sooner"`
-	InKubeCluster          bool              `usage:"Use in-cluster Kubernetes config"`
+	InKubeCluster          bool              `usage:"Use in-cluster Kubernetes config. This takes precedence over -kube-config."`
 	KubeConfig             string            `usage:"The path to a Kubernetes configuration file"`
 	KubeNamespace          string            `usage:"The namespace to watch or blank for all, which is the default"`
 	InDocker               bool              `usage:"Use Docker service discovery"`

@@ -12,7 +12,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type MockedRoutesHandler struct {
@@ -509,6 +511,101 @@ func TestK8s_autoScaleWithoutProxy(t *testing.T) {
 	// CRITICAL: Verify scaleKey is set to the service endpoint (not empty)
 	// This ensures auto-scaling targets the correct StatefulSet
 	routesHandler.AssertCalled(t, "CreateMapping", "atm-10.example.com", "10.0.0.10:25565", NewK8sScalingTarget("default", "atm-10"), mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestK8sStatefulSetReadinessUpdatesRoute(t *testing.T) {
+	routesHandler := setupRoutesHandlerMock()
+	watcher := &K8sWatcher{
+		autoScaleUp:   true,
+		autoScaleDown: true,
+		routesHandler: routesHandler,
+	}
+
+	service := &v1.Service{}
+	require.NoError(t, json.Unmarshal([]byte(`{"metadata":{"name":"mc-example","namespace":"default","annotations":{"mc-router.itzg.me/externalServerName":"mc.example.com","mc-router.itzg.me/autoScaleUp":"true"}},"spec":{"clusterIP":"10.0.0.5"}}`), service))
+
+	zero := int32(0)
+	one := int32(1)
+	handleAddStatefulSet := watcher.handleAddStatefulSet()
+	handleAddStatefulSet(&apps.StatefulSet{
+		ObjectMeta: meta.ObjectMeta{Name: "mc-example", Namespace: "default"},
+		Spec:       apps.StatefulSetSpec{ServiceName: "mc-example", Replicas: &zero},
+	})
+	watcher.handleAdd(service)
+	assert.Empty(t, routesHandler.GetBackendForServer("mc.example.com"))
+	routesHandler.AssertCalled(t, "CreateMapping", "mc.example.com", "", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+
+	handleUpdateStatefulSet := watcher.handleUpdateStatefulSet()
+	scalingUp := &apps.StatefulSet{
+		ObjectMeta: meta.ObjectMeta{Name: "mc-example", Namespace: "default"},
+		Spec:       apps.StatefulSetSpec{ServiceName: "mc-example", Replicas: &one},
+	}
+	handleUpdateStatefulSet(&apps.StatefulSet{
+		ObjectMeta: meta.ObjectMeta{Name: "mc-example", Namespace: "default"},
+		Spec:       apps.StatefulSetSpec{ServiceName: "mc-example", Replicas: &zero},
+	}, scalingUp)
+	assert.Empty(t, routesHandler.GetBackendForServer("mc.example.com"), "route remains unavailable until a replica is ready")
+
+	ready := scalingUp.DeepCopy()
+	ready.Status.ReadyReplicas = 1
+	handleUpdateStatefulSet(scalingUp, ready)
+	assert.Equal(t, "10.0.0.5:25565", routesHandler.GetBackendForServer("mc.example.com"))
+
+	scaledDown := ready.DeepCopy()
+	scaledDown.Spec.Replicas = &zero
+	scaledDown.Status.ReadyReplicas = 0
+	handleUpdateStatefulSet(ready, scaledDown)
+	assert.Empty(t, routesHandler.GetBackendForServer("mc.example.com"))
+}
+
+func TestK8sServiceStateIsDeletedAfterBothInformerDeletes(t *testing.T) {
+	tests := []struct {
+		name                   string
+		deleteStatefulSetFirst bool
+	}{
+		{name: "service deleted first"},
+		{name: "stateful set deleted first", deleteStatefulSetFirst: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			routesHandler := setupRoutesHandlerMock()
+			watcher := &K8sWatcher{
+				routesHandler: routesHandler,
+				serviceStates: map[string]*serviceState{
+					"default/mc-example": {
+						statefulSetName: "mc-example",
+						ready:           true,
+						routes:          []*routableService{{externalServiceName: "mc.example.com"}},
+					},
+				},
+			}
+			service := &v1.Service{
+				ObjectMeta: meta.ObjectMeta{
+					Name:      "mc-example",
+					Namespace: "default",
+					Annotations: map[string]string{
+						AnnotationExternalServerName: "mc.example.com",
+					},
+				},
+			}
+			statefulSet := &apps.StatefulSet{
+				ObjectMeta: meta.ObjectMeta{Name: "mc-example", Namespace: "default"},
+				Spec:       apps.StatefulSetSpec{ServiceName: "mc-example"},
+			}
+
+			if test.deleteStatefulSetFirst {
+				watcher.handleDeleteStatefulSet()(statefulSet)
+				require.Contains(t, watcher.serviceStates, "default/mc-example", "route cache keeps the state entry alive")
+				watcher.handleDelete(service)
+			} else {
+				watcher.handleDelete(service)
+				require.Contains(t, watcher.serviceStates, "default/mc-example", "StatefulSet cache keeps the state entry alive")
+				watcher.handleDeleteStatefulSet()(statefulSet)
+			}
+			assert.NotContains(t, watcher.serviceStates, "default/mc-example")
+		})
+	}
 }
 
 func TestBuildK8sWaker_NilScaleUp(t *testing.T) {

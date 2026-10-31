@@ -311,10 +311,6 @@ func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddres
 
 	serverAddress = NormalizeServerAddress(serverAddress)
 
-	logrus.WithFields(logrus.Fields{
-		"serverAddress": serverAddress,
-	}).Debug("Finding backend for server address")
-
 	if r.simplifySRV {
 		parts := strings.Split(serverAddress, ".")
 		tcpIndex := -1
@@ -334,12 +330,18 @@ func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddres
 	// Strip suffix of TCP Shield
 	serverAddress = tcpShieldPattern.ReplaceAllString(serverAddress, "")
 
+	logrus.WithFields(logrus.Fields{
+		"serverAddress": serverAddress,
+	}).Debug("Finding backend for server address")
+
 	if r.mappings != nil {
 		if mapping, exists := r.mappings[serverAddress]; exists {
+			logrus.WithField("serverAddress", serverAddress).Debug("Found backend for server address")
 			return mapping.backend, serverAddress, mapping.scalingTarget, mapping.waker, mapping.sleeper
 		}
 	}
 	if r.defaultRoute != nil {
+		logrus.WithField("serverAddress", serverAddress).Debug("Using default backend for server address")
 		return r.defaultRoute.backend, serverAddress, r.defaultRoute.scalingTarget, r.defaultRoute.waker, r.defaultRoute.sleeper
 	}
 	return "", serverAddress, nil, nil, nil

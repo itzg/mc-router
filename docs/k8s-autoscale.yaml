@@ -85,10 +85,19 @@ spec:
       - image: itzg/mc-router:latest
         imagePullPolicy: Always
         name: mc-router
-        args: ["--api-binding", ":8080", "--in-kube-cluster","--auto-scale-up", "--debug"]
         env:
+          - name: IN_KUBE_CLUSTER
+            value: "true"
           - name: AUTO_SCALE_UP
             value: "true"
+          - name: AUTO_SCALE_DOWN
+            value: "true"
+          - name: AUTO_SCALE_DOWN_AFTER
+            value: "1m"
+          - name: DEBUG
+            value: "true"
+          - name: API_BINDING
+            value: ":8080"
         ports:
         - name: proxy
           containerPort: 25565
@@ -101,97 +110,6 @@ spec:
           limits:
             memory: 100Mi
             cpu: "250m"
-
-
-# Cron job for stopping empty servers
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: mc-shutdown
-rules:
-- apiGroups: ["apps"]
-  resources: ["statefulsets", "statefulsets/scale"]
-  verbs: ["list","get","update", "patch"]
-- apiGroups: [""]
-  resources: ["pods", "pods/log"]
-  verbs: ["get", "list"]
-- apiGroups: [""]
-  resources: ["pods/exec"]
-  verbs: ["create"]
----
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mc-shutdown
-subjects:
-- kind: ServiceAccount
-  name: mc-shutdown
-  namespace: default
-roleRef:
-  kind: ClusterRole
-  name: mc-shutdown
-  apiGroup: "rbac.authorization.k8s.io"
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: mc-shutdown
----
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: mc-shutdown
-spec:
-  schedule: "*/5 * * * *"
-  concurrencyPolicy: Forbid
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          serviceAccountName: mc-shutdown
-          restartPolicy: OnFailure
-          containers:
-          - name: shutdown
-            image: bitnami/kubectl:latest
-            imagePullPolicy: IfNotPresent
-            command:
-            - /bin/bash
-            - -c
-            - source shutdown-script.sh
-            volumeMounts:
-                - name: shutdown-script
-                  mountPath: /shutdown-script.sh
-                  subPath: shutdown-script.sh
-                  readOnly: true
-          volumes:
-          - name: shutdown-script
-            configMap:
-              name: shutdown-script
-              items:
-                - key: shutdown-script.sh
-                  path: shutdown-script.sh
-# uses container label containertype=minecraft-server to find running servers
-# TODO: get ownerReferences link to StatefulSet/name from pod metadate instead of sed string manipulation
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: shutdown-script
-data:
-  shutdown-script.sh: |
-    #!/bin/bash
-    MC_PODS=$(kubectl get pods -l containertype=minecraft-server -o=jsonpath="{range .items[*]}{.metadata.name},"| sed 's/,/\n/g') 
-    for p in $MC_PODS; do
-      echo "found minecraft pod $p, sleeping 120 seconds to prevent shutdown before login"
-      sleep 120
-      deployment=$(echo $p |sed 's/-0//g')
-      # check online player count in the mc server
-      if [[ $(kubectl exec -i $p -- /usr/local/bin/mc-monitor status) == *"online=0"* ]] ;then
-        kubectl scale statefulset $deployment --replicas=0
-      fi
-    done
-
 
 # The actual minecraft servers, services and storage, repeat this block for as many servers as you want
 # make sure you have the label containertype=minecraft-server this is used to find running servers

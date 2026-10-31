@@ -1,6 +1,7 @@
 package server
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/docker/docker/api/types/container"
@@ -20,6 +21,9 @@ func TestDockerWatcherClientOpts(t *testing.T) {
 	})
 
 	t.Run("explicit socket overrides environment", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("unix sockets are not supported by the Docker client on Windows")
+		}
 		t.Setenv("DOCKER_HOST", "tcp://docker.example:2376")
 
 		config := &dockerWatcherConfig{socket: "unix:///var/run/custom.sock"}
