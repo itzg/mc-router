@@ -21,6 +21,8 @@ Some other features included:
 
 ## Usage
 
+<!-- Update using: go run ./cmd/mc-router --help -->
+
 ```text
   -api-binding host:port
     	The host:port bound for servicing API requests (env API_BINDING)
