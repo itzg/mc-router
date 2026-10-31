@@ -170,6 +170,11 @@ func (w *K8sWatcher) handleAddStatefulSet() func(obj any) {
 		state := w.getOrCreateServiceStateLocked(serviceKey)
 		state.statefulSetName = statefulSet.Name
 		state.ready = statefulSetHasReadyReplicas(statefulSet)
+		logrus.
+			WithField("serviceKey", serviceKey).
+			WithField("statefulSetName", statefulSet.Name).
+			WithField("ready", state.ready).
+			Debug("Updating service state due to StatefulSet addition")
 		w.Unlock()
 		w.refreshServiceRoutes(serviceKey)
 	}
@@ -199,11 +204,18 @@ func (w *K8sWatcher) handleUpdateStatefulSet() func(oldObj any, newObj any) {
 			// The StatefulSet changed its governing Service; mark the old key unknown but retain its routes.
 			oldState.statefulSetName = ""
 			oldState.ready = false
+			logrus.
+				WithField("oldServiceKey", oldServiceKey).
+				Debug("Clearing STS name and readiness from service states due to StatefulSet changing its governing Service")
 			w.deleteServiceStateIfUnusedLocked(oldServiceKey)
 		}
 		// Store the new name and readiness without replacing the Service's cached routes.
 		newState.statefulSetName = newStatefulSet.Name
 		newState.ready = newReady
+		logrus.WithField("serviceKey", newServiceKey).
+			WithField("statefulSetName", newState.statefulSetName).
+			WithField("ready", newState.ready).
+			Debug("Updating service state due to StatefulSet update")
 		w.Unlock()
 		if oldServiceKey != newServiceKey {
 			// Refresh routes for the former Service after releasing the cache lock.
@@ -329,6 +341,9 @@ func (w *K8sWatcher) handleDeleteStatefulSet() func(obj any) {
 		if state, ok := w.serviceStates[serviceKey]; ok && state.statefulSetName == statefulSet.Name {
 			state.statefulSetName = ""
 			state.ready = false
+			logrus.
+				WithField("serviceKey", serviceKey).
+				Debug("Clearing STS name and readiness from service states due to StatefulSet deletion")
 			w.deleteServiceStateIfUnusedLocked(serviceKey)
 		}
 		w.Unlock()
@@ -379,6 +394,9 @@ func (w *K8sWatcher) handleDelete(obj any) {
 		w.Lock()
 		if state, ok := w.serviceStates[serviceKey]; ok {
 			state.routes = nil
+			logrus.
+				WithField("serviceKey", serviceKey).
+				Debug("Removing routes from service states due to service deleted")
 			w.deleteServiceStateIfUnusedLocked(serviceKey)
 		}
 		w.Unlock()
@@ -422,6 +440,9 @@ func (w *K8sWatcher) rememberServiceRoutes(service *core.Service, routes []*rout
 	serviceKey := k8sServiceKey(service.Namespace, service.Name)
 	w.Lock()
 	w.getOrCreateServiceStateLocked(serviceKey).routes = routes
+	logrus.
+		WithField("serviceKey", serviceKey).
+		Debug("Applying service routes to service state")
 	w.Unlock()
 }
 
