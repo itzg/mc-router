@@ -42,10 +42,21 @@ type K8sWatcher struct {
 	autoScaleUp   bool
 	autoScaleDown bool
 	namespace     string
-	// The key in mappings is a Service, and the value the StatefulSet name
-	mappings      map[string]string
+	// serviceStates entries are mutated in place and must only be accessed while holding the lock.
+	serviceStates map[string]*serviceState // keyed by namespace + "/" + service name
 	routesHandler RoutesHandler
 	clientset     *kubernetes.Clientset
+}
+
+type serviceState struct {
+	// statefulSetName is the StatefulSet governed by the Service; empty means no StatefulSet is known,
+	// in which case routes keep the Service endpoint as their backend.
+	statefulSetName string
+	// ready is true when the known StatefulSet has at least one ready replica; only meaningful
+	// when statefulSetName is set.
+	ready bool
+	// routes are the routes registered for the Service; they are blanked while the StatefulSet isn't ready.
+	routes []*routableService
 }
 
 func NewK8sWatcherInCluster() (*K8sWatcher, error) {
@@ -93,24 +104,28 @@ func (w *K8sWatcher) Start(ctx context.Context, handler RoutesHandler) error {
 	}
 	w.clientset = clientset
 
-	_, serviceController := cache.NewInformerWithOptions(cache.InformerOptions{
-		ListerWatcher: cache.NewListWatchFromClient(
-			clientset.CoreV1().RESTClient(),
-			string(core.ResourceServices),
-			w.namespace,
-			fields.Everything(),
-		),
-		ObjectType: &core.Service{},
-		Handler: cache.ResourceEventHandlerFuncs{
-			AddFunc:    w.handleAdd,
-			DeleteFunc: w.handleDelete,
-			UpdateFunc: w.handleUpdate,
-		},
-	})
-	logrus.Debug("Starting service informer")
-	go serviceController.RunWithContext(ctx)
+	w.Lock()
+	w.serviceStates = make(map[string]*serviceState)
+	w.Unlock()
+	startServiceInformer := func() {
+		_, serviceController := cache.NewInformerWithOptions(cache.InformerOptions{
+			ListerWatcher: cache.NewListWatchFromClient(
+				clientset.CoreV1().RESTClient(),
+				string(core.ResourceServices),
+				w.namespace,
+				fields.Everything(),
+			),
+			ObjectType: &core.Service{},
+			Handler: cache.ResourceEventHandlerFuncs{
+				AddFunc:    w.handleAdd,
+				DeleteFunc: w.handleDelete,
+				UpdateFunc: w.handleUpdate,
+			},
+		})
+		logrus.Debug("Starting service informer")
+		go serviceController.RunWithContext(ctx)
+	}
 
-	w.mappings = make(map[string]string)
 	if w.autoScaleUp || w.autoScaleDown {
 		_, statefulSetController := cache.NewInformerWithOptions(cache.InformerOptions{
 			ListerWatcher: cache.NewListWatchFromClient(
@@ -127,8 +142,15 @@ func (w *K8sWatcher) Start(ctx context.Context, handler RoutesHandler) error {
 			},
 		})
 
-		logrus.Debug("Starting stateful set informer")
+		logrus.Debug("Running StatefulSet controller and service informer in background")
 		go statefulSetController.RunWithContext(ctx)
+		go func() {
+			if cache.WaitForCacheSync(ctx.Done(), statefulSetController.HasSynced) {
+				startServiceInformer()
+			}
+		}()
+	} else {
+		startServiceInformer()
 	}
 
 	logrus.Info("Monitoring Kubernetes for Minecraft services")
@@ -143,9 +165,13 @@ func (w *K8sWatcher) handleAddStatefulSet() func(obj any) {
 		}
 		logrus.WithField("statefulSet", infoForSts(statefulSet)).
 			Debug("ADD")
-		w.RLock()
-		defer w.RUnlock()
-		w.mappings[statefulSet.Spec.ServiceName] = statefulSet.Name
+		serviceKey := k8sServiceKey(statefulSet.Namespace, statefulSet.Spec.ServiceName)
+		w.Lock()
+		state := w.getOrCreateServiceStateLocked(serviceKey)
+		state.statefulSetName = statefulSet.Name
+		state.ready = statefulSetHasReadyReplicas(statefulSet)
+		w.Unlock()
+		w.refreshServiceRoutes(serviceKey)
 	}
 }
 
@@ -161,11 +187,123 @@ func (w *K8sWatcher) handleUpdateStatefulSet() func(oldObj any, newObj any) {
 		}
 		logrus.WithFields(logrus.Fields{"old": infoForSts(oldStatefulSet), "new": infoForSts(newStatefulSet)}).
 			Debug("UPDATE")
-		w.RLock()
-		defer w.RUnlock()
-		delete(w.mappings, oldStatefulSet.Spec.ServiceName)
-		w.mappings[newStatefulSet.Spec.ServiceName] = newStatefulSet.Name
+		oldServiceKey := k8sServiceKey(oldStatefulSet.Namespace, oldStatefulSet.Spec.ServiceName)
+		newServiceKey := k8sServiceKey(newStatefulSet.Namespace, newStatefulSet.Spec.ServiceName)
+		newReady := statefulSetHasReadyReplicas(newStatefulSet)
+		w.Lock()
+		// Preserve routes already registered for this Service while updating the StatefulSet state.
+		newState := w.getOrCreateServiceStateLocked(newServiceKey)
+		wasKnown := newState.statefulSetName != ""
+		oldReady := newState.ready
+		if oldState, ok := w.serviceStates[oldServiceKey]; ok && oldServiceKey != newServiceKey && oldState.statefulSetName == oldStatefulSet.Name {
+			// The StatefulSet changed its governing Service; mark the old key unknown but retain its routes.
+			oldState.statefulSetName = ""
+			oldState.ready = false
+			w.deleteServiceStateIfUnusedLocked(oldServiceKey)
+		}
+		// Store the new name and readiness without replacing the Service's cached routes.
+		newState.statefulSetName = newStatefulSet.Name
+		newState.ready = newReady
+		w.Unlock()
+		if oldServiceKey != newServiceKey {
+			// Refresh routes for the former Service after releasing the cache lock.
+			w.refreshServiceRoutes(oldServiceKey)
+		}
+		if oldServiceKey != newServiceKey || !wasKnown || oldReady != newReady {
+			// Avoid route updates for StatefulSet events that do not change routability.
+			w.refreshServiceRoutes(newServiceKey)
+		}
 	}
+}
+
+func k8sServiceKey(namespace, serviceName string) string {
+	return namespace + "/" + serviceName
+}
+
+// deleteServiceStateIfUnusedLocked removes cache entries once neither informer tracks them.
+// The caller must hold w.Lock().
+func (w *K8sWatcher) deleteServiceStateIfUnusedLocked(serviceKey string) {
+	state, ok := w.serviceStates[serviceKey]
+	if ok && state.statefulSetName == "" && len(state.routes) == 0 {
+		logrus.WithField("serviceKey", serviceKey).Debug("Deleting unused service state")
+		delete(w.serviceStates, serviceKey)
+	}
+}
+
+// getOrCreateServiceStateLocked returns the mutable state for the key, creating it if needed.
+// The caller must hold w.Lock().
+func (w *K8sWatcher) getOrCreateServiceStateLocked(serviceKey string) *serviceState {
+	if w.serviceStates == nil {
+		w.serviceStates = make(map[string]*serviceState)
+	}
+	state, ok := w.serviceStates[serviceKey]
+	if !ok {
+		state = &serviceState{}
+		w.serviceStates[serviceKey] = state
+	}
+	return state
+}
+
+func statefulSetHasReadyReplicas(statefulSet *apps.StatefulSet) bool {
+	// Keep routes unavailable until a backend pod is ready, not merely requested.
+	desiredReplicas := int32(1)
+	if statefulSet.Spec.Replicas != nil {
+		desiredReplicas = *statefulSet.Spec.Replicas
+	}
+	return desiredReplicas > 0 && statefulSet.Status.ReadyReplicas > 0
+}
+
+func (w *K8sWatcher) refreshServiceRoutes(serviceKey string) {
+	logrus.WithField("serviceKey", serviceKey).Debug("Refreshing service routes")
+	// Copy values under the lock since state is mutated in place by other handlers.
+	var statefulSetName string
+	var ready bool
+	var routes []*routableService
+	w.RLock()
+	if state, ok := w.serviceStates[serviceKey]; ok {
+		statefulSetName = state.statefulSetName
+		ready = state.ready
+		routes = append(routes, state.routes...)
+	}
+	w.RUnlock()
+
+	if statefulSetName == "" {
+		return
+	}
+	for _, routableService := range routes {
+		backend := routableService.containerEndpoint
+		if routableService.autoScaleUp != nil && !ready {
+			backend = ""
+		}
+		w.updateRoute(routableService, backend)
+	}
+}
+
+func (w *K8sWatcher) updateRoute(routableService *routableService, backend string) {
+	logrus.WithField("backend", backend).
+		WithField("externalServiceName", routableService.externalServiceName).
+		Debug("Updating route")
+
+	if routableService.externalServiceName != "" {
+		w.routesHandler.UpdateMapping(
+			routableService.externalServiceName,
+			backend,
+			routableService.scalingTarget,
+			routableService.autoScaleUp,
+			routableService.autoScaleDown,
+			routableService.autoScaleAsleepMOTD,
+			routableService.autoScaleLoadingMOTD,
+		)
+		return
+	}
+	w.routesHandler.SetDefaultRoute(
+		backend,
+		routableService.scalingTarget,
+		routableService.autoScaleUp,
+		routableService.autoScaleDown,
+		routableService.autoScaleAsleepMOTD,
+		routableService.autoScaleLoadingMOTD,
+	)
 }
 
 func infoForSts(sts *apps.StatefulSet) string {
@@ -186,15 +324,23 @@ func (w *K8sWatcher) handleDeleteStatefulSet() func(obj any) {
 		}
 		logrus.WithField("statefulSet", infoForSts(statefulSet)).
 			Debug("DELETE")
-		w.RLock()
-		defer w.RUnlock()
-		delete(w.mappings, statefulSet.Spec.ServiceName)
+		serviceKey := k8sServiceKey(statefulSet.Namespace, statefulSet.Spec.ServiceName)
+		w.Lock()
+		if state, ok := w.serviceStates[serviceKey]; ok && state.statefulSetName == statefulSet.Name {
+			state.statefulSetName = ""
+			state.ready = false
+			w.deleteServiceStateIfUnusedLocked(serviceKey)
+		}
+		w.Unlock()
+		w.refreshServiceRoutes(serviceKey)
 	}
 }
 
 // oldObj and newObj are expected to be *v1.Service
 func (w *K8sWatcher) handleUpdate(oldObj any, newObj any) {
 	newServices := w.extractRoutableServices(newObj)
+	newService, _ := newObj.(*core.Service)
+	w.rememberServiceRoutes(newService, newServices)
 
 	// Build a set of new service names for quick lookup
 	newNames := make(map[string]struct{}, len(newServices))
@@ -218,15 +364,25 @@ func (w *K8sWatcher) handleUpdate(oldObj any, newObj any) {
 	for _, newRS := range newServices {
 		logrus.WithFields(logrus.Fields{"new": newRS}).Debug("UPDATE")
 		if newRS.externalServiceName != "" {
-			w.routesHandler.UpdateMapping(newRS.externalServiceName, newRS.containerEndpoint, newRS.scalingTarget, newRS.autoScaleUp, newRS.autoScaleDown, newRS.autoScaleAsleepMOTD, newRS.autoScaleLoadingMOTD)
+			w.updateRoute(newRS, w.effectiveBackend(newRS))
 		} else {
-			w.routesHandler.SetDefaultRoute(newRS.containerEndpoint, newRS.scalingTarget, newRS.autoScaleUp, newRS.autoScaleDown, newRS.autoScaleAsleepMOTD, newRS.autoScaleLoadingMOTD)
+			w.updateRoute(newRS, w.effectiveBackend(newRS))
 		}
 	}
 }
 
 // obj is expected to be a *v1.Service
 func (w *K8sWatcher) handleDelete(obj any) {
+	service, _ := obj.(*core.Service)
+	if service != nil {
+		serviceKey := k8sServiceKey(service.Namespace, service.Name)
+		w.Lock()
+		if state, ok := w.serviceStates[serviceKey]; ok {
+			state.routes = nil
+			w.deleteServiceStateIfUnusedLocked(serviceKey)
+		}
+		w.Unlock()
+	}
 	routableServices := w.extractRoutableServices(obj)
 	for _, routableService := range routableServices {
 		if routableService != nil {
@@ -244,20 +400,47 @@ func (w *K8sWatcher) handleDelete(obj any) {
 // obj is expected to be a *v1.Service
 func (w *K8sWatcher) handleAdd(obj any) {
 	routableServices := w.extractRoutableServices(obj)
+	service, _ := obj.(*core.Service)
+	w.rememberServiceRoutes(service, routableServices)
 	for _, routableService := range routableServices {
 		if routableService != nil {
 			logrus.WithField("routableService", routableService).Debug("ADD")
 
 			if routableService.externalServiceName != "" {
-				w.routesHandler.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint, routableService.scalingTarget, routableService.autoScaleUp, routableService.autoScaleDown, routableService.autoScaleAsleepMOTD, routableService.autoScaleLoadingMOTD)
+				w.routesHandler.CreateMapping(routableService.externalServiceName, w.effectiveBackend(routableService), routableService.scalingTarget, routableService.autoScaleUp, routableService.autoScaleDown, routableService.autoScaleAsleepMOTD, routableService.autoScaleLoadingMOTD)
 			} else {
-				w.routesHandler.SetDefaultRoute(routableService.containerEndpoint, routableService.scalingTarget, routableService.autoScaleUp, routableService.autoScaleDown, routableService.autoScaleAsleepMOTD, routableService.autoScaleLoadingMOTD)
+				w.routesHandler.SetDefaultRoute(w.effectiveBackend(routableService), routableService.scalingTarget, routableService.autoScaleUp, routableService.autoScaleDown, routableService.autoScaleAsleepMOTD, routableService.autoScaleLoadingMOTD)
 			}
 		}
 	}
 }
 
+func (w *K8sWatcher) rememberServiceRoutes(service *core.Service, routes []*routableService) {
+	if service == nil {
+		return
+	}
+	serviceKey := k8sServiceKey(service.Namespace, service.Name)
+	w.Lock()
+	w.getOrCreateServiceStateLocked(serviceKey).routes = routes
+	w.Unlock()
+}
+
+func (w *K8sWatcher) effectiveBackend(routableService *routableService) string {
+	if routableService.autoScaleUp == nil {
+		return routableService.containerEndpoint
+	}
+	w.RLock()
+	state, exists := w.serviceStates[routableService.serviceKey]
+	asleep := exists && state.statefulSetName != "" && !state.ready
+	w.RUnlock()
+	if asleep {
+		return ""
+	}
+	return routableService.containerEndpoint
+}
+
 type routableService struct {
+	serviceKey           string
 	externalServiceName  string
 	containerEndpoint    string
 	scalingTarget        ScalingTarget
@@ -350,6 +533,7 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 
 	wakerFunc := w.buildScaleFunction(service, 0, 1)
 	rs := &routableService{
+		serviceKey:           k8sServiceKey(service.Namespace, service.Name),
 		externalServiceName:  externalServiceName,
 		containerEndpoint:    routingEndpoint,
 		scalingTarget:        scalingTarget,
@@ -437,7 +621,14 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 		Debug("Service auto-scale enabled")
 	return func(ctx context.Context) error {
 		serviceName := service.Name
-		if statefulSetName, exists := w.mappings[serviceName]; exists {
+		serviceKey := k8sServiceKey(service.Namespace, service.Name)
+		w.RLock()
+		var statefulSetName string
+		if state, exists := w.serviceStates[serviceKey]; exists {
+			statefulSetName = state.statefulSetName
+		}
+		w.RUnlock()
+		if statefulSetName != "" {
 			logrus.
 				WithField("service", serviceName).
 				WithField("from", from).

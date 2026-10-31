@@ -176,3 +176,44 @@ func TestConnectorWakeKickDisabledHoldsLogin(t *testing.T) {
 	assert.True(t, netErr.Timeout(), "expected the login to be held, got %v", err)
 	close(releaseWaker)
 }
+
+func TestConnectorDoesNotWakeRoutableBackend(t *testing.T) {
+	backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = backendListener.Close() })
+
+	backendConnection := make(chan net.Conn, 1)
+	go func() {
+		conn, acceptErr := backendListener.Accept()
+		if acceptErr == nil {
+			backendConnection <- conn
+		}
+	}()
+
+	var wakeCalls atomic.Int32
+	target := TestingScalingTarget("already-running")
+	routes := NewRoutes(t.Context())
+	routes.CreateMapping("mc.example.com", backendListener.Addr().String(), target, func(context.Context) (string, error) {
+		wakeCalls.Add(1)
+		return backendListener.Addr().String(), nil
+	}, nil, "", "")
+
+	connector := NewConnector(t.Context(), routes, nil, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	go connector.acceptConnections(listener, 100, 0)
+
+	client := dialAndHandshake(t, listener, "mc.example.com", mcproto.StateLogin)
+	require.NoError(t, writeTestPacket(client, mcproto.PacketIdLogin, func(w io.Writer) {
+		_ = mcproto.WriteString(w, "player1")
+	}))
+
+	select {
+	case conn := <-backendConnection:
+		_ = conn.Close()
+	case <-time.After(time.Second):
+		t.Fatal("login did not connect to the routable backend")
+	}
+	assert.Zero(t, wakeCalls.Load(), "routable backend should not invoke its waker")
+}

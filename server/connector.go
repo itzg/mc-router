@@ -636,39 +636,64 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			c.kickWhileWaking(frontendConn, clientAddr, serverAddress, playerInfo)
 			return
 		}
-		if serverAllowsPlayer && scalingTarget.StartScaling() {
-			defer scalingTarget.EndScaling()
+		if serverAllowsPlayer && backendHostPort == "" {
+			ownsScaling := scalingTarget.StartScaling()
+			if !ownsScaling && scalingTarget.IsScaling() {
+				logrus.WithField("scalingTarget", scalingTarget).Debug("Waiting for another scale transition")
+				ticker := time.NewTicker(100 * time.Millisecond)
+				defer ticker.Stop()
+				for scalingTarget.IsScaling() {
+					select {
+					case <-c.ctx.Done():
+						return
+					case <-ticker.C:
+					}
+				}
+				backendHostPort, resolvedHost, scalingTarget, waker, _ = c.routes.FindBackendForServerAddress(c.ctx, serverAddress)
+			} else if !ownsScaling && !scalingTarget.IsScaling() {
+				// The prior transition may have completed between the failed
+				// compare-and-swap and the IsScaling check. Retry once to avoid
+				// dropping a login during that narrow window.
+				ownsScaling = scalingTarget.StartScaling()
+			}
+			if ownsScaling {
+				defer scalingTarget.EndScaling()
 
-			// Cancel down scaler if active before scale up
-			if c.downScaler != nil {
-				c.downScaler.Cancel(scalingTarget)
-			}
-			// Note: cleanupCheckScaleDown is intentionally NOT set here. If the dial
-			// fails after a successful wake (backend still booting), we must not
-			// immediately schedule a scale-down — the server was just started. The
-			// scale-down timer is only armed below once a connection is established.
+				// Cancel down scaler if active before scale up
+				if c.downScaler != nil {
+					c.downScaler.Cancel(scalingTarget)
+				}
+				// Note: cleanupCheckScaleDown is intentionally NOT set here. If the dial
+				// fails after a successful wake (backend still booting), we must not
+				// immediately schedule a scale-down — the server was just started. The
+				// scale-down timer is only armed below once a connection is established.
 
-			logrus.WithField("serverAddress", serverAddress).
-				WithField("scalingTarget", scalingTarget).
-				Info("Scaling up backend server")
-			c.wakingServers.Increment(serverAddress)
-			newBackendHostPort, err := waker(c.ctx)
-			c.wakingServers.Decrement(serverAddress)
-			if err != nil {
-				logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend")
-				c.metrics.IncrementErrors("wakeup_failed")
-				return
+				logrus.WithField("serverAddress", serverAddress).
+					WithField("scalingTarget", scalingTarget).
+					Info("Scaling up backend server")
+				c.wakingServers.Increment(serverAddress)
+				newBackendHostPort, err := waker(c.ctx)
+				c.wakingServers.Decrement(serverAddress)
+				if err != nil {
+					logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend")
+					c.metrics.IncrementErrors("wakeup_failed")
+					return
+				}
+				if newBackendHostPort == "" {
+					logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).Warn("waker did not return a backend address")
+					c.metrics.IncrementErrors("wakeup_no_address")
+					return
+				}
+				backendHostPort = newBackendHostPort
+				logrus.WithFields(logrus.Fields{
+					"serverAddress":   serverAddress,
+					"backendHostPort": backendHostPort,
+				}).Info("Woke up backend server")
 			}
-			if newBackendHostPort == "" {
-				logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).Warn("waker did not return a backend address")
-				c.metrics.IncrementErrors("wakeup_no_address")
-				return
-			}
-			backendHostPort = newBackendHostPort
-			logrus.WithFields(logrus.Fields{
-				"serverAddress":   serverAddress,
-				"backendHostPort": backendHostPort,
-			}).Info("Woke up backend server")
+		} else if serverAllowsPlayer && c.downScaler != nil {
+			// A routable backend does not need a wake, but a login still cancels
+			// any pending scale-down.
+			c.downScaler.Cancel(scalingTarget)
 		}
 	}
 
