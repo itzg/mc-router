@@ -3,4 +3,3 @@ kind: Kustomization
 resources:
   - service-account.yml
   - mc-router-deployment.yml
-  - server-examples.yaml

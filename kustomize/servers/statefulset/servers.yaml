@@ -1,0 +1,114 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-latest
+  annotations:
+    "mc-router.itzg.me/defaultServer": "true"
+spec:
+  type: NodePort
+  ports:
+  - port: 25565
+    name: minecraft
+  selector:
+    app: mc-latest
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: mc-latest
+  name: mc-latest
+spec:
+  serviceName: mc-latest
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mc-latest
+  template:
+    metadata:
+      labels:
+        app: mc-latest
+    spec:
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - image: itzg/minecraft-server
+        name: mc-latest
+        env:
+        - name: EULA
+          value: "TRUE"
+        ports:
+        - containerPort: 25565
+          name: minecraft
+        volumeMounts:
+        - name: mc-data
+          mountPath: /data
+  volumeClaimTemplates:
+  - metadata:
+      name: mc-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-paper
+  annotations:
+    "mc-router.itzg.me/externalServerName": "paper.localhost"
+spec:
+  type: NodePort
+  ports:
+  - port: 25565
+    name: minecraft
+  selector:
+    app: mc-paper
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: mc-paper
+  name: mc-paper
+spec:
+  serviceName: mc-paper
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mc-paper
+  template:
+    metadata:
+      labels:
+        app: mc-paper
+    spec:
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - image: itzg/minecraft-server
+        name: mc-paper
+        env:
+        - name: EULA
+          value: "TRUE"
+        - name: TYPE
+          value: "PAPER"
+        ports:
+        - containerPort: 25565
+          name: minecraft
+        volumeMounts:
+        - name: mc-data
+          mountPath: /data
+  volumeClaimTemplates:
+  - metadata:
+      name: mc-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi

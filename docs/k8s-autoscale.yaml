@@ -82,7 +82,7 @@ spec:
     spec:
       serviceAccountName: mc-router
       containers:
-      - image: aapjeisbaas/mc-router:latest
+      - image: itzg/mc-router:latest
         imagePullPolicy: Always
         name: mc-router
         args: ["--api-binding", ":8080", "--in-kube-cluster","--auto-scale-up", "--debug"]
