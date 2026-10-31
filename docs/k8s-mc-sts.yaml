@@ -46,10 +46,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: mc-snapshot
+  name: mc-paper
   annotations:
     # Replace localhost with public hostname of your mc-router host or port-forwarded address
-    "mc-router.itzg.me/externalServerName": "127.0.0.2,127.0.0.3"
+    "mc-router.itzg.me/externalServerName": "paper.localhost,alt.localhost"
     # auto scale
     "mc-router.itzg.me/autoScale": "true"
 spec:
@@ -58,34 +58,34 @@ spec:
   - port: 25565
     name: minecraft
   selector:
-    app: mc-snapshot
+    app: mc-paper
 ---
 kind: StatefulSet
 apiVersion: apps/v1
 metadata:
-  name: mc-snapshot
+  name: mc-paper
   labels:
-    app: mc-snapshot
+    app: mc-paper
 spec:
   selector:
     matchLabels:
-      app: mc-snapshot
-  serviceName: "mc-snapshot"
+      app: mc-paper
+  serviceName: "mc-paper"
   template:
     metadata:
       labels:
-        app: mc-snapshot
+        app: mc-paper
     spec:
       securityContext:
         runAsUser: 1000
         fsGroup: 1000
       containers:
       - image: itzg/minecraft-server
-        name: mc-snapshot
+        name: mc-paper
         env:
         - name: EULA
           value: "TRUE"
-        - name: VERSION
-          value: "SNAPSHOT"
+        - name: TYPE
+          value: paper
         ports:
         - containerPort: 25565
