@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"sync"
@@ -28,8 +29,20 @@ type CliConfig struct {
 	Debug    bool         `usage:"Enable debug logs"`
 	Trace    bool         `usage:"Enable trace logs"`
 	LogLevel logrus.Level `usage:"Set a specific log filtering level, such as debug, info, warn, error\nIgnored when --debug or --trace is used" default:"info"`
+	LogFile  string       `usage:"Also append logs to this file, for tools such as fail2ban"`
 
 	ServerConfig server.Config `flatten:"true"`
+}
+
+// addLogFile makes logger also append to the file at path. The caller closes
+// the returned file.
+func addLogFile(logger *logrus.Logger, path string) (io.Closer, error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("opening log file: %w", err)
+	}
+	logger.SetOutput(io.MultiWriter(logger.Out, file))
+	return file, nil
 }
 
 func main() {
@@ -42,6 +55,14 @@ func main() {
 	if cliConfig.Version {
 		showVersion()
 		os.Exit(0)
+	}
+
+	if cliConfig.LogFile != "" {
+		logFile, err := addLogFile(logrus.StandardLogger(), cliConfig.LogFile)
+		if err != nil {
+			logrus.WithError(err).Fatal("Could not setup log file")
+		}
+		defer logFile.Close()
 	}
 
 	if cliConfig.Trace {
