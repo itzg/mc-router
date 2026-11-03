@@ -631,7 +631,8 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			WithField("player", playerInfo).
 			WithField("serverAllowsPlayer", serverAllowsPlayer).
 			Debug("checked if player is allowed to wake up the server")
-		if serverAllowsPlayer && c.wakeKickMessage != "" && (backendHostPort == "" || c.isWakeInProgress(serverAddress)) {
+		if serverAllowsPlayer && c.wakeKickMessage != "" &&
+			(backendHostPort == "" || c.isWakeInProgress(serverAddress) || !c.backendAcceptsConnections(backendHostPort)) {
 			c.wakeInBackground(serverAddress, scalingTarget, waker)
 			c.kickWhileWaking(frontendConn, clientAddr, serverAddress, playerInfo)
 			return
@@ -1023,6 +1024,19 @@ func (c *Connector) kickWhileWaking(frontendConn net.Conn, clientAddr net.Addr, 
 		"serverAddress": serverAddress,
 		"player":        playerInfo,
 	}).Info("Disconnected player with wake-up message while backend starts")
+}
+
+// backendAcceptsConnections reports whether a backend that has an address accepts a TCP
+// connection right now. Docker and Kubernetes routes signal a scaled-down server with an empty
+// backend, but static routes scaled through the webhook always carry their configured address,
+// so for them a refused dial is the only sign that the server is asleep or still booting.
+func (c *Connector) backendAcceptsConnections(backendHostPort string) bool {
+	conn, err := net.DialTimeout("tcp", backendHostPort, c.backendDialTimeout)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 func (c *Connector) isWakeInProgress(serverAddress string) bool {
