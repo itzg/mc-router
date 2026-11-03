@@ -3,10 +3,11 @@ package server
 import "time"
 
 type WebhookConfig struct {
-	Url         string         `usage:"If set, a POST request that contains connection status notifications will be sent to this HTTP address"`
-	RequireUser bool           `default:"false" usage:"Indicates if the webhook will only be called if a user is connecting rather than just server list/ping"`
-	Timeout     time.Duration  `default:"30s" usage:"Timeout for each connection status notification request"`
-	Events      []WebhookEvent `default:"connect,disconnect" usage:"Comma delimited list of events to send to the webhook. Valid values are connect, disconnect, route-added, route-removed, default-route-set, default-route-removed"`
+	Url         string            `usage:"If set, a POST request that contains connection status notifications will be sent to this HTTP address"`
+	Headers     map[string]string `usage:"Zero or more 'key=value' headers added to webhook requests, e.g. for authentication tokens"`
+	RequireUser bool              `default:"false" usage:"Indicates if the webhook will only be called if a user is connecting rather than just server list/ping"`
+	Timeout     time.Duration     `default:"30s" usage:"Timeout for each connection status notification request"`
+	Events      []WebhookEvent    `default:"connect,disconnect" usage:"Comma delimited list of events to send to the webhook. Valid values are connect, disconnect, route-added, route-removed, default-route-set, default-route-removed"`
 }
 
 type AutoScale struct {
