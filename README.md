@@ -137,6 +137,8 @@ Some other features included:
     	Output version and exit (env VERSION)
   -webhook-events value
     	Comma delimited list of events to send to the webhook. Valid values are connect, disconnect, route-added, route-removed, default-route-set, default-route-removed (env WEBHOOK_EVENTS) (default connect,disconnect)
+  -webhook-headers value
+    	Zero or more 'key=value' headers added to webhook requests, e.g. for authentication tokens (env WEBHOOK_HEADERS)
   -webhook-require-user
     	Indicates if the webhook will only be called if a user is connecting rather than just server list/ping (env WEBHOOK_REQUIRE_USER)
   -webhook-timeout duration
