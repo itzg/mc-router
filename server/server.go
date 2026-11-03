@@ -135,7 +135,13 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		logrus.WithField("url", config.Webhook.Url).
 			WithField("require-user", config.Webhook.RequireUser).
 			Info("Using webhook for connection status notifications")
-		notifier := NewWebhookNotifier(config.Webhook.Url, config.Webhook.RequireUser, config.Webhook.Timeout, config.Webhook.Events)
+		notifier := NewWebhookNotifier(
+			config.Webhook.Url,
+			config.Webhook.Headers,
+			config.Webhook.RequireUser,
+			config.Webhook.Timeout,
+			config.Webhook.Events,
+		)
 		connector.UseConnectionNotifier(notifier)
 		routes.WithListener(notifier)
 	}

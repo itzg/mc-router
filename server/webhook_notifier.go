@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net"
+	"slices"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -48,11 +49,11 @@ type WebhookNotifierPayload struct {
 	Error           string        `json:"error,omitempty"`
 }
 
-func NewWebhookNotifier(url string, requireUser bool, timeout time.Duration, events []WebhookEvent) *WebhookNotifier {
+func NewWebhookNotifier(url string, headers map[string]string, requireUser bool, timeout time.Duration, events []WebhookEvent) *WebhookNotifier {
 	return &WebhookNotifier{
 		url:         url,
 		requireUser: requireUser,
-		client:      newWebhookClient(timeout, nil),
+		client:      newWebhookClient(timeout, headers),
 		events:      events,
 	}
 }
@@ -212,10 +213,5 @@ func (w *WebhookNotifier) send(ctx context.Context, payload *WebhookNotifierPayl
 }
 
 func (w *WebhookNotifier) allowsEvent(event WebhookEvent) bool {
-	for _, e := range w.events {
-		if e == event {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(w.events, event)
 }
