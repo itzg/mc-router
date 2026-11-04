@@ -84,6 +84,8 @@ Some other features included:
     	The path to a Kubernetes configuration file (env KUBE_CONFIG)
   -kube-namespace string
     	The namespace to watch or blank for all, which is the default (env KUBE_NAMESPACE)
+  -log-file string
+    	Also append logs to this file, for tools such as fail2ban (env LOG_FILE)
   -log-level value
     	Set a specific log filtering level, such as debug, info, warn, error
     	Ignored when --debug or --trace is used (env LOG_LEVEL) (default info)
@@ -192,6 +194,22 @@ The image bundles `tzdata` so log timestamps can match your local timezone. Pick
 - Bind mount the host's zone file: `-v /etc/localtime:/etc/localtime:ro`
 
 If neither is set, timestamps are in UTC.
+
+## Log File
+
+`-log-file` (env `LOG_FILE`) appends the logs to a file as well as writing them to stdout, for tools such as fail2ban that read a file. It's off by default.
+
+mc-router opens the file once at startup and doesn't rotate or reopen it, so a rotated file keeps receiving logs under its old name. With logrotate, use `copytruncate`:
+
+```
+/var/log/mc-router.log {
+    daily
+    rotate 7
+    copytruncate
+}
+```
+
+Startup fails if the file can't be opened. Terminal colors are off while the option is set.
 
 ## Docker Compose Usage
 
