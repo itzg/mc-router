@@ -195,6 +195,22 @@ The image bundles `tzdata` so log timestamps can match your local timezone. Pick
 
 If neither is set, timestamps are in UTC.
 
+## Log File
+
+`-log-file` (env `LOG_FILE`) appends the logs to a file as well as writing them to stdout, for tools such as fail2ban that read a file. It's off by default.
+
+mc-router opens the file once at startup and doesn't rotate or reopen it, so a rotated file keeps receiving logs under its old name. With logrotate, use `copytruncate`:
+
+```
+/var/log/mc-router.log {
+    daily
+    rotate 7
+    copytruncate
+}
+```
+
+Startup fails if the file can't be opened. Terminal colors are off while the option is set.
+
 ## Docker Compose Usage
 
 The diagram below shows how this `docker-compose.yml` configures two Minecraft server services named `vanilla` and `forge`, which also become the internal network aliases. _Notice those services don't need their ports exposed since the internal networking allows for the inter-container access._
