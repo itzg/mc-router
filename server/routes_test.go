@@ -492,3 +492,20 @@ func TestNormalizeServerAddress(t *testing.T) {
 		assert.Equal(t, expected, NormalizeServerAddress(input), "input %q", input)
 	}
 }
+
+func Test_routesImpl_ReusesScalingTargetByKey(t *testing.T) {
+	r := NewRoutes(t.Context())
+	first := TestingScalingTarget("ns:svc")
+	r.CreateMapping("a.example.com", "10.0.0.1:25565", first, nil, nil, "", "")
+	require.True(t, first.StartScaling())
+
+	rebuilt := TestingScalingTarget("ns:svc")
+	r.UpdateMapping("a.example.com", "10.0.0.1:25565", rebuilt, nil, nil, "", "")
+	r.CreateMapping("b.example.com", "10.0.0.1:25565", TestingScalingTarget("ns:svc"), nil, nil, "", "")
+
+	for _, host := range []string{"a.example.com", "b.example.com"} {
+		_, _, st, _, _ := r.FindBackendForServerAddress(context.Background(), host)
+		assert.Same(t, first, st, host)
+		assert.False(t, st.StartScaling(), host)
+	}
+}

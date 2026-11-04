@@ -143,8 +143,8 @@ func (w *K8sWatcher) handleAddStatefulSet() func(obj any) {
 		}
 		logrus.WithField("statefulSet", infoForSts(statefulSet)).
 			Debug("ADD")
-		w.RLock()
-		defer w.RUnlock()
+		w.Lock()
+		defer w.Unlock()
 		w.mappings[statefulSet.Spec.ServiceName] = statefulSet.Name
 	}
 }
@@ -161,8 +161,8 @@ func (w *K8sWatcher) handleUpdateStatefulSet() func(oldObj any, newObj any) {
 		}
 		logrus.WithFields(logrus.Fields{"old": infoForSts(oldStatefulSet), "new": infoForSts(newStatefulSet)}).
 			Debug("UPDATE")
-		w.RLock()
-		defer w.RUnlock()
+		w.Lock()
+		defer w.Unlock()
 		delete(w.mappings, oldStatefulSet.Spec.ServiceName)
 		w.mappings[newStatefulSet.Spec.ServiceName] = newStatefulSet.Name
 	}
@@ -186,8 +186,8 @@ func (w *K8sWatcher) handleDeleteStatefulSet() func(obj any) {
 		}
 		logrus.WithField("statefulSet", infoForSts(statefulSet)).
 			Debug("DELETE")
-		w.RLock()
-		defer w.RUnlock()
+		w.Lock()
+		defer w.Unlock()
 		delete(w.mappings, statefulSet.Spec.ServiceName)
 	}
 }
@@ -437,7 +437,10 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 		Debug("Service auto-scale enabled")
 	return func(ctx context.Context) error {
 		serviceName := service.Name
-		if statefulSetName, exists := w.mappings[serviceName]; exists {
+		w.RLock()
+		statefulSetName, exists := w.mappings[serviceName]
+		w.RUnlock()
+		if exists {
 			logrus.
 				WithField("service", serviceName).
 				WithField("from", from).
@@ -521,9 +524,9 @@ type K8sScalingTarget struct {
 
 func NewK8sScalingTarget(namespace string, serviceName string) *K8sScalingTarget {
 	return &K8sScalingTarget{
-		ScalingIndicator: ScalingIndicator{scaling: &atomic.Bool{}},
-		namespace:        namespace,
-		serviceName:      serviceName,
+		scaling:     &atomic.Bool{},
+		namespace:   namespace,
+		serviceName: serviceName,
 	}
 }
 

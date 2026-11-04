@@ -638,7 +638,6 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			return
 		}
 		if serverAllowsPlayer && scalingTarget.StartScaling() {
-			defer scalingTarget.EndScaling()
 
 			// Cancel down scaler if active before scale up
 			if c.downScaler != nil {
@@ -655,6 +654,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			c.wakingServers.Increment(serverAddress)
 			newBackendHostPort, err := waker(c.ctx)
 			c.wakingServers.Decrement(serverAddress)
+			scalingTarget.EndScaling()
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"serverAddress": serverAddress}).WithError(err).Error("failed to wake up backend")
 				c.metrics.IncrementErrors("wakeup_failed")
