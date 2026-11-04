@@ -99,7 +99,7 @@ type mapping struct {
 type routesImpl struct {
 	sync.RWMutex
 	ctx             context.Context
-	mappings        map[string]mapping
+	mappings        map[string]mapping // key is serverAddress
 	defaultRoute    *mapping
 	simplifySRV     bool
 	downScaler      IDownScaler
@@ -206,6 +206,7 @@ func formatMOTD(motd string, deadline time.Time) string {
 	return strings.ReplaceAll(motd, "{duration}", "now")
 }
 
+//goland:noinspection DuplicatedCode
 func (r *routesImpl) GetAsleepMOTD(serverAddress string) string {
 	r.RLock()
 	defer r.RUnlock()
@@ -224,6 +225,7 @@ func (r *routesImpl) GetAsleepMOTD(serverAddress string) string {
 	return ""
 }
 
+//goland:noinspection DuplicatedCode
 func (r *routesImpl) GetLoadingMOTD(serverAddress string) string {
 	r.RLock()
 	defer r.RUnlock()
