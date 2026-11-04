@@ -397,11 +397,28 @@ func (r *routesImpl) RemoveMapping(serverAddress string) bool {
 	return false
 }
 
+// sharedTarget returns the already-registered target with the same ScalingKey, if any,
+// so that rebuilt targets (e.g. from a Service/container update) share the in-flight scaling flag.
+// Caller must hold the write lock.
+func (r *routesImpl) sharedTarget(scalingTarget ScalingTarget) ScalingTarget {
+	if scalingTarget == nil {
+		return nil
+	}
+	key := scalingTarget.ScalingKey()
+	for _, m := range r.mappings {
+		if m.scalingTarget != nil && m.scalingTarget.ScalingKey() == key {
+			return m.scalingTarget
+		}
+	}
+	return scalingTarget
+}
+
 func (r *routesImpl) CreateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
 	r.Lock()
 	defer r.Unlock()
 
 	serverAddress = strings.ToLower(serverAddress)
+	scalingTarget = r.sharedTarget(scalingTarget)
 
 	logrus.WithFields(logrus.Fields{
 		"serverAddress": serverAddress,
@@ -432,6 +449,7 @@ func (r *routesImpl) UpdateMapping(serverAddress string, backend string, scaling
 	defer r.Unlock()
 
 	serverAddress = strings.ToLower(serverAddress)
+	scalingTarget = r.sharedTarget(scalingTarget)
 
 	logrus.WithFields(logrus.Fields{
 		"serverAddress": serverAddress,
