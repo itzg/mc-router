@@ -176,3 +176,104 @@ func TestConnectorWakeKickDisabledHoldsLogin(t *testing.T) {
 	assert.True(t, netErr.Timeout(), "expected the login to be held, got %v", err)
 	close(releaseWaker)
 }
+
+// closedPort returns a loopback address nothing listens on.
+func closedPort(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+	return addr
+}
+
+// Static routes (-mapping, -default, routes config) scaled through the webhook always carry their
+// configured backend, so an empty backend cannot tell that the server is asleep. The kick must
+// still reach the first player when that backend refuses connections.
+func TestConnectorWakeKickStaticBackendAsleep(t *testing.T) {
+	routes := NewRoutes(t.Context())
+	target := TestingScalingTarget("static-backend")
+	backend := closedPort(t)
+
+	releaseWaker := make(chan struct{})
+	t.Cleanup(func() { close(releaseWaker) })
+	var wakerCalls atomic.Int32
+	waker := func(ctx context.Context) (string, error) {
+		wakerCalls.Add(1)
+		select {
+		case <-releaseWaker:
+		case <-ctx.Done():
+		}
+		return backend, nil
+	}
+	routes.CreateMapping("mc.example.com", backend, target, waker, nil, "asleep", "loading")
+
+	c := NewConnector(t.Context(), routes, nil, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
+	c.UseWakeKickMessage(wakeKickMessage)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	go c.acceptConnections(ln, 100, 0)
+
+	assert.Equal(t, wakeKickMessage, loginAndReadDisconnect(t, ln, "mc.example.com"))
+	require.Eventually(t, func() bool { return wakerCalls.Load() == 1 }, time.Second, 10*time.Millisecond)
+
+	// A second login during the same wake is kicked too and starts no second wake
+	assert.Equal(t, wakeKickMessage, loginAndReadDisconnect(t, ln, "mc.example.com"))
+	assert.Equal(t, int32(1), wakerCalls.Load())
+}
+
+// A static backend that accepts connections is relayed as before: no kick, no wake.
+func TestConnectorWakeKickStaticBackendAwake(t *testing.T) {
+	backendLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = backendLn.Close() })
+	handshakes := make(chan struct{}, 4)
+	go func() {
+		for {
+			conn, err := backendLn.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				buf := make([]byte, 1)
+				if n, _ := conn.Read(buf); n > 0 {
+					handshakes <- struct{}{}
+				}
+				_, _ = io.Copy(io.Discard, conn) // stay open like a real server
+			}(conn)
+		}
+	}()
+
+	routes := NewRoutes(t.Context())
+	var wakerCalls atomic.Int32
+	waker := func(ctx context.Context) (string, error) {
+		wakerCalls.Add(1)
+		return backendLn.Addr().String(), nil
+	}
+	routes.CreateMapping("mc.example.com", backendLn.Addr().String(), TestingScalingTarget("awake-backend"), waker, nil, "asleep", "loading")
+
+	c := NewConnector(t.Context(), routes, nil, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
+	c.UseWakeKickMessage(wakeKickMessage)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	go c.acceptConnections(ln, 100, 0)
+
+	conn := dialAndHandshake(t, ln, "mc.example.com", mcproto.StateLogin)
+	require.NoError(t, writeTestPacket(conn, mcproto.PacketIdLogin, func(w io.Writer) {
+		_ = mcproto.WriteString(w, "player1")
+	}))
+	select {
+	case <-handshakes:
+	case <-time.After(2 * time.Second):
+		t.Fatal("login was not relayed to the reachable backend")
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	_, err = mcproto.ReadFrame(bufio.NewReader(conn), conn.RemoteAddr())
+	var netErr net.Error
+	require.ErrorAs(t, err, &netErr, "a reachable backend must not be answered with a kick")
+}
