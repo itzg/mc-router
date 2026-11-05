@@ -23,8 +23,8 @@ func Test_apiServer_routesListHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			routes := new(MockRoutes)
-			mappings := map[string]string{}
-			mappings["mc.example.com"] = "backend:25565"
+			mappings := map[string]RouteConfig{}
+			mappings["mc.example.com"] = RouteConfig{Backend: "backend:25565"}
 
 			routes.On("GetMappings").Return(mappings)
 			routes.On("FindBackendForServerAddress", mock.Anything, "mc.example.com").Return("backend:25565", "mc.example.com",

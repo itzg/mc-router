@@ -225,10 +225,15 @@ func TestConnectorNonUTF8Handshake(t *testing.T) {
 
 func TestConnectorDynamicProxyProtocol(t *testing.T) {
 	tests := []struct {
-		name       string
-		header     string
-		wantSource string
-		wantDest   string
+		name         string
+		header       string
+		wantSource   string
+		wantDest     string
+		override     *bool
+		global       bool
+		direct       bool
+		defaultRoute bool
+		wantVersion  byte
 	}{
 		{
 			name:       "forwards supplied header",
@@ -243,6 +248,15 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 			wantDest:   "0.0.0.0:25565",
 		},
 		{name: "no header when connection has none"},
+		{name: "inherit global disabled", direct: true},
+		{name: "force with global disabled", direct: true, override: new(true), wantVersion: 2},
+		{name: "force header", override: new(true), wantVersion: 2},
+		{name: "force header replaces dynamic", override: new(true), header: "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n", wantVersion: 2},
+		{name: "suppress dynamic", override: new(false), header: "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n"},
+		{name: "inherit global enabled", global: true, wantVersion: 2},
+		{name: "suppress global", global: true, override: new(false)},
+		{name: "default force", defaultRoute: true, override: new(true), wantVersion: 2},
+		{name: "default suppress dynamic", defaultRoute: true, override: new(false), header: "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n"},
 	}
 
 	for _, test := range tests {
@@ -262,10 +276,21 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 				}
 			}()
 
-			routes.CreateMapping("mc.example.com", backendListener.Addr().String(), nil, RouteOptions{})
+			// Keep a differently configured route in the same table.
+			routes.CreateMapping("other.example.com", backendListener.Addr().String(), nil, RouteOptions{ProxyProtocol: new(true)})
+			if test.defaultRoute {
+				routes.SetDefaultRoute(backendListener.Addr().String(), nil, RouteOptions{ProxyProtocol: test.override})
+			} else {
+				routes.SetDefaultRoute(backendListener.Addr().String(), nil, RouteOptions{ProxyProtocol: new(true)})
+				routes.CreateMapping("mc.example.com", backendListener.Addr().String(), nil, RouteOptions{ProxyProtocol: test.override})
+			}
 
 			c := NewConnector(t.Context(), routes, downScaler, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
-			c.UseDynamicProxyProtocol(nil)
+			if test.global {
+				c.sendProxyProto = true
+			} else if !test.direct {
+				c.UseDynamicProxyProtocol(nil)
+			}
 			prefixes, err := ParseNAT64Prefixes([]string{"64:ff9b::/96"})
 			require.NoError(t, err)
 			c.UseNAT64Prefixes(prefixes)
@@ -300,11 +325,19 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 			}
 			defer backendConn.Close()
 
-			proxyConn := proxyproto.NewConn(backendConn)
+			proxyConn := proxyproto.NewConn(backendConn, proxyproto.WithPolicy(proxyproto.USE))
 			_ = proxyConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 			header := proxyConn.ProxyHeader()
 
-			if test.header != "" {
+			if test.wantVersion == 2 {
+				require.NotNil(t, header)
+				assert.Equal(t, byte(2), header.Version)
+				if test.header != "" {
+					assert.Equal(t, "1.2.3.4:12345", header.SourceAddr.String())
+				} else {
+					assert.Equal(t, clientConn.LocalAddr().String(), header.SourceAddr.String())
+				}
+			} else if test.header != "" && test.override == nil {
 				require.NotNil(t, header, "expected forwarded PROXY header")
 				assert.Equal(t, byte(1), header.Version)
 				assert.Equal(t, proxyproto.TCPv4, header.TransportProtocol)
@@ -313,6 +346,10 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 			} else {
 				assert.Nil(t, header, "expected no PROXY header to be forwarded")
 			}
+			packet, err := mcproto.ReadPacket(bufio.NewReader(proxyConn), backendConn.RemoteAddr(), mcproto.StateHandshaking)
+			require.NoError(t, err)
+			assert.Equal(t, 0, packet.PacketID)
+
 		})
 	}
 }

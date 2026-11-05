@@ -412,9 +412,9 @@ func (m *MockRoutes) GetSleeper(scalingTarget ScalingTarget) SleeperFunc {
 	return args.Get(0).(SleeperFunc)
 }
 
-func (m *MockRoutes) GetMappings() map[string]string {
+func (m *MockRoutes) GetMappings() map[string]RouteConfig {
 	args := m.MethodCalled("GetMappings")
-	return args.Get(0).(map[string]string)
+	return args.Get(0).(map[string]RouteConfig)
 }
 
 func (m *MockRoutes) GetDefaultRoute() (string, ScalingTarget, WakerFunc, SleeperFunc) {
@@ -432,6 +432,14 @@ func (m *MockRoutes) GetLoadingMOTD(serverAddress string) string {
 	return args.String(0)
 }
 
+func (m *MockRoutes) GetProxyProtocol(serverAddress string) *bool {
+	args := m.MethodCalled("GetProxyProtocol", serverAddress)
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*bool)
+}
+
 func (m *MockRoutes) SetCountdownDeadline(serverAddress string, deadline time.Time) {
 	m.MethodCalled("SetCountdownDeadline", serverAddress, deadline)
 }
@@ -440,7 +448,7 @@ func (m *MockRoutes) SimplifySRV(srvEnabled bool) {
 	m.MethodCalled("SimplifySRV", srvEnabled)
 }
 
-func (m *MockRoutes) BulkRegister(scaler *WebhookScaler, mappings map[string]string) {
+func (m *MockRoutes) BulkRegister(scaler *WebhookScaler, mappings map[string]RouteConfig) {
 	m.MethodCalled("BulkRegister", scaler, mappings)
 }
 

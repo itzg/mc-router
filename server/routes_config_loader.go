@@ -32,8 +32,8 @@ type RoutesConfigLoader struct {
 
 // RoutesConfigSchema declares the schema of the json file that can provide routes to serve
 type RoutesConfigSchema struct {
-	DefaultServer string            `json:"default-server"`
-	Mappings      map[string]string `json:"mappings"`
+	DefaultServer RouteConfig            `json:"default-server"`
+	Mappings      map[string]RouteConfig `json:"mappings"`
 }
 
 func (r *RoutesConfigLoader) Load(routesConfigFileName string) error {
@@ -53,8 +53,8 @@ func (r *RoutesConfigLoader) Load(routesConfigFileName string) error {
 	}
 
 	r.routes.BulkRegister(r.scaler, config.Mappings)
-	waker, sleeper, scalingTarget := r.scaler.routeFuncs("", config.DefaultServer)
-	r.routes.SetDefaultRoute(config.DefaultServer, scalingTarget, RouteOptions{Waker: waker, Sleeper: sleeper})
+	waker, sleeper, scalingTarget := r.scaler.routeFuncs("", config.DefaultServer.Backend)
+	r.routes.SetDefaultRoute(config.DefaultServer.Backend, scalingTarget, RouteOptions{Waker: waker, Sleeper: sleeper, ProxyProtocol: config.DefaultServer.ProxyProtocol})
 	return nil
 }
 
@@ -72,8 +72,8 @@ func (r *RoutesConfigLoader) Reload() error {
 	logrus.WithField("routesConfig", r.fileName).Info("Re-loading routes config file")
 	r.routes.Reset()
 	r.routes.BulkRegister(r.scaler, config.Mappings)
-	waker, sleeper, scalingTarget := r.scaler.routeFuncs("", config.DefaultServer)
-	r.routes.SetDefaultRoute(config.DefaultServer, scalingTarget, RouteOptions{Waker: waker, Sleeper: sleeper})
+	waker, sleeper, scalingTarget := r.scaler.routeFuncs("", config.DefaultServer.Backend)
+	r.routes.SetDefaultRoute(config.DefaultServer.Backend, scalingTarget, RouteOptions{Waker: waker, Sleeper: sleeper, ProxyProtocol: config.DefaultServer.ProxyProtocol})
 
 	return nil
 }
@@ -148,7 +148,7 @@ func (r *RoutesConfigLoader) SaveRoutes() {
 
 	server, _, _, _ := r.routes.GetDefaultRoute()
 	err := r.writeFile(&RoutesConfigSchema{
-		DefaultServer: server,
+		DefaultServer: RouteConfig{Backend: server, ProxyProtocol: r.routes.GetProxyProtocol("")},
 		Mappings:      r.routes.GetMappings(),
 	})
 	if err != nil {

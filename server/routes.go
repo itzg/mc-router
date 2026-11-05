@@ -19,13 +19,14 @@ type WakerFunc func(ctx context.Context) (string, error)
 // SleeperFunc is a function that puts a server to sleep.
 type SleeperFunc func(ctx context.Context) error
 
-// RouteOptions contains optional autoscaling callbacks and per-route MOTDs.
-// The zero value disables the callbacks and leaves MOTDs to the global settings.
+// RouteOptions contains optional autoscaling callbacks and per-route settings.
+// The zero value disables the callbacks and inherits the global settings.
 type RouteOptions struct {
-	Waker       WakerFunc
-	Sleeper     SleeperFunc
-	AsleepMOTD  string
-	LoadingMOTD string
+	Waker         WakerFunc
+	Sleeper       SleeperFunc
+	AsleepMOTD    string
+	LoadingMOTD   string
+	ProxyProtocol *bool
 }
 
 var tcpShieldPattern = regexp.MustCompile("///.*")
@@ -73,15 +74,18 @@ type IRoutes interface {
 	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, ScalingTarget, WakerFunc, SleeperFunc)
 	HasRoute(serverAddress string) bool
 	GetSleeper(scalingTarget ScalingTarget) SleeperFunc
-	GetMappings() map[string]string
+	GetMappings() map[string]RouteConfig
 	GetDefaultRoute() (string, ScalingTarget, WakerFunc, SleeperFunc)
 	GetAsleepMOTD(serverAddress string) string
 	GetLoadingMOTD(serverAddress string) string
+	// GetProxyProtocol returns the override for the matching route, including default-route fallback.
+	// nil means to inherit the global PROXY protocol settings.
+	GetProxyProtocol(serverAddress string) *bool
 	SetCountdownDeadline(serverAddress string, deadline time.Time)
 	SimplifySRV(srvEnabled bool)
 	// BulkRegister registers a set of static mappings, attaching the scaler's waker/sleeper pair. nil-safe: a nil scaler registers without autoscaling.
 	// Reset must be called separately and previous to this if you want to clear existing mappings.
-	BulkRegister(scaler *WebhookScaler, mappings map[string]string)
+	BulkRegister(scaler *WebhookScaler, mappings map[string]RouteConfig)
 
 	WithDownScaler(downScaler IDownScaler) IRoutes
 	WithListener(listener RoutesListener) IRoutes
@@ -101,6 +105,7 @@ type mapping struct {
 	sleeper           SleeperFunc
 	asleepMOTD        string
 	loadingMOTD       string
+	proxyProtocol     *bool
 	scalingTarget     ScalingTarget // The endpoint to scale (may differ from backend when using proxy)
 	countdownDeadline time.Time
 }
@@ -170,6 +175,7 @@ func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget ScalingTarget
 		sleeper:       options.Sleeper,
 		asleepMOTD:    options.AsleepMOTD,
 		loadingMOTD:   options.LoadingMOTD,
+		proxyProtocol: options.ProxyProtocol,
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -278,6 +284,20 @@ func (r *routesImpl) SetCountdownDeadline(serverAddress string, deadline time.Ti
 	}
 }
 
+func (r *routesImpl) GetProxyProtocol(serverAddress string) *bool {
+	r.RLock()
+	defer r.RUnlock()
+
+	serverAddress = r.normalizeServerAddress(serverAddress)
+	if m, ok := r.mappings[serverAddress]; ok {
+		return m.proxyProtocol
+	}
+	if r.defaultRoute != nil {
+		return r.defaultRoute.proxyProtocol
+	}
+	return nil
+}
+
 func (r *routesImpl) SimplifySRV(srvEnabled bool) {
 	r.simplifySRV = srvEnabled
 }
@@ -327,12 +347,27 @@ func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddres
 	r.RLock()
 	defer r.RUnlock()
 
-	serverAddress = NormalizeServerAddress(serverAddress)
+	serverAddress = r.normalizeServerAddress(serverAddress)
 
 	logrus.WithFields(logrus.Fields{
 		"serverAddress": serverAddress,
 	}).Debug("Finding backend for server address")
 
+	if r.mappings != nil {
+		if mapping, exists := r.mappings[serverAddress]; exists {
+			return mapping.backend, serverAddress, mapping.scalingTarget, mapping.waker, mapping.sleeper
+		}
+	}
+	if r.defaultRoute != nil {
+		return r.defaultRoute.backend, serverAddress, r.defaultRoute.scalingTarget, r.defaultRoute.waker, r.defaultRoute.sleeper
+	}
+	return "", serverAddress, nil, nil, nil
+}
+
+// normalizeServerAddress applies the same hostname rules to all route lookups.
+// Caller must hold at least the read lock.
+func (r *routesImpl) normalizeServerAddress(serverAddress string) string {
+	serverAddress = NormalizeServerAddress(serverAddress)
 	if r.simplifySRV {
 		parts := strings.Split(serverAddress, ".")
 		tcpIndex := -1
@@ -350,17 +385,7 @@ func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddres
 	}
 
 	// Strip suffix of TCP Shield
-	serverAddress = tcpShieldPattern.ReplaceAllString(serverAddress, "")
-
-	if r.mappings != nil {
-		if mapping, exists := r.mappings[serverAddress]; exists {
-			return mapping.backend, serverAddress, mapping.scalingTarget, mapping.waker, mapping.sleeper
-		}
-	}
-	if r.defaultRoute != nil {
-		return r.defaultRoute.backend, serverAddress, r.defaultRoute.scalingTarget, r.defaultRoute.waker, r.defaultRoute.sleeper
-	}
-	return "", serverAddress, nil, nil, nil
+	return tcpShieldPattern.ReplaceAllString(serverAddress, "")
 }
 
 func (r *routesImpl) GetSleeper(scalingTarget ScalingTarget) SleeperFunc {
@@ -382,13 +407,13 @@ func (r *routesImpl) GetSleeper(scalingTarget ScalingTarget) SleeperFunc {
 	return nil
 }
 
-func (r *routesImpl) GetMappings() map[string]string {
+func (r *routesImpl) GetMappings() map[string]RouteConfig {
 	r.RLock()
 	defer r.RUnlock()
 
-	result := make(map[string]string, len(r.mappings))
+	result := make(map[string]RouteConfig, len(r.mappings))
 	for k, v := range r.mappings {
-		result[k] = v.backend
+		result[k] = RouteConfig{Backend: v.backend, ProxyProtocol: v.proxyProtocol}
 	}
 	return result
 }
@@ -450,6 +475,7 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, scaling
 		sleeper:       options.Sleeper,
 		asleepMOTD:    options.AsleepMOTD,
 		loadingMOTD:   options.LoadingMOTD,
+		proxyProtocol: options.ProxyProtocol,
 	}
 
 	for _, listener := range r.routesListeners {
@@ -488,6 +514,7 @@ func (r *routesImpl) UpdateMapping(serverAddress string, backend string, scaling
 		sleeper:       options.Sleeper,
 		asleepMOTD:    options.AsleepMOTD,
 		loadingMOTD:   options.LoadingMOTD,
+		proxyProtocol: options.ProxyProtocol,
 	}
 
 	for _, listener := range r.routesListeners {
@@ -506,9 +533,9 @@ func (r *routesImpl) UpdateMapping(serverAddress string, backend string, scaling
 	}
 }
 
-func (r *routesImpl) BulkRegister(scaler *WebhookScaler, mappings map[string]string) {
+func (r *routesImpl) BulkRegister(scaler *WebhookScaler, mappings map[string]RouteConfig) {
 	for k, v := range mappings {
-		waker, sleeper, scalingTarget := scaler.routeFuncs(k, v)
-		r.CreateMapping(k, v, scalingTarget, RouteOptions{Waker: waker, Sleeper: sleeper})
+		waker, sleeper, scalingTarget := scaler.routeFuncs(k, v.Backend)
+		r.CreateMapping(k, v.Backend, scalingTarget, RouteOptions{Waker: waker, Sleeper: sleeper, ProxyProtocol: v.ProxyProtocol})
 	}
 }
