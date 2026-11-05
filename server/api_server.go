@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -43,6 +44,8 @@ func StartApiServer(ctx context.Context, apiBinding string, routes IRoutes, conf
 	}
 	api.addr = ln.Addr().String()
 
+	apiKey := os.Getenv("API_KEY")
+
 	corsHandler := cors.New(cors.Options{
     AllowedOrigins: []string{"*"},
     AllowedMethods: []string{
@@ -55,10 +58,11 @@ func StartApiServer(ctx context.Context, apiBinding string, routes IRoutes, conf
         "Accept",
         "Authorization",
         "Content-Type",
+				"X-API-Key",
     },
 	})
 
-	server := &http.Server{Addr: apiBinding, Handler: corsHandler.Handler(apiRoutes)}
+	server := &http.Server{Addr: apiBinding, Handler: corsHandler.Handler(apiKeyMiddleware(apiRoutes, apiKey))}
 	server.BaseContext = func(_ net.Listener) context.Context { return ctx }
 
 	context.AfterFunc(ctx, func() {
