@@ -346,10 +346,16 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			}).Infof("Swarm service state: %s%s", rs.statusState, ipDetail)
 
 			wakerFunc, sleeperFunc := w.makeServiceLifecycleFuncs(rs)
+			options := RouteOptions{
+				Waker:       wakerFunc,
+				Sleeper:     sleeperFunc,
+				AsleepMOTD:  rs.autoScaleAsleepMOTD,
+				LoadingMOTD: rs.autoScaleLoadingMOTD,
+			}
 			if rs.externalServiceName != "" {
-				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, rs.scalingTarget, options)
 			} else {
-				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.scalingTarget, options)
 			}
 			w.routes.SetCountdownDeadline(rs.externalServiceName, rs.countdownDeadline)
 			// If the service is already tracked, check if any metadata, endpoint, MOTDs, or deadline
@@ -380,10 +386,16 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 
 			w.serviceMap[rs.externalServiceName] = rs
 			wakerFunc, sleeperFunc := w.makeServiceLifecycleFuncs(rs)
+			options := RouteOptions{
+				Waker:       wakerFunc,
+				Sleeper:     sleeperFunc,
+				AsleepMOTD:  rs.autoScaleAsleepMOTD,
+				LoadingMOTD: rs.autoScaleLoadingMOTD,
+			}
 			if rs.externalServiceName != "" {
-				w.routes.UpdateMapping(rs.externalServiceName, rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.UpdateMapping(rs.externalServiceName, rs.containerEndpoint, rs.scalingTarget, options)
 			} else {
-				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.scalingTarget, options)
 			}
 			w.routes.SetCountdownDeadline(rs.externalServiceName, rs.countdownDeadline)
 			logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")

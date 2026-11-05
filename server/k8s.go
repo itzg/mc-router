@@ -217,10 +217,16 @@ func (w *K8sWatcher) handleUpdate(oldObj any, newObj any) {
 	// Update or create routes for new addresses; use UpdateMapping (no timer bounce)
 	for _, newRS := range newServices {
 		logrus.WithFields(logrus.Fields{"new": newRS}).Debug("UPDATE")
+		options := RouteOptions{
+			Waker:       newRS.autoScaleUp,
+			Sleeper:     newRS.autoScaleDown,
+			AsleepMOTD:  newRS.autoScaleAsleepMOTD,
+			LoadingMOTD: newRS.autoScaleLoadingMOTD,
+		}
 		if newRS.externalServiceName != "" {
-			w.routesHandler.UpdateMapping(newRS.externalServiceName, newRS.containerEndpoint, newRS.scalingTarget, newRS.autoScaleUp, newRS.autoScaleDown, newRS.autoScaleAsleepMOTD, newRS.autoScaleLoadingMOTD)
+			w.routesHandler.UpdateMapping(newRS.externalServiceName, newRS.containerEndpoint, newRS.scalingTarget, options)
 		} else {
-			w.routesHandler.SetDefaultRoute(newRS.containerEndpoint, newRS.scalingTarget, newRS.autoScaleUp, newRS.autoScaleDown, newRS.autoScaleAsleepMOTD, newRS.autoScaleLoadingMOTD)
+			w.routesHandler.SetDefaultRoute(newRS.containerEndpoint, newRS.scalingTarget, options)
 		}
 	}
 }
@@ -248,10 +254,16 @@ func (w *K8sWatcher) handleAdd(obj any) {
 		if routableService != nil {
 			logrus.WithField("routableService", routableService).Debug("ADD")
 
+			options := RouteOptions{
+				Waker:       routableService.autoScaleUp,
+				Sleeper:     routableService.autoScaleDown,
+				AsleepMOTD:  routableService.autoScaleAsleepMOTD,
+				LoadingMOTD: routableService.autoScaleLoadingMOTD,
+			}
 			if routableService.externalServiceName != "" {
-				w.routesHandler.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint, routableService.scalingTarget, routableService.autoScaleUp, routableService.autoScaleDown, routableService.autoScaleAsleepMOTD, routableService.autoScaleLoadingMOTD)
+				w.routesHandler.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint, routableService.scalingTarget, options)
 			} else {
-				w.routesHandler.SetDefaultRoute(routableService.containerEndpoint, routableService.scalingTarget, routableService.autoScaleUp, routableService.autoScaleDown, routableService.autoScaleAsleepMOTD, routableService.autoScaleLoadingMOTD)
+				w.routesHandler.SetDefaultRoute(routableService.containerEndpoint, routableService.scalingTarget, options)
 			}
 		}
 	}

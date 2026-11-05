@@ -19,6 +19,15 @@ type WakerFunc func(ctx context.Context) (string, error)
 // SleeperFunc is a function that puts a server to sleep.
 type SleeperFunc func(ctx context.Context) error
 
+// RouteOptions contains optional autoscaling callbacks and per-route MOTDs.
+// The zero value disables the callbacks and leaves MOTDs to the global settings.
+type RouteOptions struct {
+	Waker       WakerFunc
+	Sleeper     SleeperFunc
+	AsleepMOTD  string
+	LoadingMOTD string
+}
+
 var tcpShieldPattern = regexp.MustCompile("///.*")
 
 // RouteFinder implementations find new routes in the system that can be tracked by a RoutesHandler
@@ -28,13 +37,13 @@ type RouteFinder interface {
 }
 
 type RoutesHandler interface {
-	CreateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string)
+	CreateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, options RouteOptions)
 	// UpdateMapping atomically replaces the backend for an existing route without touching the
 	// scale-down timer. Use this instead of RemoveMapping+CreateMapping when the server address
 	// itself has not changed, so the timer bounce (cancel-on-remove, start-on-create) is avoided.
 	// If backend is empty the timer is cancelled (container stopped externally).
-	UpdateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string)
-	SetDefaultRoute(backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string)
+	UpdateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, options RouteOptions)
+	SetDefaultRoute(backend string, scalingTarget ScalingTarget, options RouteOptions)
 	RemoveDefaultRoute()
 	// RemoveMapping requests that the serverAddress be removed from routes.
 	// Returns true if the route existed.
@@ -150,11 +159,18 @@ func (r *routesImpl) Reset() {
 	}
 }
 
-func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
+func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget ScalingTarget, options RouteOptions) {
 	r.Lock()
 	defer r.Unlock()
 
-	r.defaultRoute = &mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD, loadingMOTD: loadingMOTD}
+	r.defaultRoute = &mapping{
+		backend:       backend,
+		scalingTarget: scalingTarget,
+		waker:         options.Waker,
+		sleeper:       options.Sleeper,
+		asleepMOTD:    options.AsleepMOTD,
+		loadingMOTD:   options.LoadingMOTD,
+	}
 
 	logrus.WithFields(logrus.Fields{
 		"backend": backend,
@@ -415,7 +431,7 @@ func (r *routesImpl) sharedTarget(scalingTarget ScalingTarget) ScalingTarget {
 	return scalingTarget
 }
 
-func (r *routesImpl) CreateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
+func (r *routesImpl) CreateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, options RouteOptions) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -427,7 +443,14 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, scaling
 		"backend":       backend,
 	}).Info("Created route mapping")
 	previous, hasPrevious := r.mappings[serverAddress]
-	r.mappings[serverAddress] = mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD, loadingMOTD: loadingMOTD}
+	r.mappings[serverAddress] = mapping{
+		backend:       backend,
+		scalingTarget: scalingTarget,
+		waker:         options.Waker,
+		sleeper:       options.Sleeper,
+		asleepMOTD:    options.AsleepMOTD,
+		loadingMOTD:   options.LoadingMOTD,
+	}
 
 	for _, listener := range r.routesListeners {
 		listener.OnRouteAdded(serverAddress, backend)
@@ -446,7 +469,7 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, scaling
 // UpdateMapping atomically replaces the backend for an existing route.
 // It will also cancel the down scaler if backend is now "down" and start the down scaler timer
 // if the backend is now routable but previous mapping entry wasn't, much like CreateMapping
-func (r *routesImpl) UpdateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
+func (r *routesImpl) UpdateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, options RouteOptions) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -458,7 +481,14 @@ func (r *routesImpl) UpdateMapping(serverAddress string, backend string, scaling
 		"backend":       backend,
 	}).Info("Updated route mapping")
 	prev, hasPrevious := r.mappings[serverAddress]
-	r.mappings[serverAddress] = mapping{backend: backend, scalingTarget: scalingTarget, waker: waker, sleeper: sleeper, asleepMOTD: asleepMOTD, loadingMOTD: loadingMOTD}
+	r.mappings[serverAddress] = mapping{
+		backend:       backend,
+		scalingTarget: scalingTarget,
+		waker:         options.Waker,
+		sleeper:       options.Sleeper,
+		asleepMOTD:    options.AsleepMOTD,
+		loadingMOTD:   options.LoadingMOTD,
+	}
 
 	for _, listener := range r.routesListeners {
 		listener.OnRouteRemoved(serverAddress)
@@ -479,6 +509,6 @@ func (r *routesImpl) UpdateMapping(serverAddress string, backend string, scaling
 func (r *routesImpl) BulkRegister(scaler *WebhookScaler, mappings map[string]string) {
 	for k, v := range mappings {
 		waker, sleeper, scalingTarget := scaler.routeFuncs(k, v)
-		r.CreateMapping(k, v, scalingTarget, waker, sleeper, "", "")
+		r.CreateMapping(k, v, scalingTarget, RouteOptions{Waker: waker, Sleeper: sleeper})
 	}
 }

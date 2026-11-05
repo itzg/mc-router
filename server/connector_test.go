@@ -104,15 +104,14 @@ func TestConnectorWakeTracking(t *testing.T) {
 
 func TestConnectorGetLoadingMOTD(t *testing.T) {
 	routes := NewRoutes(t.Context())
-	routes.CreateMapping("mc.example.com", "backend:25565", nil, nil, nil, "",
-		"route loading")
+	routes.CreateMapping("mc.example.com", "backend:25565", nil, RouteOptions{LoadingMOTD: "route loading"})
 
 	c := NewConnector(t.Context(), routes, NewDownScaler(false, 5*time.Second), discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
 	c.UseLoadingMOTD("global loading")
 	assert.Equal(t, "route loading", c.getLoadingMOTD("mc.example.com"))
 	assert.Equal(t, "global loading", c.getLoadingMOTD("other.example.com"))
 
-	routes.SetDefaultRoute("default:25565", nil, nil, nil, "", "default loading")
+	routes.SetDefaultRoute("default:25565", nil, RouteOptions{LoadingMOTD: "default loading"})
 	assert.Equal(t, "default loading", c.getLoadingMOTD(""))
 }
 
@@ -144,7 +143,7 @@ func TestConnectorMOTDFallback(t *testing.T) {
 	}
 	scalingTarget := TestingScalingTarget(backendAddress)
 
-	routes.CreateMapping("mc.example.com", backendAddress, scalingTarget, waker, nil, "fallback asleep", "fallback loading")
+	routes.CreateMapping("mc.example.com", backendAddress, scalingTarget, RouteOptions{Waker: waker, AsleepMOTD: "fallback asleep", LoadingMOTD: "fallback loading"})
 
 	metricsBuilder := discardMetricsBuilder{}
 	c := NewConnector(t.Context(), routes, downScaler, metricsBuilder.BuildConnectorMetrics(), false, false, nil, false)
@@ -263,7 +262,7 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 				}
 			}()
 
-			routes.CreateMapping("mc.example.com", backendListener.Addr().String(), nil, nil, nil, "", "")
+			routes.CreateMapping("mc.example.com", backendListener.Addr().String(), nil, RouteOptions{})
 
 			c := NewConnector(t.Context(), routes, downScaler, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
 			c.UseDynamicProxyProtocol(nil)
@@ -377,7 +376,7 @@ func TestConnectorNAT64UseProxyProtocol(t *testing.T) {
 				}
 			}()
 
-			routes.CreateMapping("mc.example.com", backendListener.Addr().String(), nil, nil, nil, "", "")
+			routes.CreateMapping("mc.example.com", backendListener.Addr().String(), nil, RouteOptions{})
 
 			c := NewConnector(t.Context(), routes, NewDownScaler(false, 5*time.Second), discardMetricsBuilder{}.BuildConnectorMetrics(), true, false, nil, false)
 			prefixes, err := ParseNAT64Prefixes([]string{"64:ff9b:1::/96"})

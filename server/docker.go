@@ -354,10 +354,16 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerId string, desir
 			w.containerMap[rs.externalName] = rs
 			wakerFunc := w.makeWakerFunc(rs)
 			sleeperFunc := w.makeSleeperFunc(rs)
+			options := RouteOptions{
+				Waker:       wakerFunc,
+				Sleeper:     sleeperFunc,
+				AsleepMOTD:  rs.autoScaleAsleepMOTD,
+				LoadingMOTD: rs.autoScaleLoadingMOTD,
+			}
 			if rs.externalName != "" {
-				w.routes.CreateMapping(rs.externalName, rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.CreateMapping(rs.externalName, rs.containerEndpoint, rs.scalingTarget, options)
 			} else {
-				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.scalingTarget, options)
 			}
 			logrus.WithField("routableContainer", rs).Debug("ADD")
 			continue
@@ -373,10 +379,16 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerId string, desir
 		w.containerMap[rs.externalName] = rs
 		wakerFunc := w.makeWakerFunc(rs)
 		sleeperFunc := w.makeSleeperFunc(rs)
+		options := RouteOptions{
+			Waker:       wakerFunc,
+			Sleeper:     sleeperFunc,
+			AsleepMOTD:  rs.autoScaleAsleepMOTD,
+			LoadingMOTD: rs.autoScaleLoadingMOTD,
+		}
 		if rs.externalName != "" {
-			w.routes.UpdateMapping(rs.externalName, rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+			w.routes.UpdateMapping(rs.externalName, rs.containerEndpoint, rs.scalingTarget, options)
 		} else {
-			w.routes.SetDefaultRoute(rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+			w.routes.SetDefaultRoute(rs.containerEndpoint, rs.scalingTarget, options)
 		}
 		logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
 	}
