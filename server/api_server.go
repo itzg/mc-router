@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -42,7 +43,22 @@ func StartApiServer(ctx context.Context, apiBinding string, routes IRoutes, conf
 	}
 	api.addr = ln.Addr().String()
 
-	server := &http.Server{Addr: apiBinding, Handler: apiRoutes}
+	corsHandler := cors.New(cors.Options{
+    AllowedOrigins: []string{"*"},
+    AllowedMethods: []string{
+        http.MethodGet,
+        http.MethodPost,
+        http.MethodDelete,
+        http.MethodOptions,
+    },
+    AllowedHeaders: []string{
+        "Accept",
+        "Authorization",
+        "Content-Type",
+    },
+	})
+
+	server := &http.Server{Addr: apiBinding, Handler: corsHandler.Handler(apiRoutes)}
 	server.BaseContext = func(_ net.Listener) context.Context { return ctx }
 
 	context.AfterFunc(ctx, func() {
