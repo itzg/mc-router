@@ -225,15 +225,15 @@ func TestConnectorNonUTF8Handshake(t *testing.T) {
 
 func TestConnectorDynamicProxyProtocol(t *testing.T) {
 	tests := []struct {
-		name         string
-		header       string
-		wantSource   string
-		wantDest     string
-		override     *bool
-		global       bool // Enable global outbound PROXY headers instead of dynamic mode.
-		direct       bool // Disable dynamic mode when global outbound headers are also disabled.
-		defaultRoute bool
-		wantVersion  byte
+		name                string
+		header              string
+		wantSource          string
+		wantDest            string
+		override            *bool
+		global              bool // Enable global outbound PROXY headers instead of dynamic mode.
+		direct              bool // Disable dynamic mode when global outbound headers are also disabled.
+		defaultRoute        bool
+		wantGeneratedHeader bool // Expect the router to generate a PROXY v2 header.
 	}{
 		{
 			name:       "forwards supplied header",
@@ -255,21 +255,21 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 			direct: true,
 		},
 		{
-			name:        "force with global disabled",
-			direct:      true,
-			override:    new(true),
-			wantVersion: 2,
+			name:                "force with global disabled",
+			direct:              true,
+			override:            new(true),
+			wantGeneratedHeader: true,
 		},
 		{
-			name:        "force header",
-			override:    new(true),
-			wantVersion: 2,
+			name:                "force header",
+			override:            new(true),
+			wantGeneratedHeader: true,
 		},
 		{
-			name:        "force header replaces dynamic",
-			override:    new(true),
-			header:      "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n",
-			wantVersion: 2,
+			name:                "force header replaces dynamic",
+			override:            new(true),
+			header:              "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n",
+			wantGeneratedHeader: true,
 		},
 		{
 			name:     "suppress dynamic",
@@ -277,9 +277,9 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 			header:   "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n",
 		},
 		{
-			name:        "inherit global enabled",
-			global:      true,
-			wantVersion: 2,
+			name:                "inherit global enabled",
+			global:              true,
+			wantGeneratedHeader: true,
 		},
 		{
 			name:     "suppress global",
@@ -287,10 +287,10 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 			override: new(false),
 		},
 		{
-			name:         "default force",
-			defaultRoute: true,
-			override:     new(true),
-			wantVersion:  2,
+			name:                "default force",
+			defaultRoute:        true,
+			override:            new(true),
+			wantGeneratedHeader: true,
 		},
 		{
 			name:         "default suppress dynamic",
@@ -372,7 +372,7 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 			_ = proxyConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 			header := proxyConn.ProxyHeader()
 
-			if test.wantVersion == 2 {
+			if test.wantGeneratedHeader {
 				require.NotNil(t, header)
 				assert.Equal(t, byte(2), header.Version)
 				if test.header != "" {
