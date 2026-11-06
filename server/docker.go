@@ -25,6 +25,7 @@ type IDockerWatcher interface {
 }
 
 const (
+	DockerRouterLabelProxyProtocol             = "mc-router.proxy-protocol"
 	DockerRouterLabelHost                      = "mc-router.host"
 	DockerRouterLabelPort                      = "mc-router.port"
 	DockerRouterLabelDefault                   = "mc-router.default"
@@ -305,6 +306,7 @@ func (w *dockerWatcherImpl) containersForID(ctx context.Context, containerId str
 			autoScaleDown:        data.autoScaleDown,
 			autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
 			autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
+			proxyProtocol:        data.proxyProtocol,
 			scalingTarget:        scalingTarget,
 		})
 	}
@@ -317,6 +319,7 @@ func (w *dockerWatcherImpl) containersForID(ctx context.Context, containerId str
 			autoScaleDown:        data.autoScaleDown,
 			autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
 			autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
+			proxyProtocol:        data.proxyProtocol,
 			scalingTarget:        scalingTarget,
 		})
 	}
@@ -355,10 +358,11 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerId string, desir
 			wakerFunc := w.makeWakerFunc(rs)
 			sleeperFunc := w.makeSleeperFunc(rs)
 			options := RouteOptions{
-				Waker:       wakerFunc,
-				Sleeper:     sleeperFunc,
-				AsleepMOTD:  rs.autoScaleAsleepMOTD,
-				LoadingMOTD: rs.autoScaleLoadingMOTD,
+				Waker:         wakerFunc,
+				Sleeper:       sleeperFunc,
+				AsleepMOTD:    rs.autoScaleAsleepMOTD,
+				LoadingMOTD:   rs.autoScaleLoadingMOTD,
+				ProxyProtocol: rs.proxyProtocol,
 			}
 			if rs.externalName != "" {
 				w.routes.CreateMapping(rs.externalName, rs.containerEndpoint, rs.scalingTarget, options)
@@ -373,17 +377,19 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerId string, desir
 			oldRs.autoScaleUp == rs.autoScaleUp &&
 			oldRs.autoScaleDown == rs.autoScaleDown &&
 			oldRs.autoScaleAsleepMOTD == rs.autoScaleAsleepMOTD &&
-			oldRs.autoScaleLoadingMOTD == rs.autoScaleLoadingMOTD {
+			oldRs.autoScaleLoadingMOTD == rs.autoScaleLoadingMOTD &&
+			(oldRs.proxyProtocol == rs.proxyProtocol || (oldRs.proxyProtocol != nil && rs.proxyProtocol != nil && *oldRs.proxyProtocol == *rs.proxyProtocol)) {
 			continue
 		}
 		w.containerMap[rs.externalName] = rs
 		wakerFunc := w.makeWakerFunc(rs)
 		sleeperFunc := w.makeSleeperFunc(rs)
 		options := RouteOptions{
-			Waker:       wakerFunc,
-			Sleeper:     sleeperFunc,
-			AsleepMOTD:  rs.autoScaleAsleepMOTD,
-			LoadingMOTD: rs.autoScaleLoadingMOTD,
+			Waker:         wakerFunc,
+			Sleeper:       sleeperFunc,
+			AsleepMOTD:    rs.autoScaleAsleepMOTD,
+			LoadingMOTD:   rs.autoScaleLoadingMOTD,
+			ProxyProtocol: rs.proxyProtocol,
 		}
 		if rs.externalName != "" {
 			w.routes.UpdateMapping(rs.externalName, rs.containerEndpoint, rs.scalingTarget, options)
@@ -538,6 +544,7 @@ func newRoutableContainer(endpoint string, host string, containerId string, data
 		autoScaleDown:        data.autoScaleDown,
 		autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
 		autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
+		proxyProtocol:        data.proxyProtocol,
 		scalingTarget:        target,
 	}
 }
@@ -553,6 +560,7 @@ type parsedDockerContainerData struct {
 	autoScaleUp          bool
 	autoScaleAsleepMOTD  string
 	autoScaleLoadingMOTD string
+	proxyProtocol        *bool
 	notRunning           bool
 }
 
@@ -622,6 +630,14 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 			}
 			data.network = new(string)
 			*data.network = value
+		}
+		if key == DockerRouterLabelProxyProtocol {
+			enabled, err := strconv.ParseBool(strings.TrimSpace(value))
+			if err != nil {
+				logrus.WithError(err).WithField("containerId", container.ID).WithField("value", value).Warn("Invalid PROXY protocol label, inheriting global setting")
+			} else {
+				data.proxyProtocol = &enabled
+			}
 		}
 		if key == DockerRouterLabelAutoScaleUp {
 			autoScaleUp, err := strconv.ParseBool(strings.TrimSpace(value))
@@ -732,6 +748,7 @@ type routableContainer struct {
 	autoScaleDown        bool
 	autoScaleAsleepMOTD  string
 	autoScaleLoadingMOTD string
+	proxyProtocol        *bool
 	scalingTarget        *DockerScalingTarget
 }
 

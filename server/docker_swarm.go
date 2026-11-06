@@ -45,6 +45,7 @@ type routableSwarmService struct {
 	autoScaleDown             bool
 	autoScaleAsleepMOTD       string
 	autoScaleLoadingMOTD      string
+	proxyProtocol             *bool
 	autoScaleWaitTimeout      time.Duration
 	autoScaleFailedMOTD       string
 	autoScaleRestartDelayMOTD string
@@ -347,10 +348,11 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 
 			wakerFunc, sleeperFunc := w.makeServiceLifecycleFuncs(rs)
 			options := RouteOptions{
-				Waker:       wakerFunc,
-				Sleeper:     sleeperFunc,
-				AsleepMOTD:  rs.autoScaleAsleepMOTD,
-				LoadingMOTD: rs.autoScaleLoadingMOTD,
+				Waker:         wakerFunc,
+				Sleeper:       sleeperFunc,
+				AsleepMOTD:    rs.autoScaleAsleepMOTD,
+				LoadingMOTD:   rs.autoScaleLoadingMOTD,
+				ProxyProtocol: rs.proxyProtocol,
 			}
 			if rs.externalServiceName != "" {
 				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, rs.scalingTarget, options)
@@ -367,6 +369,7 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			oldRs.autoScaleDown != rs.autoScaleDown ||
 			oldRs.autoScaleAsleepMOTD != rs.autoScaleAsleepMOTD ||
 			oldRs.autoScaleLoadingMOTD != rs.autoScaleLoadingMOTD ||
+			!(oldRs.proxyProtocol == rs.proxyProtocol || (oldRs.proxyProtocol != nil && rs.proxyProtocol != nil && *oldRs.proxyProtocol == *rs.proxyProtocol)) ||
 			oldRs.autoScaleWaitTimeout != rs.autoScaleWaitTimeout ||
 			oldRs.autoScaleFailedMOTD != rs.autoScaleFailedMOTD ||
 			oldRs.autoScaleRestartDelayMOTD != rs.autoScaleRestartDelayMOTD ||
@@ -387,10 +390,11 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			w.serviceMap[rs.externalServiceName] = rs
 			wakerFunc, sleeperFunc := w.makeServiceLifecycleFuncs(rs)
 			options := RouteOptions{
-				Waker:       wakerFunc,
-				Sleeper:     sleeperFunc,
-				AsleepMOTD:  rs.autoScaleAsleepMOTD,
-				LoadingMOTD: rs.autoScaleLoadingMOTD,
+				Waker:         wakerFunc,
+				Sleeper:       sleeperFunc,
+				AsleepMOTD:    rs.autoScaleAsleepMOTD,
+				LoadingMOTD:   rs.autoScaleLoadingMOTD,
+				ProxyProtocol: rs.proxyProtocol,
 			}
 			if rs.externalServiceName != "" {
 				w.routes.UpdateMapping(rs.externalServiceName, rs.containerEndpoint, rs.scalingTarget, options)
@@ -561,6 +565,7 @@ func newRoutableSwarmService(endpoint string, host string, data parsedDockerServ
 		autoScaleDown:             data.autoScaleDown,
 		autoScaleAsleepMOTD:       data.autoScaleAsleepMOTD,
 		autoScaleLoadingMOTD:      data.autoScaleLoadingMOTD,
+		proxyProtocol:             data.proxyProtocol,
 		autoScaleWaitTimeout:      data.autoScaleWaitTimeout,
 		autoScaleFailedMOTD:       data.autoScaleFailedMOTD,
 		autoScaleRestartDelayMOTD: data.autoScaleRestartDelayMOTD,
@@ -602,6 +607,7 @@ type parsedDockerServiceData struct {
 	autoScaleDown             bool
 	autoScaleAsleepMOTD       string
 	autoScaleLoadingMOTD      string
+	proxyProtocol             *bool
 	autoScaleWaitTimeout      time.Duration
 	autoScaleFailedMOTD       string
 	autoScaleRestartDelayMOTD string
@@ -709,6 +715,14 @@ func (w *dockerSwarmWatcherImpl) parseServiceLabels(service *swarm.Service, data
 			}
 			data.network = new(string)
 			*data.network = value
+
+		case DockerRouterLabelProxyProtocol:
+			enabled, err := strconv.ParseBool(strings.TrimSpace(value))
+			if err != nil {
+				logrus.WithError(err).WithField("serviceId", service.ID).WithField("value", value).Warn("Invalid PROXY protocol label, inheriting global setting")
+			} else {
+				data.proxyProtocol = &enabled
+			}
 
 		case DockerRouterLabelAutoScaleUp:
 			autoScaleUp, err := strconv.ParseBool(strings.TrimSpace(value))
