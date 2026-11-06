@@ -92,3 +92,22 @@ func TestRouteOverridesFileAndAPI(t *testing.T) {
 		})
 	}
 }
+
+func TestLegacyRoutesConfigRoundTrip(t *testing.T) {
+	for _, input := range []string{
+		`{"default-server":"default:25565","mappings":{"a.example.com":"a:25565","b.example.com":"b:25565"}}`,
+		`{"default-server":"","mappings":{"a.example.com":"a:25565"}}`,
+	} {
+		t.Run(input, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "routes.json")
+			require.NoError(t, os.WriteFile(path, []byte(input), 0600))
+			loader := NewRoutesConfigLoader(nil, NewRoutes(t.Context()))
+			require.NoError(t, loader.Load(path))
+			loader.SaveRoutes()
+			saved, err := os.ReadFile(path)
+			require.NoError(t, err)
+			assert.JSONEq(t, input, string(saved))
+			require.NoError(t, loader.Reload())
+		})
+	}
+}

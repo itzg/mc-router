@@ -1,6 +1,11 @@
 package server
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"strings"
+)
 
 // RouteConfig accepts a backend string or an object with per-route settings.
 type RouteConfig struct {
@@ -19,8 +24,13 @@ func (r *RouteConfig) UnmarshalJSON(data []byte) error {
 
 	type alias RouteConfig
 	var config alias
-	if err := json.Unmarshal(data, &config); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&config); err != nil {
 		return err
+	}
+	if strings.TrimSpace(config.Backend) == "" {
+		return fmt.Errorf("route object requires a nonempty backend")
 	}
 	*r = RouteConfig(config)
 	return nil
