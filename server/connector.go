@@ -824,8 +824,13 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 	cleanupMetrics = true
 
 	// PROXY protocol implementation
+	sendProxyProto, dynamicProxyProto := c.sendProxyProto, c.dynamicProxyProto
+	if override := c.routes.GetProxyProtocol(resolvedHost); override != nil {
+		sendProxyProto = *override
+		dynamicProxyProto = false
+	}
 	var header *proxyproto.Header
-	if c.sendProxyProto {
+	if sendProxyProto {
 
 		// Determine transport protocol for the PROXY header by "analyzing" the frontend connection's address
 		transportProtocol := proxyproto.TCPv4
@@ -850,7 +855,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			SourceAddr:        frontendConn.RemoteAddr(),
 			DestinationAddr:   frontendConn.LocalAddr(), // our end of the client's connection
 		}
-	} else if c.dynamicProxyProto {
+	} else if dynamicProxyProto {
 		header = frontendProxyHeader(frontendConn)
 	}
 

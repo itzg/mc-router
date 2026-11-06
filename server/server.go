@@ -99,10 +99,14 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		}
 	}
 
-	routes.BulkRegister(webhookScaler, config.Mapping)
+	mappings := make(map[string]RouteConfig, len(config.Mapping))
+	for host, backend := range config.Mapping {
+		mappings[host] = RouteConfig{Backend: backend}
+	}
+	routes.BulkRegister(webhookScaler, mappings)
 	if config.Default != "" {
 		waker, sleeper, scalingTarget := webhookScaler.routeFuncs("", config.Default)
-		routes.SetDefaultRoute(config.Default, scalingTarget, waker, sleeper, "", "")
+		routes.SetDefaultRoute(config.Default, scalingTarget, RouteOptions{Waker: waker, Sleeper: sleeper})
 	}
 
 	if config.ConnectionRateLimit < 1 {

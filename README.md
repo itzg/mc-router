@@ -155,6 +155,35 @@ mc-router can pass the real client IP address through to backend servers using t
 - `-receive-proxy-protocol` (`RECEIVE_PROXY_PROTOCOL`): expect and consume a PROXY header sent by an upstream proxy or load balancer, so that mc-router itself sees the real client address. The header is not forwarded to the backend. By default, every received header is trusted; pass `-trusted-proxies` (`TRUSTED_PROXIES`), a comma-delimited list of CIDR blocks, to only honor headers sent from those upstream addresses.
 - `-dynamic-proxy-protocol` (`DYNAMIC_PROXY_PROTOCOL`): accept connections with or without a PROXY header. When a trusted upstream supplies a header, it is forwarded to the backend. Cannot be combined with either of the other two flags.
 
+### Per-route overrides
+
+Routes loaded from the routes config file can override the global outbound PROXY behavior with `proxy-protocol`:
+
+```json
+{
+  "default-server": {"backend": "vanilla:25565", "proxy-protocol": false},
+  "mappings": {
+    "modded.example.com": {"backend": "modded:25565", "proxy-protocol": false},
+    "paper.example.com": {"backend": "paper:25565", "proxy-protocol": true},
+    "legacy.example.com": "legacy:25565"
+  }
+}
+```
+
+- `true` generates a PROXY v2 header, even when the global send option is disabled.
+- `false` sends no PROXY header, including headers that dynamic mode would otherwise forward.
+- Omitted or `null` inherits the global behavior. Existing string mappings keep this behavior.
+
+In dynamic mode, `true` generates a new v2 header using the accepted connection's addresses instead of forwarding the supplied header. Upstream header reception and trust rules still apply. A named route without an override inherits the global settings; the default route's override applies only when the default route handles the connection.
+
+The REST API accepts the equivalent camelCase field `proxyProtocol` on `POST /routes` and `POST /defaultRoute`, for example:
+
+```json
+{"serverAddress":"modded.example.com","backend":"modded:25565","proxyProtocol":false}
+```
+
+For `POST /defaultRoute`, omit `serverAddress`. `GET /routes` includes `proxyProtocol` only when explicitly configured. Posting a route with the field omitted or `null` clears its override. API changes saved to the routes file preserve explicit `true` and `false` values. CLI mappings continue to use the global behavior; Docker/Swarm labels and Kubernetes annotations do not expose this override.
+
 ### Accepting PROXY protocol on the backend
 
 Backend servers must be configured to expect the header, otherwise the leading bytes are read as garbage and the connection fails. The setup differs per server "flavor":

@@ -38,7 +38,7 @@ func TestRouteConfigReloadDoesNotScaleDownActiveConnection(t *testing.T) {
 	}()
 
 	backendAddress := backendListener.Addr().String()
-	routes.CreateMapping(serverAddress, backendAddress, target, nil, sleeper, "", "")
+	routes.CreateMapping(serverAddress, backendAddress, target, RouteOptions{Sleeper: sleeper})
 
 	connector = NewConnector(
 		t.Context(),
@@ -84,7 +84,7 @@ func TestRouteConfigReloadDoesNotScaleDownActiveConnection(t *testing.T) {
 
 	// RoutesConfigLoader.Load calls BulkRegister after a watched file change,
 	// which calls CreateMapping again for this unchanged, already-active route.
-	routes.CreateMapping(serverAddress, backendAddress, target, nil, sleeper, "", "")
+	routes.CreateMapping(serverAddress, backendAddress, target, RouteOptions{Sleeper: sleeper})
 
 	select {
 	case activeConnections := <-scaleDownCalled:

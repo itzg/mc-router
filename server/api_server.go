@@ -78,13 +78,14 @@ func (a *ApiServer) routesListHandler(writer http.ResponseWriter, _ *http.Reques
 	type serverRoute = struct {
 		Backend       string `json:"backend"`
 		ScalingTarget string `json:"scalingTarget"`
+		ProxyProtocol *bool  `json:"proxyProtocol,omitempty"`
 	}
 
 	mappings := a.routes.GetMappings()
 	routes := make(map[string]serverRoute, len(mappings))
-	for k := range mappings {
+	for k, mapping := range mappings {
 		backend, address, scalingTarget, _, _ := a.routes.FindBackendForServerAddress(a.ctx, k)
-		routes[address] = serverRoute{Backend: backend, ScalingTarget: safeScalingKey(scalingTarget)}
+		routes[address] = serverRoute{Backend: backend, ScalingTarget: safeScalingKey(scalingTarget), ProxyProtocol: mapping.ProxyProtocol}
 	}
 
 	bytes, err := json.Marshal(routes)
@@ -119,6 +120,7 @@ func (a *ApiServer) routesCreateHandler(writer http.ResponseWriter, request *htt
 	var definition = struct {
 		ServerAddress string
 		Backend       string
+		ProxyProtocol *bool `json:"proxyProtocol"`
 	}{}
 
 	//goland:noinspection GoUnhandledErrorResult
@@ -133,7 +135,7 @@ func (a *ApiServer) routesCreateHandler(writer http.ResponseWriter, request *htt
 	}
 
 	waker, sleeper, scalingTarget := a.webhookScaler.routeFuncs(definition.ServerAddress, definition.Backend)
-	a.routes.CreateMapping(definition.ServerAddress, definition.Backend, scalingTarget, waker, sleeper, "", "")
+	a.routes.CreateMapping(definition.ServerAddress, definition.Backend, scalingTarget, RouteOptions{Waker: waker, Sleeper: sleeper, ProxyProtocol: definition.ProxyProtocol})
 	if a.configLoader != nil {
 		a.configLoader.SaveRoutes()
 	}
@@ -142,7 +144,8 @@ func (a *ApiServer) routesCreateHandler(writer http.ResponseWriter, request *htt
 
 func (a *ApiServer) routesSetDefault(writer http.ResponseWriter, request *http.Request) {
 	var body = struct {
-		Backend string
+		Backend       string
+		ProxyProtocol *bool `json:"proxyProtocol"`
 	}{}
 
 	//goland:noinspection GoUnhandledErrorResult
@@ -157,7 +160,7 @@ func (a *ApiServer) routesSetDefault(writer http.ResponseWriter, request *http.R
 	}
 
 	waker, sleeper, scalingTarget := a.webhookScaler.routeFuncs("", body.Backend)
-	a.routes.SetDefaultRoute(body.Backend, scalingTarget, waker, sleeper, "", "")
+	a.routes.SetDefaultRoute(body.Backend, scalingTarget, RouteOptions{Waker: waker, Sleeper: sleeper, ProxyProtocol: body.ProxyProtocol})
 	if a.configLoader != nil {
 		a.configLoader.SaveRoutes()
 	}
