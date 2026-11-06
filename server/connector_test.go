@@ -247,16 +247,57 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 			wantSource: "192.0.2.33:12345",
 			wantDest:   "0.0.0.0:25565",
 		},
-		{name: "no header when connection has none"},
-		{name: "inherit global disabled", direct: true},
-		{name: "force with global disabled", direct: true, override: new(true), wantVersion: 2},
-		{name: "force header", override: new(true), wantVersion: 2},
-		{name: "force header replaces dynamic", override: new(true), header: "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n", wantVersion: 2},
-		{name: "suppress dynamic", override: new(false), header: "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n"},
-		{name: "inherit global enabled", global: true, wantVersion: 2},
-		{name: "suppress global", global: true, override: new(false)},
-		{name: "default force", defaultRoute: true, override: new(true), wantVersion: 2},
-		{name: "default suppress dynamic", defaultRoute: true, override: new(false), header: "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n"},
+		{
+			name: "no header when connection has none",
+		},
+		{
+			name:   "inherit global disabled",
+			direct: true,
+		},
+		{
+			name:        "force with global disabled",
+			direct:      true,
+			override:    new(true),
+			wantVersion: 2,
+		},
+		{
+			name:        "force header",
+			override:    new(true),
+			wantVersion: 2,
+		},
+		{
+			name:        "force header replaces dynamic",
+			override:    new(true),
+			header:      "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n",
+			wantVersion: 2,
+		},
+		{
+			name:     "suppress dynamic",
+			override: new(false),
+			header:   "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n",
+		},
+		{
+			name:        "inherit global enabled",
+			global:      true,
+			wantVersion: 2,
+		},
+		{
+			name:     "suppress global",
+			global:   true,
+			override: new(false),
+		},
+		{
+			name:         "default force",
+			defaultRoute: true,
+			override:     new(true),
+			wantVersion:  2,
+		},
+		{
+			name:         "default suppress dynamic",
+			defaultRoute: true,
+			override:     new(false),
+			header:       "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n",
+		},
 	}
 
 	for _, test := range tests {
