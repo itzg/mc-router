@@ -329,13 +329,13 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 
 func TestConnectorProxyProtocolOverrides(t *testing.T) {
 	tests := []struct {
-		name                string
-		header              string
-		override            *bool
-		global              bool // Enable global outbound PROXY headers instead of dynamic mode.
-		direct              bool // Disable dynamic mode when global outbound headers are also disabled.
-		useDefaultRoute     bool // Route the requested hostname through the default route instead of a named mapping.
-		wantGeneratedHeader bool // Expect the router to generate a PROXY v2 header.
+		name                   string
+		header                 string
+		override               *bool
+		global                 bool // Enable global outbound PROXY headers instead of dynamic mode.
+		direct                 bool // Disable dynamic mode when global outbound headers are also disabled.
+		expectUsesDefaultRoute bool // Route the requested hostname through the default route instead of a named mapping.
+		wantGeneratedHeader    bool // Expect the router to generate a PROXY v2 header.
 	}{
 		{
 			name:   "inherit global disabled",
@@ -374,16 +374,16 @@ func TestConnectorProxyProtocolOverrides(t *testing.T) {
 			override: new(false),
 		},
 		{
-			name:                "default force",
-			useDefaultRoute:     true,
-			override:            new(true),
-			wantGeneratedHeader: true,
+			name:                   "default force",
+			expectUsesDefaultRoute: true,
+			override:               new(true),
+			wantGeneratedHeader:    true,
 		},
 		{
-			name:            "default suppress dynamic",
-			useDefaultRoute: true,
-			override:        new(false),
-			header:          "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n",
+			name:                   "default suppress dynamic",
+			expectUsesDefaultRoute: true,
+			override:               new(false),
+			header:                 "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n",
 		},
 	}
 
@@ -406,7 +406,7 @@ func TestConnectorProxyProtocolOverrides(t *testing.T) {
 
 			// Keep a differently configured route in the same table.
 			routes.CreateMapping("other.example.com", backendListener.Addr().String(), nil, RouteOptions{ProxyProtocol: new(true)})
-			if test.useDefaultRoute {
+			if test.expectUsesDefaultRoute {
 				routes.SetDefaultRoute(backendListener.Addr().String(), nil, RouteOptions{ProxyProtocol: test.override})
 			} else {
 				// A matching named route must use its own override or the global setting,
