@@ -8,6 +8,10 @@ import (
 )
 
 // RouteConfig accepts a backend string or an object with per-route settings.
+// Both forms can appear in mappings or default-server:
+//
+//	"backend:25565"
+//	{"backend": "backend:25565", "proxy-protocol": false}
 type RouteConfig struct {
 	Backend       string `json:"backend"`
 	ProxyProtocol *bool  `json:"proxy-protocol,omitempty"`
@@ -22,7 +26,8 @@ func (r *RouteConfig) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	type alias RouteConfig
+	// Fall back to unmarshaling as a full object ({"backend": "...", "proxy-protocol": false}).
+	type alias RouteConfig // Prevent infinite recursion through UnmarshalJSON.
 	var config alias
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()

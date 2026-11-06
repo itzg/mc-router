@@ -230,8 +230,8 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 		wantSource   string
 		wantDest     string
 		override     *bool
-		global       bool
-		direct       bool
+		global       bool // Enable global outbound PROXY headers instead of dynamic mode.
+		direct       bool // Disable dynamic mode when global outbound headers are also disabled.
 		defaultRoute bool
 		wantVersion  byte
 	}{
@@ -325,6 +325,8 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 			}
 			defer backendConn.Close()
 
+			// USE makes the PROXY header optional so no-header and suppression cases
+			// can still read the Minecraft handshake; the library defaults to REQUIRE.
 			proxyConn := proxyproto.NewConn(backendConn, proxyproto.WithPolicy(proxyproto.USE))
 			_ = proxyConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 			header := proxyConn.ProxyHeader()
@@ -346,6 +348,8 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 			} else {
 				assert.Nil(t, header, "expected no PROXY header to be forwarded")
 			}
+			// Verify the backend can still read the Minecraft handshake (packet ID 0),
+			// whether a PROXY header was consumed or no header was sent.
 			packet, err := mcproto.ReadPacket(bufio.NewReader(proxyConn), backendConn.RemoteAddr(), mcproto.StateHandshaking)
 			require.NoError(t, err)
 			assert.Equal(t, 0, packet.PacketID)
