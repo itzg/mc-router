@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -47,7 +48,7 @@ func StartApiServer(ctx context.Context, apiBinding string, routes IRoutes, conf
 	apiKey := os.Getenv("API_KEY")
 
 	corsHandler := cors.New(cors.Options{
-    AllowedOrigins: []string{"*"},
+    AllowedOrigins: getAllowedOrigins(),
     AllowedMethods: []string{
         http.MethodGet,
         http.MethodPost,
@@ -182,4 +183,22 @@ func (a *ApiServer) routesSetDefault(writer http.ResponseWriter, request *http.R
 		a.configLoader.SaveRoutes()
 	}
 	writer.WriteHeader(http.StatusOK)
+}
+
+func getAllowedOrigins() []string {
+	origins := strings.TrimSpace(os.Getenv("ALLOWED_ORIGINS"))
+	
+	if origins == "" {
+		return []string{}
+	}
+	
+	var allowedOrigins []string
+	for _, origin := range strings.Split(origins, ",") {
+		origin = strings.TrimSpace(origin)
+		if origin != "" {
+			allowedOrigins = append(allowedOrigins, origin)
+		}
+	}
+
+	return allowedOrigins
 }
