@@ -60,9 +60,13 @@ func TestRouteProxyProtocolLookup(t *testing.T) {
 		host string
 		want *bool
 	}{
-		{"mc.example.com", new(false)}, {"MC.EXAMPLE.COM.", new(false)},
-		{"mc.example.com///shield", new(false)}, {"_minecraft._tcp.mc.example.com", new(false)},
-		{"inherit.example.com", nil}, {"unknown.example.com", new(true)},
+		{"mc.example.com", new(false)},
+		{"MC.EXAMPLE.COM.", new(false)},
+		{"mc.example.com///shield", new(false)},
+		{"_minecraft._tcp.mc.example.com", new(false)},
+		{"inherit.example.com", nil},
+		// An unknown hostname falls back to the default route's explicit override.
+		{"unknown.example.com", new(true)},
 	} {
 		t.Run(tt.host, func(t *testing.T) { assert.Equal(t, tt.want, routes.GetProxyProtocol(tt.host)) })
 	}
