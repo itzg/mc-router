@@ -372,13 +372,7 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerId string, desir
 			logrus.WithField("routableContainer", rs).Debug("ADD")
 			continue
 		}
-		if oldRs.containerEndpoint == rs.containerEndpoint &&
-			oldRs.containerId == rs.containerId &&
-			oldRs.autoScaleUp == rs.autoScaleUp &&
-			oldRs.autoScaleDown == rs.autoScaleDown &&
-			oldRs.autoScaleAsleepMOTD == rs.autoScaleAsleepMOTD &&
-			oldRs.autoScaleLoadingMOTD == rs.autoScaleLoadingMOTD &&
-			(oldRs.proxyProtocol == rs.proxyProtocol || (oldRs.proxyProtocol != nil && rs.proxyProtocol != nil && *oldRs.proxyProtocol == *rs.proxyProtocol)) {
+		if oldRs.Equal(rs) {
 			continue
 		}
 		w.containerMap[rs.externalName] = rs
@@ -754,6 +748,22 @@ type routableContainer struct {
 	autoScaleLoadingMOTD string
 	proxyProtocol        *bool
 	scalingTarget        *DockerScalingTarget
+}
+
+// Equal compares the discovered settings that determine whether a route needs updating.
+// The external name is the map key; scaling state and targets are runtime data.
+func (r *routableContainer) Equal(other *routableContainer) bool {
+	if r == nil || other == nil {
+		return r == other
+	}
+	return r.containerEndpoint == other.containerEndpoint &&
+		r.containerId == other.containerId &&
+		r.autoScaleUp == other.autoScaleUp &&
+		r.autoScaleDown == other.autoScaleDown &&
+		r.autoScaleAsleepMOTD == other.autoScaleAsleepMOTD &&
+		r.autoScaleLoadingMOTD == other.autoScaleLoadingMOTD &&
+		(r.proxyProtocol == other.proxyProtocol ||
+			(r.proxyProtocol != nil && other.proxyProtocol != nil && *r.proxyProtocol == *other.proxyProtocol))
 }
 
 func (r *routableContainer) String() string {

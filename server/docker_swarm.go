@@ -54,6 +54,29 @@ type routableSwarmService struct {
 	scalingTarget             *DockerSwarmScalingTarget
 }
 
+// Equal compares the discovered settings that determine whether a route needs updating.
+// The external name is the map key, the service ID identifies the service, and
+// the scaling target is runtime data rather than a discovered setting.
+func (r *routableSwarmService) Equal(other *routableSwarmService) bool {
+	if r == nil || other == nil {
+		return r == other
+	}
+	return r.containerEndpoint == other.containerEndpoint &&
+		r.serviceID == other.serviceID &&
+		r.networkID == other.networkID &&
+		r.autoScaleUp == other.autoScaleUp &&
+		r.autoScaleDown == other.autoScaleDown &&
+		r.autoScaleAsleepMOTD == other.autoScaleAsleepMOTD &&
+		r.autoScaleLoadingMOTD == other.autoScaleLoadingMOTD &&
+		(r.proxyProtocol == other.proxyProtocol ||
+			(r.proxyProtocol != nil && other.proxyProtocol != nil && *r.proxyProtocol == *other.proxyProtocol)) &&
+		r.autoScaleWaitTimeout == other.autoScaleWaitTimeout &&
+		r.autoScaleFailedMOTD == other.autoScaleFailedMOTD &&
+		r.autoScaleRestartDelayMOTD == other.autoScaleRestartDelayMOTD &&
+		r.countdownDeadline == other.countdownDeadline &&
+		r.statusState == other.statusState
+}
+
 func (r *routableSwarmService) String() string {
 	return fmt.Sprintf("routableSwarmService{externalName=%s, endpoint=%s, serviceID=%s, serviceName=%s, networkID=%s, autoScaleUp=%v, autoScaleDown=%v, autoScaleAsleepMOTD=%s, autoScaleLoadingMOTD=%s, autoScaleFailedMOTD=%s, autoScaleRestartDelayMOTD=%s, statusState=%s, scalingTarget=%v}",
 		r.externalServiceName, r.containerEndpoint, r.serviceID, r.serviceName, r.networkID, r.autoScaleUp, r.autoScaleDown, r.autoScaleAsleepMOTD, r.autoScaleLoadingMOTD, r.autoScaleFailedMOTD, r.autoScaleRestartDelayMOTD, r.statusState, r.scalingTarget)
@@ -362,19 +385,7 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			w.routes.SetCountdownDeadline(rs.externalServiceName, rs.countdownDeadline)
 			// If the service is already tracked, check if any metadata, endpoint, MOTDs, or deadline
 			// changed. If so, recreate wakers/sleepers and update the route table.
-		} else if oldRs.containerEndpoint != rs.containerEndpoint ||
-			oldRs.serviceID != rs.serviceID ||
-			oldRs.networkID != rs.networkID ||
-			oldRs.autoScaleUp != rs.autoScaleUp ||
-			oldRs.autoScaleDown != rs.autoScaleDown ||
-			oldRs.autoScaleAsleepMOTD != rs.autoScaleAsleepMOTD ||
-			oldRs.autoScaleLoadingMOTD != rs.autoScaleLoadingMOTD ||
-			!(oldRs.proxyProtocol == rs.proxyProtocol || (oldRs.proxyProtocol != nil && rs.proxyProtocol != nil && *oldRs.proxyProtocol == *rs.proxyProtocol)) ||
-			oldRs.autoScaleWaitTimeout != rs.autoScaleWaitTimeout ||
-			oldRs.autoScaleFailedMOTD != rs.autoScaleFailedMOTD ||
-			oldRs.autoScaleRestartDelayMOTD != rs.autoScaleRestartDelayMOTD ||
-			oldRs.countdownDeadline != rs.countdownDeadline ||
-			oldRs.statusState != rs.statusState {
+		} else if !oldRs.Equal(rs) {
 
 			if oldRs.statusState != rs.statusState {
 				ipDetail := ""
