@@ -6,6 +6,8 @@ import (
 	"net/http"
 )
 
+const apiKeyHeader = "X-API-KEY";
+
 func apiKeyMiddleware(next http.Handler, expectedKey string) http.Handler {
 	// An empty key disables authentication.
 	if expectedKey == "" {
@@ -15,7 +17,7 @@ func apiKeyMiddleware(next http.Handler, expectedKey string) http.Handler {
 	expectedHash := sha256.Sum256([]byte(expectedKey))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		providedKey := r.Header.Get("X-API-Key")
+		providedKey := r.Header.Get(apiKeyHeader)
 		providedHash := sha256.Sum256([]byte(providedKey))
 
 		if subtle.ConstantTimeCompare(expectedHash[:], providedHash[:]) != 1 {

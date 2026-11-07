@@ -59,7 +59,7 @@ func StartApiServer(ctx context.Context, apiConfig ApiConfig, routes IRoutes, co
         "Accept",
         "Authorization",
         "Content-Type",
-				"X-API-Key",
+				apiKeyHeader,
     },
 	})
 
