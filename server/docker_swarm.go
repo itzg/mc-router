@@ -719,7 +719,11 @@ func (w *dockerSwarmWatcherImpl) parseServiceLabels(service *swarm.Service, data
 		case DockerRouterLabelProxyProtocol:
 			enabled, err := strconv.ParseBool(strings.TrimSpace(value))
 			if err != nil {
-				logrus.WithError(err).WithField("serviceId", service.ID).WithField("value", value).Warn("Invalid PROXY protocol label, inheriting global setting")
+				logrus.
+					WithError(err).
+					WithField("serviceId", service.ID).
+					WithField("value", value).
+					Warn("Invalid PROXY protocol label, inheriting global setting")
 			} else {
 				data.proxyProtocol = &enabled
 			}

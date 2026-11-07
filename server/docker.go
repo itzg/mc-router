@@ -634,7 +634,11 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 		if key == DockerRouterLabelProxyProtocol {
 			enabled, err := strconv.ParseBool(strings.TrimSpace(value))
 			if err != nil {
-				logrus.WithError(err).WithField("containerId", container.ID).WithField("value", value).Warn("Invalid PROXY protocol label, inheriting global setting")
+				logrus.
+					WithError(err).
+					WithField("containerId", container.ID).
+					WithField("value", value).
+					Warn("Invalid PROXY protocol label, inheriting global setting")
 			} else {
 				data.proxyProtocol = &enabled
 			}

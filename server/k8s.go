@@ -368,7 +368,11 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 	if value, exists := service.Annotations[AnnotationProxyProtocol]; exists {
 		enabled, err := strconv.ParseBool(strings.TrimSpace(value))
 		if err != nil {
-			logrus.WithError(err).WithField("service", service.Name).WithField("value", value).Warn("Invalid PROXY protocol annotation, inheriting global setting")
+			logrus.
+				WithError(err).
+				WithField("service", service.Name).
+				WithField("value", value).
+				Warn("Invalid PROXY protocol annotation, inheriting global setting")
 		} else {
 			proxyProtocol = &enabled
 		}
