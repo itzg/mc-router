@@ -26,7 +26,13 @@ type ApiServer struct {
 
 // StartApiServer starts the REST API server. It will listen on apiBinding's host:port utilizing the
 // given routes to retrieve routes, configLoader to save routes, and scaler to scale routes via a WebhookScaler.
-func StartApiServer(ctx context.Context, apiConfig ApiConfig, routes IRoutes, configLoader *RoutesConfigLoader, webhookScaler *WebhookScaler) (*ApiServer, error) {
+func StartApiServer(
+	ctx context.Context,
+	apiConfig ApiConfig,
+	routes IRoutes,
+	configLoader *RoutesConfigLoader,
+	webhookScaler *WebhookScaler,
+) (*ApiServer, error) {
 	api := &ApiServer{ctx: ctx, routes: routes, configLoader: configLoader, webhookScaler: webhookScaler}
 
 	var apiRoutes = mux.NewRouter()
@@ -44,26 +50,29 @@ func StartApiServer(ctx context.Context, apiConfig ApiConfig, routes IRoutes, co
 	api.addr = ln.Addr().String()
 
 	if apiConfig.AllowedOrigins == nil {
-    apiConfig.AllowedOrigins = []string{""}
+		apiConfig.AllowedOrigins = []string{""}
 	}
 
 	corsHandler := cors.New(cors.Options{
-    AllowedOrigins: apiConfig.AllowedOrigins,
-    AllowedMethods: []string{
-        http.MethodGet,
-        http.MethodPost,
-        http.MethodDelete,
-        http.MethodOptions,
-    },
-    AllowedHeaders: []string{
-        "Accept",
-        "Authorization",
-        "Content-Type",
-				apiKeyHeader,
-    },
+		AllowedOrigins: apiConfig.AllowedOrigins,
+		AllowedMethods: []string{
+			http.MethodGet,
+			http.MethodPost,
+			http.MethodDelete,
+			http.MethodOptions,
+		},
+		AllowedHeaders: []string{
+			"Accept",
+			"Authorization",
+			"Content-Type",
+			apiKeyHeader,
+		},
 	})
 
-	server := &http.Server{Addr: apiConfig.Binding, Handler: corsHandler.Handler(apiKeyMiddleware(apiRoutes, apiConfig.Key))}
+	server := &http.Server{
+		Addr:    apiConfig.Binding,
+		Handler: corsHandler.Handler(apiKeyMiddleware(apiRoutes, apiConfig.Key)),
+	}
 	server.BaseContext = func(_ net.Listener) context.Context { return ctx }
 
 	context.AfterFunc(ctx, func() {
