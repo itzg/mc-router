@@ -25,7 +25,7 @@ type IDockerWatcher interface {
 }
 
 const (
-	DockerRouterLabelProxyProtocol             = "mc-router.proxy-protocol"
+	DockerRouterLabelProxyProtocol             = "mc-router.proxyProtocol"
 	DockerRouterLabelHost                      = "mc-router.host"
 	DockerRouterLabelPort                      = "mc-router.port"
 	DockerRouterLabelDefault                   = "mc-router.default"
