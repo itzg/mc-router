@@ -42,11 +42,17 @@ type NgrokConfig struct {
 	RemoteAddr string `usage:"If set, the TCP address to request for this edge"`
 }
 
+type ApiConfig struct {
+	Binding        string   `usage:"The [host:port] bound for servicing API requests"`
+	Key						 string	  `usage:"A key used for authenticating with the API"`
+	AllowedOrigins []string `usage:"Comma delimited list of origins allowed to use the API"`
+}
+
 type Config struct {
 	Port                   int               `default:"25565" usage:"The [port] bound to listen for Minecraft client connections"`
 	Default                string            `usage:"host:port of a default Minecraft server to use when mapping not found"`
 	Mapping                map[string]string `usage:"Comma or newline delimited or repeated mappings of externalHostname=host:port"`
-	ApiBinding             string            `usage:"The [host:port] bound for servicing API requests"`
+	Api										 ApiConfig				 `usage:"Api configuration"`
 	CpuProfile             string            `usage:"Enables CPU profiling and writes to given path"`
 	ConnectionRateLimit    int               `default:"1" usage:"Max number of connections to allow per second"`
 	BackendDialTimeout     time.Duration     `default:"2s" usage:"Timeout for establishing the TCP connection to a backend. Bounds how long a dial to a scaled-to-zero server's Service (no endpoints) waits before the auto-scale asleep MOTD / scale-up fallback is served; operators with fast on-cluster backends can lower it so that fallback fires sooner"`

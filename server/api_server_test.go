@@ -29,7 +29,7 @@ func Test_apiServer_routesListHandler(t *testing.T) {
 			routes.On("GetMappings").Return(mappings)
 			routes.On("FindBackendForServerAddress", mock.Anything, "mc.example.com").Return("backend:25565", "mc.example.com",
 				tt.scalingTarget, nillableWaker(nil), nillableSleeper(nil))
-			server, err := StartApiServer(t.Context(), "127.0.0.1:0", routes, nil, nil)
+			server, err := StartApiServer(t.Context(), ApiConfig{Binding: "127.0.0.1:0"}, routes, nil, nil)
 			if err != nil {
 				require.NotNil(t, err)
 			}
