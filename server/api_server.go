@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -25,7 +26,7 @@ type ApiServer struct {
 
 // StartApiServer starts the REST API server. It will listen on apiBinding's host:port utilizing the
 // given routes to retrieve routes, configLoader to save routes, and scaler to scale routes via a WebhookScaler.
-func StartApiServer(ctx context.Context, apiBinding string, routes IRoutes, configLoader *RoutesConfigLoader, webhookScaler *WebhookScaler) (*ApiServer, error) {
+func StartApiServer(ctx context.Context, apiConfig ApiConfig, routes IRoutes, configLoader *RoutesConfigLoader, webhookScaler *WebhookScaler) (*ApiServer, error) {
 	api := &ApiServer{ctx: ctx, routes: routes, configLoader: configLoader, webhookScaler: webhookScaler}
 
 	var apiRoutes = mux.NewRouter()
@@ -35,14 +36,34 @@ func StartApiServer(ctx context.Context, apiBinding string, routes IRoutes, conf
 
 	apiRoutes.Path("/metrics").Handler(promhttp.Handler())
 
-	ln, err := net.Listen("tcp", apiBinding)
+	ln, err := net.Listen("tcp", apiConfig.Binding)
 	if err != nil {
 		logrus.WithError(err).Error("API server failed to start")
 		return nil, fmt.Errorf("failed to start API server: %w", err)
 	}
 	api.addr = ln.Addr().String()
 
-	server := &http.Server{Addr: apiBinding, Handler: apiRoutes}
+	if apiConfig.AllowedOrigins == nil {
+    apiConfig.AllowedOrigins = []string{""}
+	}
+
+	corsHandler := cors.New(cors.Options{
+    AllowedOrigins: apiConfig.AllowedOrigins,
+    AllowedMethods: []string{
+        http.MethodGet,
+        http.MethodPost,
+        http.MethodDelete,
+        http.MethodOptions,
+    },
+    AllowedHeaders: []string{
+        "Accept",
+        "Authorization",
+        "Content-Type",
+				apiKeyHeader,
+    },
+	})
+
+	server := &http.Server{Addr: apiConfig.Binding, Handler: corsHandler.Handler(apiKeyMiddleware(apiRoutes, apiConfig.Key))}
 	server.BaseContext = func(_ net.Listener) context.Context { return ctx }
 
 	context.AfterFunc(ctx, func() {
