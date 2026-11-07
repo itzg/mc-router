@@ -22,8 +22,12 @@ Some other features included:
 ## Usage
 
 ```text
+  -api-allowed-origins value
+        Comma delimited list of origins allowed to use the API (env API_ALLOWED_ORIGINS)
   -api-binding host:port
-    	The host:port bound for servicing API requests (env API_BINDING)
+        The host:port bound for servicing API requests (env API_BINDING)
+  -api-key string
+        A key used for authenticating with the API (env API_KEY)
   -auto-scale-allow-deny string
     	Path to config for server allowlists and denylists. If a global/server entry is specified, only players allowed to connect to the server will be able to trigger a scale up when -auto-scale-up is enabled or cancel active down scalers when -auto-scale-down is enabled (env AUTO_SCALE_ALLOW_DENY)
   -auto-scale-asleep-motd string
@@ -759,6 +763,12 @@ If the client reports "Connection refused" check:
 
 ## REST API
 
+### Configuration
+* `-api-binding` needs to be set for the API to start
+* `-api-key` can optionally be set to add authentication, each request will need to have the `X-API-KEY` header set to work
+* `-api-allowed-origins` can optionally be set to configure CORS, useful if you want to use scripts to access the API
+
+### Endpoints
 * `GET /routes` (with `Accept: application/json`)
 
   Retrieves the currently configured routes
