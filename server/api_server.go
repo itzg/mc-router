@@ -83,9 +83,9 @@ func (a *ApiServer) routesListHandler(writer http.ResponseWriter, _ *http.Reques
 
 	mappings := a.routes.GetMappings()
 	routes := make(map[string]serverRoute, len(mappings))
-	for k, mapping := range mappings {
-		backend, address, scalingTarget, _, _ := a.routes.FindBackendForServerAddress(a.ctx, k)
-		routes[address] = serverRoute{Backend: backend, ScalingTarget: safeScalingKey(scalingTarget), ProxyProtocol: mapping.ProxyProtocol}
+	for k := range mappings {
+		backend, address, scalingTarget, _, _, proxyOverride := a.routes.FindBackendForServerAddress(a.ctx, k)
+		routes[address] = serverRoute{Backend: backend, ScalingTarget: safeScalingKey(scalingTarget), ProxyProtocol: proxyOverride}
 	}
 
 	bytes, err := json.Marshal(routes)

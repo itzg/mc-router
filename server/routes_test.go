@@ -72,7 +72,7 @@ func Test_routesImpl_FindBackendForServerAddress(t *testing.T) {
 
 			r.CreateMapping(tt.mapping.serverAddress, tt.mapping.backend, nil, RouteOptions{})
 
-			if got, server, _, _, _ := r.FindBackendForServerAddress(context.Background(), tt.args.serverAddress); got != tt.want {
+			if got, server, _, _, _, _ := r.FindBackendForServerAddress(context.Background(), tt.args.serverAddress); got != tt.want {
 				t.Errorf("routesImpl.FindBackendForServerAddress() = %v, want %v", got, tt.want)
 			} else {
 				assert.Equal(t, tt.mapping.serverAddress, server)
@@ -112,7 +112,7 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 		r.WithDownScaler(downScaler)
 		r.CreateMapping("mc.example.com", addressProxy, target5, RouteOptions{})
 
-		backend, _, scalingTarget, _, _ := r.FindBackendForServerAddress(context.Background(), "mc.example.com")
+		backend, _, scalingTarget, _, _, _ := r.FindBackendForServerAddress(context.Background(), "mc.example.com")
 		assert.Equal(t, addressProxy, backend)
 		assert.Equal(t, "10.0.0.5:25565", scalingTarget.ScalingKey())
 	})
@@ -396,10 +396,11 @@ func nillableSleeper(in interface{}) SleeperFunc {
 	return sleeper
 }
 
-func (m *MockRoutes) FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, ScalingTarget, WakerFunc, SleeperFunc) {
+func (m *MockRoutes) FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, ScalingTarget, WakerFunc, SleeperFunc, *bool) {
 	args := m.MethodCalled("FindBackendForServerAddress", ctx, serverAddress)
 
-	return args.String(0), args.String(1), nillableScalingTarget(args.Get(2)), nillableWaker(args.Get(3)), nillableSleeper(args.Get(4))
+	override, _ := args.Get(5).(*bool)
+	return args.String(0), args.String(1), nillableScalingTarget(args.Get(2)), nillableWaker(args.Get(3)), nillableSleeper(args.Get(4)), override
 }
 
 func (m *MockRoutes) HasRoute(serverAddress string) bool {
@@ -512,7 +513,7 @@ func Test_routesImpl_ReusesScalingTargetByKey(t *testing.T) {
 	r.CreateMapping("b.example.com", "10.0.0.1:25565", TestingScalingTarget("ns:svc"), RouteOptions{})
 
 	for _, host := range []string{"a.example.com", "b.example.com"} {
-		_, _, st, _, _ := r.FindBackendForServerAddress(context.Background(), host)
+		_, _, st, _, _, _ := r.FindBackendForServerAddress(context.Background(), host)
 		assert.Same(t, first, st, host)
 		assert.False(t, st.StartScaling(), host)
 	}

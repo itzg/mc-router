@@ -71,7 +71,9 @@ type IRoutes interface {
 	// The 3rd value returned is the scalingTarget which indicates what endpoint to scale (may differ from backend when using proxy).
 	// The 4th value returned is an (optional) "waker" function which a caller must invoke to wake up serverAddress.
 	// The 5th value returned is an (optional) "sleeper" function which a caller must invoke to shut down serverAddress.
-	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, ScalingTarget, WakerFunc, SleeperFunc)
+	// The 6th value is the selected route's PROXY override (nil inherits global settings),
+	// captured under the same read lock as its backend and scaling callbacks.
+	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, ScalingTarget, WakerFunc, SleeperFunc, *bool)
 	HasRoute(serverAddress string) bool
 	GetSleeper(scalingTarget ScalingTarget) SleeperFunc
 	GetMappings() map[string]RouteConfig
@@ -343,7 +345,7 @@ func NormalizeServerAddress(serverAddress string) string {
 		strings.TrimSuffix(serverAddress, "."))
 }
 
-func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddress string) (string, string, ScalingTarget, WakerFunc, SleeperFunc) {
+func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddress string) (string, string, ScalingTarget, WakerFunc, SleeperFunc, *bool) {
 	r.RLock()
 	defer r.RUnlock()
 
@@ -355,13 +357,13 @@ func (r *routesImpl) FindBackendForServerAddress(_ context.Context, serverAddres
 
 	if r.mappings != nil {
 		if mapping, exists := r.mappings[serverAddress]; exists {
-			return mapping.backend, serverAddress, mapping.scalingTarget, mapping.waker, mapping.sleeper
+			return mapping.backend, serverAddress, mapping.scalingTarget, mapping.waker, mapping.sleeper, mapping.proxyProtocol
 		}
 	}
 	if r.defaultRoute != nil {
-		return r.defaultRoute.backend, serverAddress, r.defaultRoute.scalingTarget, r.defaultRoute.waker, r.defaultRoute.sleeper
+		return r.defaultRoute.backend, serverAddress, r.defaultRoute.scalingTarget, r.defaultRoute.waker, r.defaultRoute.sleeper, r.defaultRoute.proxyProtocol
 	}
-	return "", serverAddress, nil, nil, nil
+	return "", serverAddress, nil, nil, nil, nil
 }
 
 // normalizeServerAddress applies the same hostname rules to all route lookups.

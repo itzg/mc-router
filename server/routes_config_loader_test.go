@@ -59,7 +59,7 @@ func TestRouteOverridesFileAndAPI(t *testing.T) {
 			assert.Equal(t, new(true), routes.GetProxyProtocol("unknown"))
 			assert.Nil(t, routes.GetProxyProtocol("inherit.example.com"))
 			for _, host := range []string{"off.example.com", "added.example.com", "unknown"} {
-				_, _, target, waker, sleeper := routes.FindBackendForServerAddress(t.Context(), host)
+				_, _, target, waker, sleeper, _ := routes.FindBackendForServerAddress(t.Context(), host)
 				if scaled {
 					assert.NotNil(t, target)
 					assert.NotNil(t, waker)
