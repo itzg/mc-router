@@ -6,7 +6,6 @@ import (
 	"net"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/itzg/mc-router/server/internal/discoveryconfig"
 	"github.com/sirupsen/logrus"
 )
 
@@ -607,7 +607,7 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 					Warnf("ignoring container with duplicate %s label", DockerRouterLabelDefault)
 				return
 			}
-			defaultValue, err := strconv.ParseBool(strings.TrimSpace(value))
+			defaultValue, err := discoveryconfig.ParseBool(value)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
 					WithError(err).
@@ -626,7 +626,7 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 			*data.network = value
 		}
 		if key == DockerRouterLabelProxyProtocol {
-			enabled, err := strconv.ParseBool(strings.TrimSpace(value))
+			enabled, err := discoveryconfig.ParseBool(value)
 			if err != nil {
 				logrus.
 					WithError(err).
@@ -638,7 +638,7 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 			}
 		}
 		if key == DockerRouterLabelAutoScaleUp {
-			autoScaleUp, err := strconv.ParseBool(strings.TrimSpace(value))
+			autoScaleUp, err := discoveryconfig.ParseBool(value)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
 					WithError(err).
@@ -648,7 +648,7 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 			data.autoScaleUp = autoScaleUp
 		}
 		if key == DockerRouterLabelAutoScaleDown {
-			autoScaleDown, err := strconv.ParseBool(strings.TrimSpace(value))
+			autoScaleDown, err := discoveryconfig.ParseBool(value)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
 					WithError(err).

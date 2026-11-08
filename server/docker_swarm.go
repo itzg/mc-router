@@ -19,6 +19,7 @@ import (
 	swarmtypes "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/client"
+	"github.com/itzg/mc-router/server/internal/discoveryconfig"
 	"github.com/sirupsen/logrus"
 )
 
@@ -728,7 +729,7 @@ func (w *dockerSwarmWatcherImpl) parseServiceLabels(service *swarm.Service, data
 			*data.network = value
 
 		case DockerRouterLabelProxyProtocol:
-			enabled, err := strconv.ParseBool(strings.TrimSpace(value))
+			enabled, err := discoveryconfig.ParseBool(value)
 			if err != nil {
 				logrus.
 					WithError(err).
@@ -740,7 +741,7 @@ func (w *dockerSwarmWatcherImpl) parseServiceLabels(service *swarm.Service, data
 			}
 
 		case DockerRouterLabelAutoScaleUp:
-			autoScaleUp, err := strconv.ParseBool(strings.TrimSpace(value))
+			autoScaleUp, err := discoveryconfig.ParseBool(value)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
 					WithError(err).
@@ -750,7 +751,7 @@ func (w *dockerSwarmWatcherImpl) parseServiceLabels(service *swarm.Service, data
 			data.autoScaleUp = autoScaleUp
 
 		case DockerRouterLabelAutoScaleDown:
-			autoScaleDown, err := strconv.ParseBool(strings.TrimSpace(value))
+			autoScaleDown, err := discoveryconfig.ParseBool(value)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"serviceId": service.ID, "serviceName": service.Spec.Name}).
 					WithError(err).

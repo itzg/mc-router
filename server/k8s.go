@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/itzg/mc-router/server/internal/discoveryconfig"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	apps "k8s.io/api/apps/v1"
@@ -366,7 +367,7 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 
 	var proxyProtocol *bool
 	if value, exists := service.Annotations[AnnotationProxyProtocol]; exists {
-		enabled, err := strconv.ParseBool(strings.TrimSpace(value))
+		enabled, err := discoveryconfig.ParseBool(value)
 		if err != nil {
 			logrus.
 				WithError(err).
@@ -422,7 +423,7 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 	if from <= to {
 		enabled, exists := service.Annotations[AnnotationAutoScaleUp]
 		if exists {
-			enabledBool, err := strconv.ParseBool(strings.TrimSpace(enabled))
+			enabledBool, err := discoveryconfig.ParseBool(enabled)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"service": service.Name}).
 					WithError(err).
@@ -442,7 +443,7 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 	if from >= to {
 		enabled, exists := service.Annotations[AnnotationAutoScaleDown]
 		if exists {
-			enabledBool, err := strconv.ParseBool(strings.TrimSpace(enabled))
+			enabledBool, err := discoveryconfig.ParseBool(enabled)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"service": service.Name}).
 					WithError(err).
