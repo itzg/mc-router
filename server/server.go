@@ -171,8 +171,8 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		}
 	}
 
-	if config.ApiBinding != "" {
-		_, err := StartApiServer(ctx, config.ApiBinding, routes, routesConfigLoader, webhookScaler)
+	if config.Api.Binding != "" {
+		_, err := StartApiServer(ctx, config.Api, routes, routesConfigLoader, webhookScaler)
 		if err != nil {
 			return nil, fmt.Errorf("could not start API server: %w", err)
 		}
