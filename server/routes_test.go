@@ -70,9 +70,9 @@ func Test_routesImpl_FindBackendForServerAddress(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := NewRoutes(t.Context())
 
-			r.CreateMapping(tt.mapping.serverAddress, tt.mapping.backend, nil, nil, nil, "", "")
+			r.CreateMapping(tt.mapping.serverAddress, tt.mapping.backend, nil, RouteOptions{})
 
-			if got, server, _, _, _ := r.FindBackendForServerAddress(context.Background(), tt.args.serverAddress); got != tt.want {
+			if got, server, _, _, _, _ := r.FindBackendForServerAddress(context.Background(), tt.args.serverAddress); got != tt.want {
 				t.Errorf("routesImpl.FindBackendForServerAddress() = %v, want %v", got, tt.want)
 			} else {
 				assert.Equal(t, tt.mapping.serverAddress, server)
@@ -110,9 +110,9 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 	t.Run("scaleKey is set when provided", func(t *testing.T) {
 		r := NewRoutes(t.Context())
 		r.WithDownScaler(downScaler)
-		r.CreateMapping("mc.example.com", addressProxy, target5, nil, nil, "", "")
+		r.CreateMapping("mc.example.com", addressProxy, target5, RouteOptions{})
 
-		backend, _, scalingTarget, _, _ := r.FindBackendForServerAddress(context.Background(), "mc.example.com")
+		backend, _, scalingTarget, _, _, _ := r.FindBackendForServerAddress(context.Background(), "mc.example.com")
 		assert.Equal(t, addressProxy, backend)
 		assert.Equal(t, "10.0.0.5:25565", scalingTarget.ScalingKey())
 	})
@@ -128,9 +128,9 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 
 		// Two routes with same proxy backend but different scaleKeys
 		target1 := TestingScalingTarget("10.0.0.1:25565")
-		r.CreateMapping("mc1.example.com", addressProxy, target1, nil, sleeper, "", "")
+		r.CreateMapping("mc1.example.com", addressProxy, target1, RouteOptions{Sleeper: sleeper})
 		target2 := TestingScalingTarget("10.0.0.2:25565")
-		r.CreateMapping("mc2.example.com", addressProxy, target2, nil, nil, "", "")
+		r.CreateMapping("mc2.example.com", addressProxy, target2, RouteOptions{})
 
 		s := r.GetSleeper(target1)
 		require.NotNil(t, s)
@@ -150,7 +150,7 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 	t.Run("default route scaleKey", func(t *testing.T) {
 		r := NewRoutes(t.Context())
 		r.WithDownScaler(downScaler)
-		r.SetDefaultRoute(addressProxy, target5, nil, nil, "", "")
+		r.SetDefaultRoute(addressProxy, target5, RouteOptions{})
 
 		backend, scalingTarget, _, _ := r.GetDefaultRoute()
 		assert.Equal(t, addressProxy, backend)
@@ -160,7 +160,7 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 	t.Run("default route scaleKey defaults to backend", func(t *testing.T) {
 		r := NewRoutes(t.Context())
 		r.WithDownScaler(downScaler)
-		r.SetDefaultRoute("backend:25565", nil, nil, nil, "", "")
+		r.SetDefaultRoute("backend:25565", nil, RouteOptions{})
 
 		backend, scalingTarget, _, _ := r.GetDefaultRoute()
 		assert.Equal(t, "backend:25565", backend)
@@ -170,12 +170,12 @@ func Test_routesImpl_ScaleKey(t *testing.T) {
 
 func Test_routesImpl_LoadingMOTD(t *testing.T) {
 	r := NewRoutes(t.Context())
-	r.CreateMapping("mc.example.com", "backend:25565", nil, nil, nil, "asleep", "loading")
+	r.CreateMapping("mc.example.com", "backend:25565", nil, RouteOptions{AsleepMOTD: "asleep", LoadingMOTD: "loading"})
 
 	assert.Equal(t, "loading", r.GetLoadingMOTD("mc.example.com"))
 	assert.Equal(t, "", r.GetLoadingMOTD("other.example.com"))
 
-	r.SetDefaultRoute("default:25565", nil, nil, nil, "default asleep", "default loading")
+	r.SetDefaultRoute("default:25565", nil, RouteOptions{AsleepMOTD: "default asleep", LoadingMOTD: "default loading"})
 	assert.Equal(t, "default loading", r.GetLoadingMOTD(""))
 }
 
@@ -205,7 +205,7 @@ func TestRoutesListener_OnRouteAdded(t *testing.T) {
 	r := NewRoutes(t.Context()).
 		WithListener(listener)
 
-	r.CreateMapping("mc.example.com", "backend:25565", nil, nil, nil, "asleep", "loading")
+	r.CreateMapping("mc.example.com", "backend:25565", nil, RouteOptions{AsleepMOTD: "asleep", LoadingMOTD: "loading"})
 
 	listener.AssertCalled(t, "OnRouteAdded", "mc.example.com", "backend:25565")
 }
@@ -218,7 +218,7 @@ func TestRoutesListener_OnRouteRemoved(t *testing.T) {
 		WithListener(listener)
 	r.WithDownScaler(NewDownScaler(false, 5*time.Second))
 
-	r.CreateMapping("mc.example.com", "backend:25565", nil, nil, nil, "asleep", "loading")
+	r.CreateMapping("mc.example.com", "backend:25565", nil, RouteOptions{AsleepMOTD: "asleep", LoadingMOTD: "loading"})
 	listener.AssertCalled(t, "OnRouteAdded", "mc.example.com", "backend:25565")
 
 	r.RemoveMapping("mc.example.com")
@@ -234,7 +234,7 @@ func TestRoutesListener_OnRouteRemoved_withoutDownScaler(t *testing.T) {
 		WithListener(listener)
 	r.WithDownScaler(nil)
 
-	r.CreateMapping("mc.example.com", "backend:25565", TestingScalingTarget("mc.example.com"), nil, nil, "", "")
+	r.CreateMapping("mc.example.com", "backend:25565", TestingScalingTarget("mc.example.com"), RouteOptions{})
 
 	assert.True(t, r.RemoveMapping("mc.example.com"))
 	listener.AssertCalled(t, "OnRouteRemoved", "mc.example.com")
@@ -247,7 +247,7 @@ func TestRoutesListener_OnDefaultRouteAdded(t *testing.T) {
 	r := NewRoutes(t.Context()).
 		WithListener(listener)
 
-	r.SetDefaultRoute("default:25565", nil, nil, nil, "", "")
+	r.SetDefaultRoute("default:25565", nil, RouteOptions{})
 
 	listener.AssertCalled(t, "OnDefaultRouteSet", "default:25565")
 }
@@ -260,7 +260,7 @@ func TestRoutesListener_OnDefaultRouteRemoved_dueToReset(t *testing.T) {
 		WithListener(listener)
 	r.WithDownScaler(NewDownScaler(false, 5*time.Second))
 
-	r.SetDefaultRoute("default:25565", nil, nil, nil, "", "")
+	r.SetDefaultRoute("default:25565", nil, RouteOptions{})
 	listener.AssertCalled(t, "OnDefaultRouteSet", "default:25565")
 
 	r.Reset()
@@ -274,7 +274,7 @@ func TestRoutesListener_OnDefaultRouteRemoved_dueToDeleteDefaultRoute(t *testing
 	r := NewRoutes(t.Context()).
 		WithListener(listener)
 
-	r.SetDefaultRoute("default:25565", nil, nil, nil, "", "")
+	r.SetDefaultRoute("default:25565", nil, RouteOptions{})
 	listener.AssertCalled(t, "OnDefaultRouteSet", "default:25565")
 
 	r.RemoveDefaultRoute()
@@ -290,7 +290,7 @@ func TestRoutesListener_MultipleListeners(t *testing.T) {
 		WithListener(listener1).
 		WithListener(listener2)
 
-	r.CreateMapping("mc.example.com", "backend:25565", nil, nil, nil, "asleep", "loading")
+	r.CreateMapping("mc.example.com", "backend:25565", nil, RouteOptions{AsleepMOTD: "asleep", LoadingMOTD: "loading"})
 
 	listener1.AssertCalled(t, "OnRouteAdded", "mc.example.com", "backend:25565")
 	listener2.AssertCalled(t, "OnRouteAdded", "mc.example.com", "backend:25565")
@@ -305,9 +305,9 @@ func TestRoutesListener_ResetCallsOnRouteRemovedForAllRoutes(t *testing.T) {
 		WithListener(listener)
 	r.WithDownScaler(NewDownScaler(false, 5*time.Second))
 
-	r.CreateMapping("mc1.example.com", "backend:25565", nil, nil, nil, "", "")
-	r.CreateMapping("mc2.example.com", "backend:25566", nil, nil, nil, "", "")
-	r.CreateMapping("mc3.example.com", "backend:25567", nil, nil, nil, "", "")
+	r.CreateMapping("mc1.example.com", "backend:25565", nil, RouteOptions{})
+	r.CreateMapping("mc2.example.com", "backend:25566", nil, RouteOptions{})
+	r.CreateMapping("mc3.example.com", "backend:25567", nil, RouteOptions{})
 
 	listener.AssertCalled(t, "OnRouteAdded", "mc1.example.com", "backend:25565")
 	listener.AssertCalled(t, "OnRouteAdded", "mc2.example.com", "backend:25566")
@@ -337,8 +337,8 @@ func TestRoutesListener_NilListenersHandled(t *testing.T) {
 	r := NewRoutes(t.Context())
 	r.WithDownScaler(NewDownScaler(false, 5*time.Second))
 
-	r.CreateMapping("mc.example.com", "backend:25565", nil, nil, nil, "", "")
-	r.SetDefaultRoute("default:25565", nil, nil, nil, "", "")
+	r.CreateMapping("mc.example.com", "backend:25565", nil, RouteOptions{})
+	r.SetDefaultRoute("default:25565", nil, RouteOptions{})
 	r.RemoveMapping("mc.example.com")
 	r.Reset()
 }
@@ -347,16 +347,16 @@ type MockRoutes struct {
 	mock.Mock
 }
 
-func (m *MockRoutes) CreateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
-	m.MethodCalled("CreateMapping", serverAddress, backend, scalingTarget, waker, sleeper, asleepMOTD, loadingMOTD)
+func (m *MockRoutes) CreateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, options RouteOptions) {
+	m.MethodCalled("CreateMapping", serverAddress, backend, scalingTarget, options)
 }
 
-func (m *MockRoutes) UpdateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
-	m.MethodCalled("UpdateMapping", serverAddress, backend, scalingTarget, waker, sleeper, asleepMOTD, loadingMOTD)
+func (m *MockRoutes) UpdateMapping(serverAddress string, backend string, scalingTarget ScalingTarget, options RouteOptions) {
+	m.MethodCalled("UpdateMapping", serverAddress, backend, scalingTarget, options)
 }
 
-func (m *MockRoutes) SetDefaultRoute(backend string, scalingTarget ScalingTarget, waker WakerFunc, sleeper SleeperFunc, asleepMOTD string, loadingMOTD string) {
-	m.MethodCalled("SetDefaultRoute", backend, scalingTarget, waker, sleeper, asleepMOTD, loadingMOTD)
+func (m *MockRoutes) SetDefaultRoute(backend string, scalingTarget ScalingTarget, options RouteOptions) {
+	m.MethodCalled("SetDefaultRoute", backend, scalingTarget, options)
 }
 
 func (m *MockRoutes) RemoveDefaultRoute() {
@@ -396,10 +396,11 @@ func nillableSleeper(in interface{}) SleeperFunc {
 	return sleeper
 }
 
-func (m *MockRoutes) FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, ScalingTarget, WakerFunc, SleeperFunc) {
+func (m *MockRoutes) FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, ScalingTarget, WakerFunc, SleeperFunc, *bool) {
 	args := m.MethodCalled("FindBackendForServerAddress", ctx, serverAddress)
 
-	return args.String(0), args.String(1), nillableScalingTarget(args.Get(2)), nillableWaker(args.Get(3)), nillableSleeper(args.Get(4))
+	override, _ := args.Get(5).(*bool)
+	return args.String(0), args.String(1), nillableScalingTarget(args.Get(2)), nillableWaker(args.Get(3)), nillableSleeper(args.Get(4)), override
 }
 
 func (m *MockRoutes) HasRoute(serverAddress string) bool {
@@ -412,9 +413,9 @@ func (m *MockRoutes) GetSleeper(scalingTarget ScalingTarget) SleeperFunc {
 	return args.Get(0).(SleeperFunc)
 }
 
-func (m *MockRoutes) GetMappings() map[string]string {
+func (m *MockRoutes) GetMappings() map[string]RouteConfig {
 	args := m.MethodCalled("GetMappings")
-	return args.Get(0).(map[string]string)
+	return args.Get(0).(map[string]RouteConfig)
 }
 
 func (m *MockRoutes) GetDefaultRoute() (string, ScalingTarget, WakerFunc, SleeperFunc) {
@@ -432,6 +433,14 @@ func (m *MockRoutes) GetLoadingMOTD(serverAddress string) string {
 	return args.String(0)
 }
 
+func (m *MockRoutes) GetProxyProtocol(serverAddress string) *bool {
+	args := m.MethodCalled("GetProxyProtocol", serverAddress)
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*bool)
+}
+
 func (m *MockRoutes) SetCountdownDeadline(serverAddress string, deadline time.Time) {
 	m.MethodCalled("SetCountdownDeadline", serverAddress, deadline)
 }
@@ -440,7 +449,7 @@ func (m *MockRoutes) SimplifySRV(srvEnabled bool) {
 	m.MethodCalled("SimplifySRV", srvEnabled)
 }
 
-func (m *MockRoutes) BulkRegister(scaler *WebhookScaler, mappings map[string]string) {
+func (m *MockRoutes) BulkRegister(scaler *WebhookScaler, mappings map[string]RouteConfig) {
 	m.MethodCalled("BulkRegister", scaler, mappings)
 }
 
@@ -496,15 +505,15 @@ func TestNormalizeServerAddress(t *testing.T) {
 func Test_routesImpl_ReusesScalingTargetByKey(t *testing.T) {
 	r := NewRoutes(t.Context())
 	first := TestingScalingTarget("ns:svc")
-	r.CreateMapping("a.example.com", "10.0.0.1:25565", first, nil, nil, "", "")
+	r.CreateMapping("a.example.com", "10.0.0.1:25565", first, RouteOptions{})
 	require.True(t, first.StartScaling())
 
 	rebuilt := TestingScalingTarget("ns:svc")
-	r.UpdateMapping("a.example.com", "10.0.0.1:25565", rebuilt, nil, nil, "", "")
-	r.CreateMapping("b.example.com", "10.0.0.1:25565", TestingScalingTarget("ns:svc"), nil, nil, "", "")
+	r.UpdateMapping("a.example.com", "10.0.0.1:25565", rebuilt, RouteOptions{})
+	r.CreateMapping("b.example.com", "10.0.0.1:25565", TestingScalingTarget("ns:svc"), RouteOptions{})
 
 	for _, host := range []string{"a.example.com", "b.example.com"} {
-		_, _, st, _, _ := r.FindBackendForServerAddress(context.Background(), host)
+		_, _, st, _, _, _ := r.FindBackendForServerAddress(context.Background(), host)
 		assert.Same(t, first, st, host)
 		assert.False(t, st.StartScaling(), host)
 	}

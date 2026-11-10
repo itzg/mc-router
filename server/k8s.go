@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/itzg/mc-router/server/internal/discoveryconfig"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	apps "k8s.io/api/apps/v1"
@@ -24,6 +25,7 @@ import (
 )
 
 const (
+	AnnotationProxyProtocol        = "mc-router.itzg.me/proxyProtocol"
 	AnnotationExternalServerName   = "mc-router.itzg.me/externalServerName"
 	AnnotationDefaultServer        = "mc-router.itzg.me/defaultServer"
 	AnnotationAutoScaleUp          = "mc-router.itzg.me/autoScaleUp"
@@ -217,10 +219,17 @@ func (w *K8sWatcher) handleUpdate(oldObj any, newObj any) {
 	// Update or create routes for new addresses; use UpdateMapping (no timer bounce)
 	for _, newRS := range newServices {
 		logrus.WithFields(logrus.Fields{"new": newRS}).Debug("UPDATE")
+		options := RouteOptions{
+			Waker:         newRS.autoScaleUp,
+			Sleeper:       newRS.autoScaleDown,
+			AsleepMOTD:    newRS.autoScaleAsleepMOTD,
+			LoadingMOTD:   newRS.autoScaleLoadingMOTD,
+			ProxyProtocol: newRS.proxyProtocol,
+		}
 		if newRS.externalServiceName != "" {
-			w.routesHandler.UpdateMapping(newRS.externalServiceName, newRS.containerEndpoint, newRS.scalingTarget, newRS.autoScaleUp, newRS.autoScaleDown, newRS.autoScaleAsleepMOTD, newRS.autoScaleLoadingMOTD)
+			w.routesHandler.UpdateMapping(newRS.externalServiceName, newRS.containerEndpoint, newRS.scalingTarget, options)
 		} else {
-			w.routesHandler.SetDefaultRoute(newRS.containerEndpoint, newRS.scalingTarget, newRS.autoScaleUp, newRS.autoScaleDown, newRS.autoScaleAsleepMOTD, newRS.autoScaleLoadingMOTD)
+			w.routesHandler.SetDefaultRoute(newRS.containerEndpoint, newRS.scalingTarget, options)
 		}
 	}
 }
@@ -248,10 +257,17 @@ func (w *K8sWatcher) handleAdd(obj any) {
 		if routableService != nil {
 			logrus.WithField("routableService", routableService).Debug("ADD")
 
+			options := RouteOptions{
+				Waker:         routableService.autoScaleUp,
+				Sleeper:       routableService.autoScaleDown,
+				AsleepMOTD:    routableService.autoScaleAsleepMOTD,
+				LoadingMOTD:   routableService.autoScaleLoadingMOTD,
+				ProxyProtocol: routableService.proxyProtocol,
+			}
 			if routableService.externalServiceName != "" {
-				w.routesHandler.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint, routableService.scalingTarget, routableService.autoScaleUp, routableService.autoScaleDown, routableService.autoScaleAsleepMOTD, routableService.autoScaleLoadingMOTD)
+				w.routesHandler.CreateMapping(routableService.externalServiceName, routableService.containerEndpoint, routableService.scalingTarget, options)
 			} else {
-				w.routesHandler.SetDefaultRoute(routableService.containerEndpoint, routableService.scalingTarget, routableService.autoScaleUp, routableService.autoScaleDown, routableService.autoScaleAsleepMOTD, routableService.autoScaleLoadingMOTD)
+				w.routesHandler.SetDefaultRoute(routableService.containerEndpoint, routableService.scalingTarget, options)
 			}
 		}
 	}
@@ -265,6 +281,7 @@ type routableService struct {
 	autoScaleDown        SleeperFunc
 	autoScaleAsleepMOTD  string
 	autoScaleLoadingMOTD string
+	proxyProtocol        *bool
 }
 
 func (r *routableService) String() string {
@@ -348,6 +365,19 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 		}
 	}
 
+	var proxyProtocol *bool
+	if value, exists := service.Annotations[AnnotationProxyProtocol]; exists {
+		enabled, err := discoveryconfig.ParseBool(value)
+		if err != nil {
+			logrus.
+				WithError(err).
+				WithField("service", service.Name).
+				WithField("value", value).
+				Warn("Invalid PROXY protocol annotation, inheriting global setting")
+		} else {
+			proxyProtocol = &enabled
+		}
+	}
 	wakerFunc := w.buildScaleFunction(service, 0, 1)
 	rs := &routableService{
 		externalServiceName:  externalServiceName,
@@ -357,6 +387,7 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 		autoScaleDown:        w.buildScaleFunction(service, 1, 0),
 		autoScaleAsleepMOTD:  autoScaleAsleepMOTD,
 		autoScaleLoadingMOTD: autoScaleLoadingMOTD,
+		proxyProtocol:        proxyProtocol,
 	}
 	return rs
 }
@@ -392,7 +423,7 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 	if from <= to {
 		enabled, exists := service.Annotations[AnnotationAutoScaleUp]
 		if exists {
-			enabledBool, err := strconv.ParseBool(strings.TrimSpace(enabled))
+			enabledBool, err := discoveryconfig.ParseBool(enabled)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"service": service.Name}).
 					WithError(err).
@@ -412,7 +443,7 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 	if from >= to {
 		enabled, exists := service.Annotations[AnnotationAutoScaleDown]
 		if exists {
-			enabledBool, err := strconv.ParseBool(strings.TrimSpace(enabled))
+			enabledBool, err := discoveryconfig.ParseBool(enabled)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"service": service.Name}).
 					WithError(err).

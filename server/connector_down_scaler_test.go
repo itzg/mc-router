@@ -71,7 +71,7 @@ func testStatusRequestDownScalerTimer(t *testing.T, resetTimerOnStatus bool) {
 
 	backendAddress := backendListener.Addr().String()
 	timerStartedAt := time.Now()
-	routes.CreateMapping(serverAddress, backendAddress, target, nil, sleeper, "", "")
+	routes.CreateMapping(serverAddress, backendAddress, target, RouteOptions{Sleeper: sleeper})
 
 	// Open a frontend connection, then wait until halfway through the idle delay
 	// before sending a status request.

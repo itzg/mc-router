@@ -615,7 +615,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 	// e.g. "host.example." (SRV target) and "host.example" are the same server.
 	serverAddress = NormalizeServerAddress(serverAddress)
 
-	backendHostPort, resolvedHost, scalingTarget, waker, _ := c.routes.FindBackendForServerAddress(c.ctx, serverAddress)
+	backendHostPort, resolvedHost, scalingTarget, waker, _, proxyOverride := c.routes.FindBackendForServerAddress(c.ctx, serverAddress)
 	cleanupMetrics := false
 	cleanupCheckScaleDown := false
 
@@ -824,8 +824,15 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 	cleanupMetrics = true
 
 	// PROXY protocol implementation
+	sendProxyProto, dynamicProxyProto := c.sendProxyProto, c.dynamicProxyProto
+	// Retain the override selected with the backend, including across a slow wake
+	// or a concurrent route replacement. A wake may change only the live address.
+	if proxyOverride != nil {
+		sendProxyProto = *proxyOverride
+		dynamicProxyProto = false
+	}
 	var header *proxyproto.Header
-	if c.sendProxyProto {
+	if sendProxyProto {
 
 		// Determine transport protocol for the PROXY header by "analyzing" the frontend connection's address
 		transportProtocol := proxyproto.TCPv4
@@ -850,7 +857,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 			SourceAddr:        frontendConn.RemoteAddr(),
 			DestinationAddr:   frontendConn.LocalAddr(), // our end of the client's connection
 		}
-	} else if c.dynamicProxyProto {
+	} else if dynamicProxyProto {
 		header = frontendProxyHeader(frontendConn)
 	}
 

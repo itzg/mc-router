@@ -15,21 +15,19 @@ func newAddrMatcher(filters []string) (*addrMatcher, error) {
 	addrs := make([]netip.Addr, 0)
 	prefixes := make([]netip.Prefix, 0)
 
-	if filters != nil {
-		for _, filter := range filters {
-			if strings.Contains(filter, "/") {
-				prefix, err := netip.ParsePrefix(filter)
-				if err != nil {
-					return nil, err
-				}
-				prefixes = append(prefixes, prefix)
-			} else {
-				addr, err := netip.ParseAddr(filter)
-				if err != nil {
-					return nil, err
-				}
-				addrs = append(addrs, addr)
+	for _, filter := range filters {
+		if strings.Contains(filter, "/") {
+			prefix, err := netip.ParsePrefix(filter)
+			if err != nil {
+				return nil, err
 			}
+			prefixes = append(prefixes, prefix)
+		} else {
+			addr, err := netip.ParseAddr(filter)
+			if err != nil {
+				return nil, err
+			}
+			addrs = append(addrs, addr)
 		}
 	}
 

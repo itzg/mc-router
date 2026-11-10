@@ -6,7 +6,6 @@ import (
 	"net"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/itzg/mc-router/server/internal/discoveryconfig"
 	"github.com/sirupsen/logrus"
 )
 
@@ -25,6 +25,7 @@ type IDockerWatcher interface {
 }
 
 const (
+	DockerRouterLabelProxyProtocol             = "mc-router.proxyProtocol"
 	DockerRouterLabelHost                      = "mc-router.host"
 	DockerRouterLabelPort                      = "mc-router.port"
 	DockerRouterLabelDefault                   = "mc-router.default"
@@ -305,6 +306,7 @@ func (w *dockerWatcherImpl) containersForID(ctx context.Context, containerId str
 			autoScaleDown:        data.autoScaleDown,
 			autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
 			autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
+			proxyProtocol:        data.proxyProtocol,
 			scalingTarget:        scalingTarget,
 		})
 	}
@@ -317,6 +319,7 @@ func (w *dockerWatcherImpl) containersForID(ctx context.Context, containerId str
 			autoScaleDown:        data.autoScaleDown,
 			autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
 			autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
+			proxyProtocol:        data.proxyProtocol,
 			scalingTarget:        scalingTarget,
 		})
 	}
@@ -354,29 +357,38 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerId string, desir
 			w.containerMap[rs.externalName] = rs
 			wakerFunc := w.makeWakerFunc(rs)
 			sleeperFunc := w.makeSleeperFunc(rs)
+			options := RouteOptions{
+				Waker:         wakerFunc,
+				Sleeper:       sleeperFunc,
+				AsleepMOTD:    rs.autoScaleAsleepMOTD,
+				LoadingMOTD:   rs.autoScaleLoadingMOTD,
+				ProxyProtocol: rs.proxyProtocol,
+			}
 			if rs.externalName != "" {
-				w.routes.CreateMapping(rs.externalName, rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.CreateMapping(rs.externalName, rs.containerEndpoint, rs.scalingTarget, options)
 			} else {
-				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+				w.routes.SetDefaultRoute(rs.containerEndpoint, rs.scalingTarget, options)
 			}
 			logrus.WithField("routableContainer", rs).Debug("ADD")
 			continue
 		}
-		if oldRs.containerEndpoint == rs.containerEndpoint &&
-			oldRs.containerId == rs.containerId &&
-			oldRs.autoScaleUp == rs.autoScaleUp &&
-			oldRs.autoScaleDown == rs.autoScaleDown &&
-			oldRs.autoScaleAsleepMOTD == rs.autoScaleAsleepMOTD &&
-			oldRs.autoScaleLoadingMOTD == rs.autoScaleLoadingMOTD {
+		if oldRs.Equal(rs) {
 			continue
 		}
 		w.containerMap[rs.externalName] = rs
 		wakerFunc := w.makeWakerFunc(rs)
 		sleeperFunc := w.makeSleeperFunc(rs)
+		options := RouteOptions{
+			Waker:         wakerFunc,
+			Sleeper:       sleeperFunc,
+			AsleepMOTD:    rs.autoScaleAsleepMOTD,
+			LoadingMOTD:   rs.autoScaleLoadingMOTD,
+			ProxyProtocol: rs.proxyProtocol,
+		}
 		if rs.externalName != "" {
-			w.routes.UpdateMapping(rs.externalName, rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+			w.routes.UpdateMapping(rs.externalName, rs.containerEndpoint, rs.scalingTarget, options)
 		} else {
-			w.routes.SetDefaultRoute(rs.containerEndpoint, rs.scalingTarget, wakerFunc, sleeperFunc, rs.autoScaleAsleepMOTD, rs.autoScaleLoadingMOTD)
+			w.routes.SetDefaultRoute(rs.containerEndpoint, rs.scalingTarget, options)
 		}
 		logrus.WithFields(logrus.Fields{"old": oldRs, "new": rs}).Debug("UPDATE")
 	}
@@ -526,6 +538,7 @@ func newRoutableContainer(endpoint string, host string, containerId string, data
 		autoScaleDown:        data.autoScaleDown,
 		autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
 		autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
+		proxyProtocol:        data.proxyProtocol,
 		scalingTarget:        target,
 	}
 }
@@ -541,6 +554,7 @@ type parsedDockerContainerData struct {
 	autoScaleUp          bool
 	autoScaleAsleepMOTD  string
 	autoScaleLoadingMOTD string
+	proxyProtocol        *bool
 	notRunning           bool
 }
 
@@ -593,7 +607,7 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 					Warnf("ignoring container with duplicate %s label", DockerRouterLabelDefault)
 				return
 			}
-			defaultValue, err := strconv.ParseBool(strings.TrimSpace(value))
+			defaultValue, err := discoveryconfig.ParseBool(value)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
 					WithError(err).
@@ -611,8 +625,20 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 			data.network = new(string)
 			*data.network = value
 		}
+		if key == DockerRouterLabelProxyProtocol {
+			enabled, err := discoveryconfig.ParseBool(value)
+			if err != nil {
+				logrus.
+					WithError(err).
+					WithField("containerId", container.ID).
+					WithField("value", value).
+					Warn("Invalid PROXY protocol label, inheriting global setting")
+			} else {
+				data.proxyProtocol = &enabled
+			}
+		}
 		if key == DockerRouterLabelAutoScaleUp {
-			autoScaleUp, err := strconv.ParseBool(strings.TrimSpace(value))
+			autoScaleUp, err := discoveryconfig.ParseBool(value)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
 					WithError(err).
@@ -622,7 +648,7 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 			data.autoScaleUp = autoScaleUp
 		}
 		if key == DockerRouterLabelAutoScaleDown {
-			autoScaleDown, err := strconv.ParseBool(strings.TrimSpace(value))
+			autoScaleDown, err := discoveryconfig.ParseBool(value)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{"containerId": container.ID, "containerNames": container.Name}).
 					WithError(err).
@@ -720,7 +746,24 @@ type routableContainer struct {
 	autoScaleDown        bool
 	autoScaleAsleepMOTD  string
 	autoScaleLoadingMOTD string
+	proxyProtocol        *bool
 	scalingTarget        *DockerScalingTarget
+}
+
+// Equal compares the discovered settings that determine whether a route needs updating.
+// The external name is the map key; scaling state and targets are runtime data.
+func (r *routableContainer) Equal(other *routableContainer) bool {
+	if r == nil || other == nil {
+		return r == other
+	}
+	return r.containerEndpoint == other.containerEndpoint &&
+		r.containerId == other.containerId &&
+		r.autoScaleUp == other.autoScaleUp &&
+		r.autoScaleDown == other.autoScaleDown &&
+		r.autoScaleAsleepMOTD == other.autoScaleAsleepMOTD &&
+		r.autoScaleLoadingMOTD == other.autoScaleLoadingMOTD &&
+		(r.proxyProtocol == other.proxyProtocol ||
+			(r.proxyProtocol != nil && other.proxyProtocol != nil && *r.proxyProtocol == *other.proxyProtocol))
 }
 
 func (r *routableContainer) String() string {

@@ -103,7 +103,7 @@ func TestConnectorWakeKick(t *testing.T) {
 		return nil
 	}
 	// backend "" = scaled down
-	routes.CreateMapping("mc.example.com", "", target, waker, sleeper, "asleep", "loading")
+	routes.CreateMapping("mc.example.com", "", target, RouteOptions{Waker: waker, Sleeper: sleeper, AsleepMOTD: "asleep", LoadingMOTD: "loading"})
 
 	c := NewConnector(t.Context(), routes, downScaler, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
 	c.UseWakeKickMessage(wakeKickMessage)
@@ -149,7 +149,7 @@ func TestConnectorWakeKickDisabledHoldsLogin(t *testing.T) {
 		}
 		return "127.0.0.1:1", nil
 	}
-	routes.CreateMapping("mc.example.com", "", target, waker, nil, "asleep", "loading")
+	routes.CreateMapping("mc.example.com", "", target, RouteOptions{Waker: waker, AsleepMOTD: "asleep", LoadingMOTD: "loading"})
 
 	c := NewConnector(t.Context(), routes, nil, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
 
@@ -206,7 +206,7 @@ func TestConnectorWakeKickStaticBackendAsleep(t *testing.T) {
 		}
 		return backend, nil
 	}
-	routes.CreateMapping("mc.example.com", backend, target, waker, nil, "asleep", "loading")
+	routes.CreateMapping("mc.example.com", backend, target, RouteOptions{Waker: waker, AsleepMOTD: "asleep", LoadingMOTD: "loading"})
 
 	c := NewConnector(t.Context(), routes, nil, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
 	c.UseWakeKickMessage(wakeKickMessage)
@@ -253,7 +253,7 @@ func TestConnectorWakeKickStaticBackendAwake(t *testing.T) {
 		wakerCalls.Add(1)
 		return backendLn.Addr().String(), nil
 	}
-	routes.CreateMapping("mc.example.com", backendLn.Addr().String(), TestingScalingTarget("awake-backend"), waker, nil, "asleep", "loading")
+	routes.CreateMapping("mc.example.com", backendLn.Addr().String(), TestingScalingTarget("awake-backend"), RouteOptions{Waker: waker, AsleepMOTD: "asleep", LoadingMOTD: "loading"})
 
 	c := NewConnector(t.Context(), routes, nil, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
 	c.UseWakeKickMessage(wakeKickMessage)

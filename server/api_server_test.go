@@ -14,21 +14,40 @@ func Test_apiServer_routesListHandler(t *testing.T) {
 	tests := []struct {
 		name          string
 		scalingTarget ScalingTarget
+		proxyProtocol *bool
 		want          string
 	}{
-		{name: "with scaling target", scalingTarget: &testingScalingTarget{name: "sc1"}, want: "{\"mc.example.com\":{\"backend\": \"backend:25565\", \"scalingTarget\": \"sc1\"}}"},
-		{name: "nil scaling target", scalingTarget: nil, want: "{\"mc.example.com\":{\"backend\": \"backend:25565\", \"scalingTarget\": \"\"}}"},
+		{
+			name:          "with scaling target",
+			scalingTarget: &testingScalingTarget{name: "sc1"},
+			want:          `{"mc.example.com":{"backend":"backend:25565","scalingTarget":"sc1"}}`,
+		},
+		{
+			name: "nil scaling target",
+			want: `{"mc.example.com":{"backend":"backend:25565","scalingTarget":""}}`,
+		},
+		{
+			name:          "PROXY protocol enabled",
+			proxyProtocol: new(true),
+			want:          `{"mc.example.com":{"backend":"backend:25565","scalingTarget":"","proxyProtocol":true}}`,
+		},
+		{
+			name:          "PROXY protocol disabled",
+			proxyProtocol: new(false),
+			want:          `{"mc.example.com":{"backend":"backend:25565","scalingTarget":"","proxyProtocol":false}}`,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			routes := new(MockRoutes)
-			mappings := map[string]string{}
-			mappings["mc.example.com"] = "backend:25565"
+			mappings := map[string]RouteConfig{}
+			// Preserve explicit true and false overrides; nil must omit the API field.
+			mappings["mc.example.com"] = RouteConfig{Backend: "backend:25565", ProxyProtocol: tt.proxyProtocol}
 
 			routes.On("GetMappings").Return(mappings)
 			routes.On("FindBackendForServerAddress", mock.Anything, "mc.example.com").Return("backend:25565", "mc.example.com",
-				tt.scalingTarget, nillableWaker(nil), nillableSleeper(nil))
+				tt.scalingTarget, nillableWaker(nil), nillableSleeper(nil), tt.proxyProtocol)
 			server, err := StartApiServer(t.Context(), ApiConfig{Binding: "127.0.0.1:0"}, routes, nil, nil)
 			if err != nil {
 				require.NotNil(t, err)
@@ -50,5 +69,4 @@ func Test_apiServer_routesListHandler(t *testing.T) {
 			assert.JSONEq(t, tt.want, string(body))
 		})
 	}
-
 }

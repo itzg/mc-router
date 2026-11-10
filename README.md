@@ -159,6 +159,44 @@ mc-router can pass the real client IP address through to backend servers using t
 - `-receive-proxy-protocol` (`RECEIVE_PROXY_PROTOCOL`): expect and consume a PROXY header sent by an upstream proxy or load balancer, so that mc-router itself sees the real client address. The header is not forwarded to the backend. By default, every received header is trusted; pass `-trusted-proxies` (`TRUSTED_PROXIES`), a comma-delimited list of CIDR blocks, to only honor headers sent from those upstream addresses.
 - `-dynamic-proxy-protocol` (`DYNAMIC_PROXY_PROTOCOL`): accept connections with or without a PROXY header. When a trusted upstream supplies a header, it is forwarded to the backend. Cannot be combined with either of the other two flags.
 
+### Per-route overrides
+
+Routes loaded from the routes config file can override the global outbound PROXY behavior with `proxy-protocol`:
+
+```json
+{
+  "default-server": {"backend": "vanilla:25565", "proxy-protocol": false},
+  "mappings": {
+    "modded.example.com": {"backend": "modded:25565", "proxy-protocol": false},
+    "paper.example.com": {"backend": "paper:25565", "proxy-protocol": true},
+    "legacy.example.com": "legacy:25565"
+  }
+}
+```
+
+- `true` generates a PROXY v2 header, even when the global send option is disabled.
+- `false` sends no PROXY header, including headers that dynamic mode would otherwise forward.
+- Omitted or `null` inherits the global behavior. Existing string mappings keep this behavior.
+
+In dynamic mode, `true` generates a new v2 header using the accepted connection's addresses instead of forwarding the supplied header. Upstream header reception and trust rules still apply. A named route without an override inherits the global settings; the default route's override applies only when the default route handles the connection.
+
+The REST API accepts the equivalent camelCase field `proxyProtocol` on `POST /routes` and `POST /defaultRoute`, for example:
+
+```json
+{"serverAddress":"modded.example.com","backend":"modded:25565","proxyProtocol":false}
+```
+
+For `POST /defaultRoute`, omit `serverAddress`. `GET /routes` includes `proxyProtocol` only when explicitly configured. Posting a route with the field omitted or `null` clears its override. API changes saved to the routes file preserve explicit `true` and `false` values. CLI mappings continue to use the global behavior.
+
+Discovery supports the same override using:
+
+- Docker containers and Swarm services: label `mc-router.proxyProtocol`, for example `"mc-router.proxyProtocol": "false"`.
+- Kubernetes Services: annotation `mc-router.itzg.me/proxyProtocol`, for example `"mc-router.itzg.me/proxyProtocol": "true"`.
+
+These settings apply to every route registered for the container or service, including its default route. Use quoted `"true"` or `"false"` values in YAML. Removing the label or annotation restores inheritance. Invalid values produce a warning and inherit the global behavior. Values are trimmed and parsed with Go's `strconv.ParseBool`, so `False` is valid but `yes` is not.
+
+The routes file uses `proxy-protocol`; the API, Docker/Swarm label, and Kubernetes annotation use camelCase `proxyProtocol`.
+
 ### Accepting PROXY protocol on the backend
 
 Backend servers must be configured to expect the header, otherwise the leading bytes are read as garbage and the connection fails. The setup differs per server "flavor":
@@ -308,6 +346,7 @@ These are the labels on the containers are scanned for discovery and auto-scalin
 - `mc-router.host`: Used to configure the hostname the Minecraft clients would use to connect to the server. The container/service endpoint will be used as the routed backend. You can use more than one hostname by splitting it with a comma or newline. Whitespace around commas is automatically trimmed. For example: `"host1.com,host2.com"`, `"host1.com, host2.com"`, or `"host1.com\nhost2.com"`.
 - `mc-router.port`: This value must be set to the port the Minecraft server is listening on. The default value is 25565.
 - `mc-router.default`: Set this to a truthy value to make this server the default backend. Please note that `mc-router.host` is still required to be set.
+- `mc-router.proxyProtocol`: Override outbound PROXY protocol for this container or Swarm service with `"true"` or `"false"`, including its default route. If omitted, inherit the global behavior. See [Per-route overrides](#per-route-overrides).
 - `mc-router.network`: Specify the network you are using for the router if multiple are present in the container/service. You can either use the network ID, it's full name or an alias. For Docker containers, `-docker-network` sets a default for all containers without this label.
 - `mc-router.auto-scale-up`: Per-container/service override to enable/disable auto scale up for Docker/Swarm. When true (or left unspecified and the global `-auto-scale-up` flag is enabled), mc-router will start the container or scale up the Swarm service when a client connects.
 - `mc-router.auto-scale-down`: Per-container/service override to enable/disable auto scale down for Docker/Swarm. When true (or left unspecified and the global `-auto-scale-down` flag is enabled), mc-router will stop the container or scale down the Swarm service to 0 after it has been idle.
@@ -427,10 +466,12 @@ The following shows a JSON file for routes config, where `default-server` can al
   "default-server": "vanilla:25565",
   "mappings": {
     "vanilla.example.com": "vanilla:25565",
-    "forge.example.com": "forge:25565"
+    "forge.example.com": {"backend": "forge:25565", "proxy-protocol": false}
   }
 }
 ```
+
+Both `mappings` entries and `default-server` accept a backend string or an object with per-route settings. Objects require a nonempty `backend` and reject unknown fields. Use the file spelling `proxy-protocol`, rather than the API spelling `proxyProtocol`. A string or an omitted/null override inherits the global PROXY behavior. See [Per-route overrides](#per-route-overrides) for examples and dynamic-mode behavior.
 
 Sending a SIGHUP signal will cause mc-router to reload the routes config from disk. The file can also be watched for changes by setting `-routes-config-watch` or the env variable `ROUTES_CONFIG_WATCH` to "true".
 
@@ -478,6 +519,7 @@ For more information on the allow/deny list configuration, see the [json schema]
 When running `mc-router` as a Kubernetes Pod and you pass the `--in-kube-cluster` command-line argument, then it will automatically watch for any services annotated with
 - `mc-router.itzg.me/externalServerName` : The value of the annotation will be registered as the external hostname Minecraft clients would used to connect to the routed service. The service is used as the routed backend. You can use more hostnames by splitting them with comma or newline. Whitespace around commas is automatically trimmed. For example: `"host1.com,host2.com"`, `"host1.com, host2.com"`, or multi-line values.
 - `mc-router.itzg.me/defaultServer` : When set to "true", the service is used as the default if no other `externalServiceName` annotations applies.
+- `mc-router.itzg.me/proxyProtocol` : Override outbound PROXY protocol for this Service with `"true"` or `"false"`, including when it supplies the default route. If omitted, inherit the global behavior. See [Per-route overrides](#per-route-overrides).
 - `mc-router.itzg.me/proxyServerName` : When using a proxy server like Velocity or BungeeCord, this annotation specifies the proxy's address to route traffic to. The Service endpoint is still used for auto-scaling operations, allowing mc-router to scale the backend StatefulSet while routing client connections to the proxy. See [Using with Velocity/BungeeCord proxies](#using-with-velocitybungeecord-proxies) for details.
 
 By default, the router will watch all namespaces for those services; however, a specific namespace can be specified using the `KUBE_NAMESPACE` environment variable. The pod's own namespace could be set using:
@@ -776,6 +818,7 @@ If the client reports "Connection refused" check:
   {
     "serverAddress": {
       "backend": "HOST:PORT", // The address the client is routed to
+      "proxyProtocol": false, // Included only when an override is explicitly configured
       "scalingTarget": "HOST:PORT" // The address of the actual minecraft server (will differ from backend when a proxy is configured)
     }
   }
@@ -787,7 +830,8 @@ If the client reports "Connection refused" check:
   ```json
   {
     "serverAddress": "CLIENT REQUESTED SERVER ADDRESS",
-    "backend": "HOST:PORT"
+    "backend": "HOST:PORT",
+    "proxyProtocol": false
   }
   ```
 
@@ -796,9 +840,12 @@ If the client reports "Connection refused" check:
   Registers a default route to the given backend. JSON body is structured as:
   ```json
   {
-    "backend": "HOST:PORT"
+    "backend": "HOST:PORT",
+    "proxyProtocol": false
   }
   ```
+
+For both POST endpoints, `proxyProtocol` is optional: `true` generates a PROXY v2 header, `false` suppresses outbound headers, and omitted or `null` clears the override to inherit global behavior. When a routes config file is enabled, API changes persist the override using the file's `proxy-protocol` spelling. See [Per-route overrides](#per-route-overrides).
 
 * `DELETE /routes/{serverAddress}`
 

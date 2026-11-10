@@ -104,15 +104,14 @@ func TestConnectorWakeTracking(t *testing.T) {
 
 func TestConnectorGetLoadingMOTD(t *testing.T) {
 	routes := NewRoutes(t.Context())
-	routes.CreateMapping("mc.example.com", "backend:25565", nil, nil, nil, "",
-		"route loading")
+	routes.CreateMapping("mc.example.com", "backend:25565", nil, RouteOptions{LoadingMOTD: "route loading"})
 
 	c := NewConnector(t.Context(), routes, NewDownScaler(false, 5*time.Second), discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
 	c.UseLoadingMOTD("global loading")
 	assert.Equal(t, "route loading", c.getLoadingMOTD("mc.example.com"))
 	assert.Equal(t, "global loading", c.getLoadingMOTD("other.example.com"))
 
-	routes.SetDefaultRoute("default:25565", nil, nil, nil, "", "default loading")
+	routes.SetDefaultRoute("default:25565", nil, RouteOptions{LoadingMOTD: "default loading"})
 	assert.Equal(t, "default loading", c.getLoadingMOTD(""))
 }
 
@@ -144,7 +143,7 @@ func TestConnectorMOTDFallback(t *testing.T) {
 	}
 	scalingTarget := TestingScalingTarget(backendAddress)
 
-	routes.CreateMapping("mc.example.com", backendAddress, scalingTarget, waker, nil, "fallback asleep", "fallback loading")
+	routes.CreateMapping("mc.example.com", backendAddress, scalingTarget, RouteOptions{Waker: waker, AsleepMOTD: "fallback asleep", LoadingMOTD: "fallback loading"})
 
 	metricsBuilder := discardMetricsBuilder{}
 	c := NewConnector(t.Context(), routes, downScaler, metricsBuilder.BuildConnectorMetrics(), false, false, nil, false)
@@ -243,7 +242,9 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 			wantSource: "192.0.2.33:12345",
 			wantDest:   "0.0.0.0:25565",
 		},
-		{name: "no header when connection has none"},
+		{
+			name: "no header when connection has none",
+		},
 	}
 
 	for _, test := range tests {
@@ -263,7 +264,7 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 				}
 			}()
 
-			routes.CreateMapping("mc.example.com", backendListener.Addr().String(), nil, nil, nil, "", "")
+			routes.CreateMapping("mc.example.com", backendListener.Addr().String(), nil, RouteOptions{})
 
 			c := NewConnector(t.Context(), routes, downScaler, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
 			c.UseDynamicProxyProtocol(nil)
@@ -301,7 +302,9 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 			}
 			defer backendConn.Close()
 
-			proxyConn := proxyproto.NewConn(backendConn)
+			// USE makes the PROXY header optional so the no-header case
+			// can still read the Minecraft handshake; the library defaults to REQUIRE.
+			proxyConn := proxyproto.NewConn(backendConn, proxyproto.WithPolicy(proxyproto.USE))
 			_ = proxyConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 			header := proxyConn.ProxyHeader()
 
@@ -314,6 +317,164 @@ func TestConnectorDynamicProxyProtocol(t *testing.T) {
 			} else {
 				assert.Nil(t, header, "expected no PROXY header to be forwarded")
 			}
+			// Verify the backend can still read the Minecraft handshake (packet ID 0),
+			// whether a PROXY header was consumed or no header was sent.
+			packet, err := mcproto.ReadPacket(bufio.NewReader(proxyConn), backendConn.RemoteAddr(), mcproto.StateHandshaking)
+			require.NoError(t, err)
+			assert.Equal(t, 0, packet.PacketID)
+
+		})
+	}
+}
+
+func TestConnectorProxyProtocolOverrides(t *testing.T) {
+	tests := []struct {
+		name                   string
+		header                 string
+		override               *bool
+		global                 bool // Enable global outbound PROXY headers instead of dynamic mode.
+		direct                 bool // Disable dynamic mode when global outbound headers are also disabled.
+		expectUsesDefaultRoute bool // Route the requested hostname through the default route instead of a named mapping.
+		wantGeneratedHeader    bool // Expect the router to generate a PROXY v2 header.
+	}{
+		{
+			name:   "inherit global disabled",
+			direct: true,
+		},
+		{
+			name:                "force with global disabled",
+			direct:              true,
+			override:            new(true),
+			wantGeneratedHeader: true,
+		},
+		{
+			name:                "force header",
+			override:            new(true),
+			wantGeneratedHeader: true,
+		},
+		{
+			name:                "force header replaces dynamic",
+			override:            new(true),
+			header:              "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n",
+			wantGeneratedHeader: true,
+		},
+		{
+			name:     "suppress dynamic",
+			override: new(false),
+			header:   "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n",
+		},
+		{
+			name:                "inherit global enabled",
+			global:              true,
+			wantGeneratedHeader: true,
+		},
+		{
+			name:     "suppress global",
+			global:   true,
+			override: new(false),
+		},
+		{
+			name:                   "default force",
+			expectUsesDefaultRoute: true,
+			override:               new(true),
+			wantGeneratedHeader:    true,
+		},
+		{
+			name:                   "default suppress dynamic",
+			expectUsesDefaultRoute: true,
+			override:               new(false),
+			header:                 "PROXY TCP4 1.2.3.4 5.6.7.8 12345 25565\r\n",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			routes := NewRoutes(t.Context())
+			downScaler := NewDownScaler(false, 5*time.Second)
+
+			backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			defer backendListener.Close()
+
+			backendConnChan := make(chan net.Conn, 1)
+			go func() {
+				conn, acceptErr := backendListener.Accept()
+				if acceptErr == nil {
+					backendConnChan <- conn
+				}
+			}()
+
+			// Keep a differently configured route in the same table.
+			routes.CreateMapping("other.example.com", backendListener.Addr().String(), nil, RouteOptions{ProxyProtocol: new(true)})
+			if test.expectUsesDefaultRoute {
+				routes.SetDefaultRoute(backendListener.Addr().String(), nil, RouteOptions{ProxyProtocol: test.override})
+			} else {
+				// A matching named route must use its own override or the global setting,
+				// even when the default route explicitly enables PROXY headers.
+				routes.SetDefaultRoute(backendListener.Addr().String(), nil, RouteOptions{ProxyProtocol: new(true)})
+				routes.CreateMapping("mc.example.com", backendListener.Addr().String(), nil, RouteOptions{ProxyProtocol: test.override})
+			}
+
+			c := NewConnector(t.Context(), routes, downScaler, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
+			if test.global {
+				c.sendProxyProto = true
+			} else if !test.direct {
+				c.UseDynamicProxyProtocol(nil)
+			}
+
+			ln, err := c.createListener("127.0.0.1:0")
+			require.NoError(t, err)
+			defer ln.Close()
+			go c.acceptConnections(ln, 100, 0)
+
+			clientConn, err := net.Dial("tcp", ln.Addr().String())
+			require.NoError(t, err)
+			defer clientConn.Close()
+
+			if test.header != "" {
+				_, err = fmt.Fprint(clientConn, test.header)
+				require.NoError(t, err)
+			}
+
+			err = writeTestPacket(clientConn, 0x00, func(w io.Writer) {
+				_ = mcproto.WriteVarInt(w, 758)
+				_ = mcproto.WriteString(w, "mc.example.com")
+				w.Write([]byte{0x63, 0xdd})
+				_ = mcproto.WriteVarInt(w, 1)
+			})
+			require.NoError(t, err)
+
+			var backendConn net.Conn
+			select {
+			case backendConn = <-backendConnChan:
+			case <-time.After(5 * time.Second):
+				t.Fatal("backend did not receive a connection")
+			}
+			defer backendConn.Close()
+
+			// USE makes the PROXY header optional so no-header and suppression cases
+			// can still read the Minecraft handshake; the library defaults to REQUIRE.
+			proxyConn := proxyproto.NewConn(backendConn, proxyproto.WithPolicy(proxyproto.USE))
+			_ = proxyConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			header := proxyConn.ProxyHeader()
+
+			if test.wantGeneratedHeader {
+				require.NotNil(t, header)
+				assert.Equal(t, byte(2), header.Version)
+				if test.header != "" {
+					assert.Equal(t, "1.2.3.4:12345", header.SourceAddr.String())
+				} else {
+					assert.Equal(t, clientConn.LocalAddr().String(), header.SourceAddr.String())
+				}
+			} else {
+				assert.Nil(t, header, "expected no PROXY header to be forwarded")
+			}
+			// Verify the backend can still read the Minecraft handshake (packet ID 0),
+			// whether a PROXY header was consumed or no header was sent.
+			packet, err := mcproto.ReadPacket(bufio.NewReader(proxyConn), backendConn.RemoteAddr(), mcproto.StateHandshaking)
+			require.NoError(t, err)
+			assert.Equal(t, 0, packet.PacketID)
+
 		})
 	}
 }
@@ -377,7 +538,7 @@ func TestConnectorNAT64UseProxyProtocol(t *testing.T) {
 				}
 			}()
 
-			routes.CreateMapping("mc.example.com", backendListener.Addr().String(), nil, nil, nil, "", "")
+			routes.CreateMapping("mc.example.com", backendListener.Addr().String(), nil, RouteOptions{})
 
 			c := NewConnector(t.Context(), routes, NewDownScaler(false, 5*time.Second), discardMetricsBuilder{}.BuildConnectorMetrics(), true, false, nil, false)
 			prefixes, err := ParseNAT64Prefixes([]string{"64:ff9b:1::/96"})
