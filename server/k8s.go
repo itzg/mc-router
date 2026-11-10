@@ -44,10 +44,11 @@ type K8sWatcher struct {
 	autoScaleUp   bool
 	autoScaleDown bool
 	namespace     string
-	// The key in mappings is a Service, and the value the StatefulSet name
-	mappings      map[string]string
+	// The key in mappings is the namespace and name of a Service, and the value the name of the
+	// StatefulSet in that namespace that the Service governs
+	mappings      map[types.NamespacedName]string
 	routesHandler RoutesHandler
-	clientset     *kubernetes.Clientset
+	clientset     kubernetes.Interface
 }
 
 func NewK8sWatcherInCluster() (*K8sWatcher, error) {
@@ -112,7 +113,7 @@ func (w *K8sWatcher) Start(ctx context.Context, handler RoutesHandler) error {
 	logrus.Debug("Starting service informer")
 	go serviceController.RunWithContext(ctx)
 
-	w.mappings = make(map[string]string)
+	w.mappings = make(map[types.NamespacedName]string)
 	if w.autoScaleUp || w.autoScaleDown {
 		_, statefulSetController := cache.NewInformerWithOptions(cache.InformerOptions{
 			ListerWatcher: cache.NewListWatchFromClient(
@@ -147,7 +148,7 @@ func (w *K8sWatcher) handleAddStatefulSet() func(obj any) {
 			Debug("ADD")
 		w.Lock()
 		defer w.Unlock()
-		w.mappings[statefulSet.Spec.ServiceName] = statefulSet.Name
+		w.mappings[serviceKeyOf(statefulSet)] = statefulSet.Name
 	}
 }
 
@@ -165,9 +166,23 @@ func (w *K8sWatcher) handleUpdateStatefulSet() func(oldObj any, newObj any) {
 			Debug("UPDATE")
 		w.Lock()
 		defer w.Unlock()
-		delete(w.mappings, oldStatefulSet.Spec.ServiceName)
-		w.mappings[newStatefulSet.Spec.ServiceName] = newStatefulSet.Name
+		delete(w.mappings, serviceKeyOf(oldStatefulSet))
+		w.mappings[serviceKeyOf(newStatefulSet)] = newStatefulSet.Name
 	}
+}
+
+// serviceKeyOf identifies the Service that governs the given StatefulSet. Service names are only
+// unique within a namespace, so the namespace is part of the key.
+func serviceKeyOf(sts *apps.StatefulSet) types.NamespacedName {
+	return types.NamespacedName{Namespace: sts.Namespace, Name: sts.Spec.ServiceName}
+}
+
+// statefulSetForService returns the name of the StatefulSet governed by the given Service.
+func (w *K8sWatcher) statefulSetForService(namespace string, serviceName string) (string, bool) {
+	w.RLock()
+	defer w.RUnlock()
+	statefulSetName, exists := w.mappings[types.NamespacedName{Namespace: namespace, Name: serviceName}]
+	return statefulSetName, exists
 }
 
 func infoForSts(sts *apps.StatefulSet) string {
@@ -190,7 +205,7 @@ func (w *K8sWatcher) handleDeleteStatefulSet() func(obj any) {
 			Debug("DELETE")
 		w.Lock()
 		defer w.Unlock()
-		delete(w.mappings, statefulSet.Spec.ServiceName)
+		delete(w.mappings, serviceKeyOf(statefulSet))
 	}
 }
 
@@ -468,9 +483,7 @@ func (w *K8sWatcher) buildScaleFunction(service *core.Service, from int32, to in
 		Debug("Service auto-scale enabled")
 	return func(ctx context.Context) error {
 		serviceName := service.Name
-		w.RLock()
-		statefulSetName, exists := w.mappings[serviceName]
-		w.RUnlock()
+		statefulSetName, exists := w.statefulSetForService(service.Namespace, serviceName)
 		if exists {
 			logrus.
 				WithField("service", serviceName).
