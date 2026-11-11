@@ -602,7 +602,7 @@ func (c *Connector) cleanupBackendConnection(
 			WithField("scaleActiveConnections", scaleCount).
 			Debug("Evaluating scale-down after connection close")
 		if c.downScaler != nil && scaleCount <= 0 {
-			c.downScaler.Start(c.ctx, scalingTarget, c.routes)
+			c.downScaler.Start(c.ctx, scalingTarget, c.routes, c.routes.GetScaleDownPolicy(scalingTarget))
 		}
 	}
 	c.connectionsCond.Signal()
@@ -1013,7 +1013,7 @@ func (c *Connector) wakeInBackground(serverAddress string, scalingTarget Scaling
 		// player has no connection, so arm it here; otherwise a server whose player never
 		// comes back would stay up forever. A player that does come back cancels it again.
 		if c.downScaler != nil && c.scaleActiveConnections.GetCount(scalingTarget.ScalingKey()) <= 0 {
-			c.downScaler.Start(c.ctx, scalingTarget, c.routes)
+			c.downScaler.Start(c.ctx, scalingTarget, c.routes, c.routes.GetScaleDownPolicy(scalingTarget))
 		}
 	}()
 }

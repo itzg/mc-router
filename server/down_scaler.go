@@ -13,7 +13,7 @@ import (
 
 type IDownScaler interface {
 	Reset()
-	Start(ctx context.Context, scalingTarget ScalingTarget, routes IRoutes)
+	Start(ctx context.Context, scalingTarget ScalingTarget, routes IRoutes, policy ScaleDownPolicy)
 	Cancel(scalingTarget ScalingTarget)
 	HandleContextDone(ctx context.Context)
 }
@@ -43,13 +43,15 @@ func (ds *downScalerImpl) Reset() {
 	ds.timers = make(map[string]*time.Timer)
 }
 
-func (ds *downScalerImpl) Start(ctx context.Context, scalingTarget ScalingTarget, routes IRoutes) {
-	ds.Lock()
-	defer ds.Unlock()
-
-	if !ds.enabled {
+func (ds *downScalerImpl) Start(ctx context.Context, scalingTarget ScalingTarget, routes IRoutes, policy ScaleDownPolicy) {
+	if !ds.enabled || scalingTarget == nil {
 		return
 	}
+	// Policy is captured by the caller before taking the timer lock, avoiding
+	// a route-lock/timer-lock inversion during registration and cancellation.
+	delay := policy.resolve(ds.delay)
+	ds.Lock()
+	defer ds.Unlock()
 
 	key := scalingTarget.ScalingKey()
 	if _, exists := ds.timers[key]; exists {
@@ -58,10 +60,10 @@ func (ds *downScalerImpl) Start(ctx context.Context, scalingTarget ScalingTarget
 	}
 
 	logrus.WithField("scalingTarget", scalingTarget).
-		WithField("delay", ds.delay).
+		WithField("delay", delay).
 		Debug("Starting scale-down timer")
 
-	ds.timers[key] = time.AfterFunc(ds.delay, func() {
+	ds.timers[key] = time.AfterFunc(delay, func() {
 		ds.Lock()
 		delete(ds.timers, key)
 		ds.Unlock()
