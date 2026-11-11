@@ -88,6 +88,22 @@ func WriteLoginDisconnect(w io.Writer, reason string) error {
 	return err
 }
 
+// WriteLoginPluginRequest writes a Login Plugin Request (packet 0x04) in the login state, which
+// 1.13+ clients answer with a Login Plugin Response carrying the same message ID. A client that
+// does not know the channel answers that it did not understand the request.
+func WriteLoginPluginRequest(w io.Writer, messageID int32, channel string, data []byte) error {
+	var payload bytes.Buffer
+	if err := WriteVarInt(&payload, messageID); err != nil {
+		return err
+	}
+	if err := WriteString(&payload, channel); err != nil {
+		return err
+	}
+	payload.Write(data)
+	_, err := w.Write(buildPacket(PacketIdLoginPluginRequest, payload.Bytes()))
+	return err
+}
+
 // WritePongPacket writes Pong (packet 0x01) with the same payload
 func WritePongPacket(w io.Writer, timestamp int64) error {
 	var pl bytes.Buffer

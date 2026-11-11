@@ -58,6 +58,9 @@ type ProtocolVersion int
 
 // Source: https://minecraft.wiki/w/Minecraft_Wiki:Projects/wiki.vg_merge/Protocol_History
 const (
+	// ProtocolVersion1_13 is the protocol version for Minecraft 1.13, the first release
+	// with login plugin requests
+	ProtocolVersion1_13 ProtocolVersion = 393
 	// ProtocolVersion1_18_2 is the protocol version for Minecraft 1.18.2
 	// Docs: https://minecraft.wiki/w/Java_Edition_protocol/Packets?oldid=2772791
 	ProtocolVersion1_18_2 ProtocolVersion = 758
@@ -78,6 +81,7 @@ const (
 const (
 	PacketIdHandshake            = 0x00
 	PacketIdLogin                = 0x00 // during StateLogin
+	PacketIdLoginPluginResponse  = 0x02 // during StateLogin
 	PacketIdLegacyServerListPing = 0xFE
 	PacketIdStatusRequest        = 0x00
 	PacketIdPingRequest          = 0x01
@@ -87,6 +91,8 @@ const (
 	PacketIdStatusResponse  = 0x00
 	PackedIdPongResponse    = 0x01
 	PacketIdLoginDisconnect = 0x00 // during StateLogin
+	// PacketIdLoginPluginRequest exists since 1.13, see ProtocolVersion1_13
+	PacketIdLoginPluginRequest = 0x04 // during StateLogin
 )
 
 type Handshake struct {

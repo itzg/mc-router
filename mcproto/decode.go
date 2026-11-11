@@ -131,3 +131,24 @@ func DecodeLoginStart(protocolVersion ProtocolVersion, data interface{}) (*Login
 
 	return loginStart, nil
 }
+
+// DecodeLoginPluginResponse takes the Packet.Data bytes of a Login Plugin Response (packet 0x02
+// in the login state) and decodes the ID of the request it answers and whether the client
+// understood that request. The data that follows an understood request is ignored.
+func DecodeLoginPluginResponse(data interface{}) (messageID int32, understood bool, err error) {
+	dataBytes, ok := data.([]byte)
+	if !ok {
+		return 0, false, errors.New(invalidPacketDataBytesMsg)
+	}
+
+	buffer := bytes.NewBuffer(dataBytes)
+	id, err := ReadVarInt(buffer)
+	if err != nil {
+		return 0, false, errors.Wrap(err, "failed to read message id")
+	}
+	understood, err = ReadBoolean(buffer)
+	if err != nil {
+		return 0, false, errors.Wrap(err, "failed to read understood flag")
+	}
+	return int32(id), understood, nil
+}
