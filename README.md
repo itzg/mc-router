@@ -1057,6 +1057,7 @@ In this case the `status` is `"failed-backend-connection"` indicating that a bac
 - **[MC Router Discovery](https://github.com/Seedloaf/mc-router-discovery):** A lightweight sidecar to ensure mc-router is in sync with your list of running servers.
 - **[svc-router](https://github.com/JLSchuler99/svc-router):** A sidecar router that uses mc-router webhooks to route traffic for the Simple Voice Chat mod to the correct backend server.
 - **[mcserver-host-manager](https://github.com/JonasB2497/mcserver-host-manager):** A simple sidecar for starting and stopping external servers while having mc-router running on power efficient hardware.
+- **[permanent-address-edge](https://github.com/Himtome1/permanent-address-edge):** Example configs (placeholders only) for running mc-router on an edge VPS that forwards over WireGuard to game nodes, so a server keeps its hostname when it moves between machines.
 
 ## Development
 
