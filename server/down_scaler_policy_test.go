@@ -45,7 +45,7 @@ func TestScaleDownDelaySharedTargets(t *testing.T) {
 }
 
 func TestScaleDownOverrideScheduling(t *testing.T) {
-	for _, path := range []string{"registration", "default", "ready", "disconnect or background wake"} {
+	for _, path := range []string{"registration", "default", "ready", "direct scheduler start"} {
 		t.Run(path, func(t *testing.T) {
 			ds := NewDownScaler(true, time.Hour)
 			t.Cleanup(ds.Reset)
@@ -61,7 +61,9 @@ func TestScaleDownOverrideScheduling(t *testing.T) {
 			case "ready":
 				routes.CreateMapping("host", "", target, options)
 				routes.UpdateMapping("host", "backend", target, options)
-			default:
+			case "direct scheduler start":
+				// Exercises DownScaler directly; Connector lifecycle coverage lives
+				// in the disconnect and background-wake tests.
 				routes.CreateMapping("host", "", target, options)
 				ds.Start(t.Context(), target, routes, routes.GetScaleDownPolicy(target))
 			}
