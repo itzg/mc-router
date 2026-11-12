@@ -1,0 +1,14 @@
+# Only the disposable engine runs on the host daemon. Router and backend
+# containers/services run inside this engine and cannot discover host resources.
+services:
+  engine:
+    image: docker:28-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    command: ["dockerd", "--host=unix:///var/run/docker.sock", "--storage-driver=vfs"]
+    healthcheck:
+      test: ["CMD", "docker", "--host=unix:///var/run/docker.sock", "info"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
