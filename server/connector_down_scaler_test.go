@@ -12,6 +12,127 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestConnectorScaleDownDelayAfterDisconnect(t *testing.T) {
+	const idleDelay = 400 * time.Millisecond
+	for _, tt := range []struct {
+		name     string
+		global   time.Duration
+		override *time.Duration
+	}{
+		{name: "inherited", global: idleDelay},
+		{name: "shorter override", global: time.Hour, override: new(idleDelay)},
+		{name: "longer override", global: 50 * time.Millisecond, override: new(idleDelay)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			downScaler := NewDownScaler(true, tt.global).(*downScalerImpl)
+			t.Cleanup(downScaler.Reset)
+			routes := NewRoutes(t.Context()).WithDownScaler(downScaler)
+			target := TestingScalingTarget("disconnect-test-backend")
+			connector := NewConnector(t.Context(), routes, downScaler, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
+			type sleepEvent struct {
+				at     time.Time
+				active int
+			}
+			slept := make(chan sleepEvent, 8)
+			options := RouteOptions{
+				AutoScaleDownAfter: tt.override,
+				Sleeper: func(context.Context) error {
+					slept <- sleepEvent{at: time.Now(), active: connector.scaleActiveConnections.GetCount(target.ScalingKey())}
+					return nil
+				},
+			}
+
+			backend, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = backend.Close() })
+			accepted := make(chan net.Conn, 3)
+			go func() {
+				for range 3 {
+					conn, err := backend.Accept()
+					if err != nil {
+						return
+					}
+					accepted <- conn
+				}
+			}()
+			frontend, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = frontend.Close() })
+			go connector.acceptConnections(frontend, 100, 0)
+			// Both aliases share scaling identity, regardless of the hostname used
+			// by the last player to leave.
+			for _, host := range []string{"first.example.com", "second.example.com"} {
+				routes.CreateMapping(host, backend.Addr().String(), target, options)
+			}
+			timerPending := func() bool {
+				downScaler.Lock()
+				defer downScaler.Unlock()
+				return downScaler.timers[target.ScalingKey()] != nil
+			}
+			login := func(host string) net.Conn {
+				t.Helper()
+				conn := dialAndHandshake(t, frontend, host, mcproto.StateLogin)
+				require.NoError(t, writeTestPacket(conn, mcproto.PacketIdLogin, func(w io.Writer) {
+					_ = mcproto.WriteString(w, "IdleDelayTest")
+				}))
+				select {
+				case backendConn := <-accepted:
+					t.Cleanup(func() { _ = backendConn.Close() })
+					require.NoError(t, backendConn.SetReadDeadline(time.Now().Add(2*time.Second)))
+					reader := bufio.NewReader(backendConn)
+					_, err := mcproto.ReadPacket(reader, backendConn.RemoteAddr(), mcproto.StateHandshaking)
+					require.NoError(t, err)
+					_, err = mcproto.ReadPacket(reader, backendConn.RemoteAddr(), mcproto.StateLogin)
+					require.NoError(t, err)
+				case <-time.After(2 * time.Second):
+					t.Fatal("login did not reach the backend")
+				}
+				return conn
+			}
+			assertAwake := func() {
+				t.Helper()
+				select {
+				case event := <-slept:
+					t.Fatalf("scaled down with %d active connections", event.active)
+				case <-time.After(2 * idleDelay):
+				}
+			}
+
+			first := login("first.example.com")
+			require.Eventually(t, func() bool {
+				return connector.scaleActiveConnections.GetCount(target.ScalingKey()) == 1 && !timerPending()
+			}, 2*time.Second, 5*time.Millisecond, "login must cancel the startup timer")
+			require.NoError(t, first.Close())
+			require.Eventually(t, timerPending, 2*time.Second, 5*time.Millisecond, "disconnect must arm an idle timer")
+
+			// A returning player must cancel the disconnect timer. Keep two
+			// players connected through different aliases to exercise target counts.
+			second := login("second.example.com")
+			third := login("first.example.com")
+			require.Eventually(t, func() bool {
+				return connector.scaleActiveConnections.GetCount(target.ScalingKey()) == 2 && !timerPending()
+			}, 2*time.Second, 5*time.Millisecond, "returning players must cancel the idle timer")
+			assertAwake()
+			require.NoError(t, second.Close())
+			require.Eventually(t, func() bool {
+				return connector.scaleActiveConnections.GetCount(target.ScalingKey()) == 1
+			}, 2*time.Second, 5*time.Millisecond)
+			require.False(t, timerPending(), "one remaining player must prevent idle scheduling")
+			assertAwake()
+
+			lastDisconnect := time.Now()
+			require.NoError(t, third.Close())
+			select {
+			case event := <-slept:
+				require.Zero(t, event.active)
+				require.GreaterOrEqual(t, event.at.Sub(lastDisconnect), idleDelay, "idle delay must start after the final disconnect")
+			case <-time.After(idleDelay + 2*time.Second):
+				t.Fatal("final disconnect did not scale down using the effective delay")
+			}
+		})
+	}
+}
+
 func TestStatusRequestDownScalerTimer(t *testing.T) {
 	for _, resetTimerOnStatus := range []bool{false, true} {
 		name := "does not reset timer by default"
