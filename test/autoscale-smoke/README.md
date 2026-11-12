@@ -8,26 +8,22 @@ through the router, verifies the echoed login, holds the connection, then leaves
 This checks discovery, proxy connections, and provider lifecycle operations, not
 a Minecraft server implementation.
 
-## Tooling and current validation
+## Requirements
 
-The development environment has Docker CLI 29.9.3, Compose v5.7.0, Python 3, and Go.
-The reachable daemon is Engine 28.3.0 with Swarm inactive. Docker daemon access
-required elevated sandbox permissions. `kubectl`, `kind`, `minikube`, and `k3d`
-were not installed. Kubernetes fixtures and validation are deferred until suitable
-tooling and a disposable cluster are available.
+Use a Linux Docker host that supports privileged nested containers, Docker
+Compose, and Bash. The setup builds with the repository Dockerfile and needs
+registry access for its Go/base images, `docker:28-dind`, and
+`python:3.13-alpine`. Python for the backend and probe is supplied by the image;
+host Python is only needed for optional syntax checks.
 
-Shell/Python syntax, Compose configuration, and read-only preflight passed during
-preparation. The Python helpers also exchanged login bytes over a local loopback
-echo server and reported an unreachable backend as a failure; this did not run
-the router or any provider. These checks can be repeated without deployment.
-The fixtures have now been deployed locally. Docker checks passed; the Swarm
-cold-wake/shared-alias check failed because the backend scaled down with active
-connections. See [local results](RESULTS.md) for timings, limitations, and the
-harness issue corrected during testing. No production code was changed.
+Kubernetes is not included in these fixtures; it would need suitable tooling
+and a separate disposable-cluster setup.
 
-Lifecycle timing assertions are still manual. The probe checks its container's
-final exit status and prints its logs after completion, with a default overall
-limit of 180 seconds (`SMOKE_PROBE_TIMEOUT` can override that limit).
+Lifecycle timing assertions are manual. The probe checks its container's final
+exit status and prints its logs after completion, with a default overall limit
+of 180 seconds (`SMOKE_PROBE_TIMEOUT` can override that limit). Keep run-specific
+versions, timestamps, and observations in local reports or CI artifacts rather
+than tracked result files.
 
 ## Isolation
 
@@ -170,8 +166,8 @@ setup. A future automation commit can add:
    requires the workflow to exist on the default branch.
 3. A unique project name for each run/job, a job timeout, log artifacts, and an
    unconditional cleanup step (`if: always()`).
-4. Explicit nonzero results for lifecycle failures. The observed Swarm failure
-   must be investigated before presenting that matrix as passing or required.
+4. Explicit nonzero results for lifecycle failures. Keep the active-target
+   regression covered before making the provider matrix a required check.
 
 Use the nested daemon isolation even on CI so the router cannot discover other
 job containers. The runner needs privileged-container support. Kubernetes would

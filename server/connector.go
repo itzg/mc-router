@@ -597,6 +597,9 @@ func (c *Connector) cleanupBackendConnection(
 		WithField("connectionCount", c.activeConnections.GetCount(backendHostPort)).
 		Info("Closed connection to backend")
 	if scalingTarget != nil && checkScaleDown {
+		if c.downScaler != nil {
+			c.downScaler.ConnectionClosed(scalingTarget)
+		}
 		scaleCount := c.scaleActiveConnections.GetCount(scalingTarget.ScalingKey())
 		logrus.WithField("scalingTarget", scalingTarget).
 			WithField("scaleActiveConnections", scaleCount).
@@ -794,7 +797,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		if (nextState == mcproto.StateLogin || (nextState == mcproto.StateStatus && c.statusResetsDownTimer)) && c.downScaler != nil {
 			// The Docker event that fires during wake-up may have started a new
 			// timer after our pre-wake Cancel call.
-			c.downScaler.Cancel(scalingTarget)
+			c.downScaler.ConnectionOpened(scalingTarget)
 			cleanupCheckScaleDown = true
 		}
 	}
