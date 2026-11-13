@@ -45,15 +45,50 @@ func TestDockerDiscoveryScaleDownDelay(t *testing.T) {
 				want    *time.Duration
 			}{
 				{name: "inherit"},
-				{name: "add", value: "12h", present: true, want: new(12 * time.Hour)},
-				{name: "timeout-only update", value: "5m", present: true, want: new(5 * time.Minute)},
+				{
+					name:    "add",
+					value:   "12h",
+					present: true,
+					want:    new(12 * time.Hour),
+				},
+				{
+					name:    "timeout-only update",
+					value:   "5m",
+					present: true,
+					want:    new(5 * time.Minute),
+				},
 				{name: "remove"},
-				{name: "trim", value: " 30s ", present: true, want: new(30 * time.Second)},
-				{name: "invalid clears override", value: "forever", present: true},
-				{name: "restore", value: "1h", present: true, want: new(time.Hour)},
-				{name: "zero", value: "0s", present: true},
-				{name: "negative", value: "-1h", present: true},
-				{name: "empty", present: true},
+				{
+					name:    "trim",
+					value:   " 30s ",
+					present: true,
+					want:    new(30 * time.Second),
+				},
+				{
+					name:    "invalid clears override",
+					value:   "forever",
+					present: true,
+				},
+				{
+					name:    "restore",
+					value:   "1h",
+					present: true,
+					want:    new(time.Hour),
+				},
+				{
+					name:    "zero",
+					value:   "0s",
+					present: true,
+				},
+				{
+					name:    "negative",
+					value:   "-1h",
+					present: true,
+				},
+				{
+					name:    "empty",
+					present: true,
+				},
 			} {
 				t.Run(step.name, func(t *testing.T) {
 					delete(labels, DockerRouterLabelAutoScaleDownAfter)
@@ -172,15 +207,50 @@ func TestSwarmDiscoveryScaleDownDelay(t *testing.T) {
 				want    *time.Duration
 			}{
 				{name: "inherit"},
-				{name: "add", value: "12h", present: true, want: new(12 * time.Hour)},
-				{name: "timeout-only update", value: "5m", present: true, want: new(5 * time.Minute)},
+				{
+					name:    "add",
+					value:   "12h",
+					present: true,
+					want:    new(12 * time.Hour),
+				},
+				{
+					name:    "timeout-only update",
+					value:   "5m",
+					present: true,
+					want:    new(5 * time.Minute),
+				},
 				{name: "remove"},
-				{name: "trim", value: " 30s ", present: true, want: new(30 * time.Second)},
-				{name: "invalid clears override", value: "forever", present: true},
-				{name: "restore", value: "1h", present: true, want: new(time.Hour)},
-				{name: "zero", value: "0s", present: true},
-				{name: "negative", value: "-1h", present: true},
-				{name: "empty", present: true},
+				{
+					name:    "trim",
+					value:   " 30s ",
+					present: true,
+					want:    new(30 * time.Second),
+				},
+				{
+					name:    "invalid clears override",
+					value:   "forever",
+					present: true,
+				},
+				{
+					name:    "restore",
+					value:   "1h",
+					present: true,
+					want:    new(time.Hour),
+				},
+				{
+					name:    "zero",
+					value:   "0s",
+					present: true,
+				},
+				{
+					name:    "negative",
+					value:   "-1h",
+					present: true,
+				},
+				{
+					name:    "empty",
+					present: true,
+				},
 			} {
 				t.Run(step.name, func(t *testing.T) {
 					delete(labels, DockerRouterLabelAutoScaleDownAfter)
@@ -238,15 +308,50 @@ func TestKubernetesDiscoveryScaleDownDelay(t *testing.T) {
 				want    *time.Duration
 			}{
 				{name: "inherit"},
-				{name: "add", value: "12h", present: true, want: new(12 * time.Hour)},
-				{name: "timeout-only update", value: "5m", present: true, want: new(5 * time.Minute)},
+				{
+					name:    "add",
+					value:   "12h",
+					present: true,
+					want:    new(12 * time.Hour),
+				},
+				{
+					name:    "timeout-only update",
+					value:   "5m",
+					present: true,
+					want:    new(5 * time.Minute),
+				},
 				{name: "remove"},
-				{name: "trim", value: " 30s ", present: true, want: new(30 * time.Second)},
-				{name: "invalid clears override", value: "forever", present: true},
-				{name: "restore", value: "1h", present: true, want: new(time.Hour)},
-				{name: "zero", value: "0s", present: true},
-				{name: "negative", value: "-1h", present: true},
-				{name: "empty", present: true},
+				{
+					name:    "trim",
+					value:   " 30s ",
+					present: true,
+					want:    new(30 * time.Second),
+				},
+				{
+					name:    "invalid clears override",
+					value:   "forever",
+					present: true,
+				},
+				{
+					name:    "restore",
+					value:   "1h",
+					present: true,
+					want:    new(time.Hour),
+				},
+				{
+					name:    "zero",
+					value:   "0s",
+					present: true,
+				},
+				{
+					name:    "negative",
+					value:   "-1h",
+					present: true,
+				},
+				{
+					name:    "empty",
+					present: true,
+				},
 			} {
 				t.Run(step.name, func(t *testing.T) {
 					annotations := map[string]string{AnnotationExternalServerName: "mc.example.com"}

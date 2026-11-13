@@ -19,9 +19,20 @@ func TestConnectorScaleDownDelayAfterDisconnect(t *testing.T) {
 		global   time.Duration
 		override *time.Duration
 	}{
-		{name: "inherited", global: idleDelay},
-		{name: "shorter override", global: time.Hour, override: new(idleDelay)},
-		{name: "longer override", global: 50 * time.Millisecond, override: new(idleDelay)},
+		{
+			name:   "inherited",
+			global: idleDelay,
+		},
+		{
+			name:     "shorter override",
+			global:   time.Hour,
+			override: new(idleDelay),
+		},
+		{
+			name:     "longer override",
+			global:   50 * time.Millisecond,
+			override: new(idleDelay),
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			downScaler := NewDownScaler(true, tt.global).(*downScalerImpl)

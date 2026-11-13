@@ -373,8 +373,11 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 	if value, exists := service.Annotations[AnnotationAutoScaleDownAfter]; exists {
 		duration, err := discoveryconfig.ParsePositiveDuration(value)
 		if err != nil {
-			logrus.WithError(err).WithField("service", service.Name).
-				WithField("annotation", AnnotationAutoScaleDownAfter).WithField("value", value).
+			logrus.
+				WithError(err).
+				WithField("service", service.Name).
+				WithField("annotation", AnnotationAutoScaleDownAfter).
+				WithField("value", value).
 				Warn("Invalid scale-down delay annotation, inheriting global setting")
 		} else {
 			downAfter = &duration

@@ -770,8 +770,11 @@ func (w *dockerSwarmWatcherImpl) parseServiceLabels(service *swarm.Service, data
 		case DockerRouterLabelAutoScaleDownAfter:
 			duration, err := discoveryconfig.ParsePositiveDuration(value)
 			if err != nil {
-				logrus.WithError(err).WithField("serviceId", service.ID).
-					WithField("label", key).WithField("value", value).
+				logrus.
+					WithError(err).
+					WithField("serviceId", service.ID).
+					WithField("label", key).
+					WithField("value", value).
 					Warn("Invalid scale-down delay label, inheriting global setting")
 			} else {
 				data.autoScaleDownAfter = &duration

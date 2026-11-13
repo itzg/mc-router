@@ -667,8 +667,11 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 		if key == DockerRouterLabelAutoScaleDownAfter {
 			duration, err := discoveryconfig.ParsePositiveDuration(value)
 			if err != nil {
-				logrus.WithError(err).WithField("containerId", container.ID).
-					WithField("label", key).WithField("value", value).
+				logrus.
+					WithError(err).
+					WithField("containerId", container.ID).
+					WithField("label", key).
+					WithField("value", value).
 					Warn("Invalid scale-down delay label, inheriting global setting")
 			} else {
 				data.autoScaleDownAfter = &duration

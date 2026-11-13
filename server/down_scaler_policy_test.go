@@ -19,7 +19,18 @@ func TestScaleDownDelaySharedTargets(t *testing.T) {
 				host  string
 				delay *time.Duration
 			}{
-				{"long", new(12 * time.Hour)}, {"short", new(5 * time.Minute)}, {"inherit", nil},
+				{
+					host:  "long",
+					delay: new(12 * time.Hour),
+				},
+				{
+					host:  "short",
+					delay: new(5 * time.Minute),
+				},
+				{
+					host:  "inherit",
+					delay: nil,
+				},
 			}
 			for i := range aliases {
 				if reverse {
