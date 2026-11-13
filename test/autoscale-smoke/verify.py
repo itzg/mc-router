@@ -138,6 +138,42 @@ class Harness:
             "mode": "container replacement" if self.provider == "docker" else "in-place service labels",
         })
 
+    def update_probe_states(self, name, clients):
+        for container, client in clients.items():
+            if client.get("finished"):
+                continue
+            state_text, _, code = self.command(self.inner + ["inspect", "--format", "{{json .State}}", container], check=False)
+            if code or not state_text.strip():
+                continue  # creation can be asynchronous on nested exec transports
+            state = json.loads(state_text)
+            out, err, _ = self.command(self.inner + ["logs", container])
+            (self.artifacts / f"{name}-{client['host']}.log").write_text(out + err)
+            for line in out.splitlines():
+                for token, key in ((" CONNECTED ", "connected"), (" DISCONNECTED ", "disconnected")):
+                    if token in line:
+                        client[key] = datetime.fromisoformat(line.split()[0])
+            if not state["Running"]:
+                assert state["ExitCode"] == 0, f"{name}: {client['host']} failed: {out}{err}"
+                assert "disconnected" in client, f"{name}: missing probe completion record"
+                client["finished"] = True
+
+    def assert_shutdown_delays(self, name, clients, stopped, expected):
+        delays = {}
+        logs = self.router_logs()
+        for target, seconds in expected.items():
+            peers = [c for c in clients.values() if c["target"] == target]
+            left = max(c["disconnected"] for c in peers)
+            delay = (stopped[target] - left).total_seconds()
+            assert seconds - .75 <= delay <= seconds + 12, f"{name}: expected {seconds}s, observed {delay:.2f}s"
+            duration = "1m0s" if seconds == 60 else f"{seconds}s"
+            target_name = f"name=/{target}" if self.provider == "docker" else f"name={target}"
+            assert any("Starting scale-down timer" in line and f"delay={duration}" in line
+                       and target_name in line for line in logs.splitlines()), f"{name}: no matching timer log"
+            assert any("Scaling down backend server" in line and target_name in line
+                       for line in logs.splitlines()), f"{name}: no scale-down log"
+            delays[target] = round(delay, 3)
+        return delays
+
     def cycle(self, name, probes, expected, update=None):
         print(f"START {self.provider}: {name}", flush=True)
         clients = {}
@@ -155,23 +191,7 @@ class Harness:
         updated = False
         deadline = min(self.deadline, time.monotonic() + 150)
         while time.monotonic() < deadline:
-            for container, client in clients.items():
-                if client.get("finished"):
-                    continue
-                state_text, _, code = self.command(self.inner + ["inspect", "--format", "{{json .State}}", container], check=False)
-                if code or not state_text.strip():
-                    continue  # creation can be asynchronous on nested exec transports
-                state = json.loads(state_text)
-                out, err, _ = self.command(self.inner + ["logs", container])
-                (self.artifacts / f"{name}-{client['host']}.log").write_text(out + err)
-                for line in out.splitlines():
-                    for token, key in ((" CONNECTED ", "connected"), (" DISCONNECTED ", "disconnected")):
-                        if token in line:
-                            client[key] = datetime.fromisoformat(line.split()[0])
-                if not state["Running"]:
-                    assert state["ExitCode"] == 0, f"{name}: {client['host']} failed: {out}{err}"
-                    assert "disconnected" in client, f"{name}: missing probe completion record"
-                    client["finished"] = True
+            self.update_probe_states(name, clients)
             states = {target: self.running(target) for target in expected}
             now = datetime.now(timezone.utc)
             snapshots.append({"at": now.isoformat(), **states})
@@ -190,20 +210,7 @@ class Harness:
             time.sleep(.5)
         else:
             raise AssertionError(f"timed out: {name}")
-        delays = {}
-        logs = self.router_logs()
-        for target, seconds in expected.items():
-            peers = [c for c in clients.values() if c["target"] == target]
-            left = max(c["disconnected"] for c in peers)
-            delay = (stopped[target] - left).total_seconds()
-            assert seconds - .75 <= delay <= seconds + 12, f"{name}: expected {seconds}s, observed {delay:.2f}s"
-            duration = "1m0s" if seconds == 60 else f"{seconds}s"
-            target_name = f"name=/{target}" if self.provider == "docker" else f"name={target}"
-            assert any("Starting scale-down timer" in line and f"delay={duration}" in line
-                       and target_name in line for line in logs.splitlines()), f"{name}: no matching timer log"
-            assert any("Scaling down backend server" in line and target_name in line
-                       for line in logs.splitlines()), f"{name}: no scale-down log"
-            delays[target] = round(delay, 3)
+        delays = self.assert_shutdown_delays(name, clients, stopped, expected)
         record.update(result="PASS", observed_delays_seconds=delays)
         print(f"PASS {name}: {delays}", flush=True)
         for container in clients:
