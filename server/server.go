@@ -119,6 +119,10 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	connector.UseAsleepMOTD(config.AutoScale.AsleepMOTD)
 	connector.UseLoadingMOTD(config.AutoScale.LoadingMOTD)
 	connector.UseWakeKickMessage(config.AutoScale.WakeKickMessage)
+	if config.AutoScale.WakeHold > 0 && config.AutoScale.WakeKickMessage == "" {
+		logrus.Warn("-auto-scale-wake-hold has no effect without -auto-scale-wake-kick-message")
+	}
+	connector.UseWakeHold(config.AutoScale.WakeHold)
 
 	clientFilter, err := NewClientFilter(config.ClientsToAllow, config.ClientsToDeny)
 	if err != nil {

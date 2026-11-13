@@ -80,6 +80,33 @@ type ConnectorMetrics interface {
 	IncrementServerLogins(playerName string, playerUuid string, serverAddress string)
 	SetServerActiveConnections(serverAddress string, value int)
 	SetRateLimitAvailable(value int64)
+	// IncrementWakeHolds counts a login held while its backend wakes up reaching the given
+	// event, which is one of the wakeHold constants
+	IncrementWakeHolds(event string)
+}
+
+// The events of a login held while its backend wakes up, each counted by a wake_hold_ metric
+const (
+	wakeHoldStarted   = "started"
+	wakeHoldConnected = "connected"
+	wakeHoldGaveUp    = "gave_up"
+	wakeHoldExpired   = "expired"
+)
+
+var wakeHoldEventHelp = map[string]string{
+	wakeHoldStarted:   "The total number of logins held while their backend wakes up",
+	wakeHoldConnected: "The total number of held logins connected to their woken backend",
+	wakeHoldGaveUp:    "The total number of held logins whose client disconnected before the backend was ready",
+	wakeHoldExpired:   "The total number of held logins disconnected because the backend was not ready in time",
+}
+
+// buildWakeHoldCounters creates the counter of each wake hold event from its metric name
+func buildWakeHoldCounters(newCounter func(event string, name string) metrics.Counter) map[string]metrics.Counter {
+	counters := make(map[string]metrics.Counter, len(wakeHoldEventHelp))
+	for event := range wakeHoldEventHelp {
+		counters[event] = newCounter(event, "wake_hold_"+event)
+	}
+	return counters
 }
 
 type goKitConnectorMetrics struct {
@@ -92,6 +119,7 @@ type goKitConnectorMetrics struct {
 	serverLogins            metrics.Counter
 	serverActiveConnections metrics.Gauge
 	rateLimitAvailable      metrics.Gauge
+	wakeHolds               map[string]metrics.Counter
 }
 
 func (cm *goKitConnectorMetrics) IncrementErrors(errorType string) {
@@ -138,6 +166,12 @@ func (cm *goKitConnectorMetrics) SetRateLimitAvailable(value int64) {
 	cm.rateLimitAvailable.Set(float64(value))
 }
 
+func (cm *goKitConnectorMetrics) IncrementWakeHolds(event string) {
+	if counter, ok := cm.wakeHolds[event]; ok {
+		counter.Add(1)
+	}
+}
+
 func (b expvarMetricsBuilder) BuildConnectorMetrics() ConnectorMetrics {
 	c := expvarMetrics.NewCounter("connections")
 	return &goKitConnectorMetrics{
@@ -150,6 +184,9 @@ func (b expvarMetricsBuilder) BuildConnectorMetrics() ConnectorMetrics {
 		serverLogins:            expvarMetrics.NewCounter("server_logins"),
 		serverActiveConnections: expvarMetrics.NewGauge("server_active_connections"),
 		rateLimitAvailable:      expvarMetrics.NewGauge("rate_limit_available"),
+		wakeHolds: buildWakeHoldCounters(func(_ string, name string) metrics.Counter {
+			return expvarMetrics.NewCounter(name)
+		}),
 	}
 }
 
@@ -172,6 +209,9 @@ func (b discardMetricsBuilder) BuildConnectorMetrics() ConnectorMetrics {
 		serverLogins:            discardMetrics.NewCounter(),
 		serverActiveConnections: discardMetrics.NewGauge(),
 		rateLimitAvailable:      discardMetrics.NewGauge(),
+		wakeHolds: buildWakeHoldCounters(func(string, string) metrics.Counter {
+			return discardMetrics.NewCounter()
+		}),
 	}
 }
 
@@ -230,6 +270,9 @@ func (b *influxMetricsBuilder) BuildConnectorMetrics() ConnectorMetrics {
 		serverLogins:            influxClient.NewCounter("mc_router_server_logins"),
 		serverActiveConnections: influxClient.NewGauge("mc_router_server_active_connections"),
 		rateLimitAvailable:      influxClient.NewGauge("mc_router_rate_limit_available"),
+		wakeHolds: buildWakeHoldCounters(func(_ string, name string) metrics.Counter {
+			return influxClient.NewCounter("mc_router_" + name)
+		}),
 	}
 }
 
@@ -296,5 +339,12 @@ func (b prometheusMetricsBuilder) BuildConnectorMetrics() ConnectorMetrics {
 			Name:      "rate_limit_available",
 			Help:      "The number of available tokens in the rate limit bucket",
 		}, nil)),
+		wakeHolds: buildWakeHoldCounters(func(event string, name string) metrics.Counter {
+			return prometheusMetrics.NewCounter(promauto.NewCounterVec(prometheus.CounterOpts{
+				Namespace: "mc_router",
+				Name:      name,
+				Help:      wakeHoldEventHelp[event],
+			}, nil))
+		}),
 	}
 }

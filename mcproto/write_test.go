@@ -29,3 +29,25 @@ func TestWriteLoginDisconnect(t *testing.T) {
 	assert.Equal(t, reason, component["text"])
 	assert.Zero(t, payload.Len())
 }
+
+func TestWriteLoginPluginRequest(t *testing.T) {
+	var buf bytes.Buffer
+	require.NoError(t, WriteLoginPluginRequest(&buf, 300, "mc-router:wait", []byte{0x01, 0x02}))
+
+	frame, err := ReadFrame(bufio.NewReader(&buf), nil)
+	require.NoError(t, err)
+	payload := bytes.NewReader(frame.Payload)
+	packetID, err := ReadVarInt(payload)
+	require.NoError(t, err)
+	assert.Equal(t, PacketIdLoginPluginRequest, packetID)
+
+	messageID, err := ReadVarInt(payload)
+	require.NoError(t, err)
+	assert.Equal(t, 300, messageID)
+	channel, err := ReadString(payload)
+	require.NoError(t, err)
+	assert.Equal(t, "mc-router:wait", channel)
+	data, err := ReadByteArray(payload, payload.Len())
+	require.NoError(t, err)
+	assert.Equal(t, []byte{0x01, 0x02}, data)
+}

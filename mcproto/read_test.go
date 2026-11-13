@@ -172,3 +172,34 @@ func ReadHexDumpFile(filename string) ([]byte, error) {
 
 	return hex.DecodeString(hexString)
 }
+
+func TestDecodeLoginPluginResponse(t *testing.T) {
+	tests := []struct {
+		Name       string
+		Input      []byte
+		MessageID  int32
+		Understood bool
+		Error      bool
+	}{
+		{Name: "Not understood", Input: []byte{0x07, 0x00}, MessageID: 7},
+		{Name: "Understood with data", Input: []byte{0xAC, 0x02, 0x01, 0xCA, 0xFE}, MessageID: 300, Understood: true},
+		{Name: "Missing understood flag", Input: []byte{0x07}, Error: true},
+		{Name: "Empty", Input: []byte{}, Error: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.Name, func(t *testing.T) {
+			messageID, understood, err := DecodeLoginPluginResponse(tt.Input)
+			if tt.Error {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.MessageID, messageID)
+			assert.Equal(t, tt.Understood, understood)
+		})
+	}
+
+	_, _, err := DecodeLoginPluginResponse("not bytes")
+	require.Error(t, err)
+}
