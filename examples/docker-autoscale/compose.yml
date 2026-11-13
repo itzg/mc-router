@@ -7,12 +7,13 @@ services:
       IN_DOCKER: true
       # Global auto-scaling settings for all docker-backend servers
       # Settings can be overridden per-backend using labels
-      # as shown in the backend services below (except for AUTO_SCALE_DOWN_AFTER which is global only)
+      # as shown in the backend services below
       # Enable auto-scaling down after inactivity for all backends by default
       AUTO_SCALE_DOWN: true
       # Enable auto-scaling up after player join for all backends by default
       AUTO_SCALE_UP: true
-      # Time of inactivity after which to scale down (default: 10m) - Global only setting
+      # Default time of inactivity after which to scale down (default: 10m)
+      # Override per backend with the mc-router.auto-scale-down-after label
       AUTO_SCALE_DOWN_AFTER: 2h
       # MOTD to show when server is asleep (default: empty string - don't show MOTD, show server offline instead)
       AUTO_SCALE_ASLEEP_MOTD: "Server is asleep. Join again to wake it up!"
