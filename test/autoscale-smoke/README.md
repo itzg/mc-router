@@ -1,174 +1,133 @@
 # Opt-in autoscaling smoke fixtures
 
-These fixtures prepare a real Docker Engine or single-node Swarm environment for
-checking per-resource idle delays. They are manual development tools: `go test`,
-Make targets, and CI do not start them. No Minecraft download or EULA acceptance
-is involved. The backend echoes TCP bytes; the probe sends a Java login handshake
-through the router, verifies the echoed login, holds the connection, then leaves.
-This checks discovery, proxy connections, and provider lifecycle operations, not
-a Minecraft server implementation.
+These fixtures exercise real Docker Engine and single-node Swarm lifecycle APIs
+in disposable nested daemons. The backend echoes TCP bytes; a probe sends a Java
+login handshake through mc-router, verifies the echoed login, holds the
+connection, then disconnects. No Minecraft download or EULA acceptance is needed.
+`go test`, Make targets, and existing CI do not start provider infrastructure.
 
-## Requirements
+## Requirements and isolation
 
-Use a Linux Docker host that supports privileged nested containers, Docker
-Compose, and Bash. The setup builds with the repository Dockerfile and needs
-registry access for its Go/base images, `docker:28-dind`, and
-`python:3.13-alpine`. Python for the backend and probe is supplied by the image;
-host Python is only needed for optional syntax checks.
+Use a Linux Docker host that supports privileged containers, Docker Compose,
+Bash, and host Python 3 for automated verification. The repository Dockerfile
+builds the router from the current checkout. Registry access is required for
+build images and fixture images. The engine and Python image defaults are pinned
+by digest; `SMOKE_ENGINE_IMAGE` and `SMOKE_BACKEND_IMAGE` can override them for
+compatibility testing. Actual Docker versions and the backend image reference
+are recorded in each run's report.
 
-Kubernetes is not included in these fixtures; it would need suitable tooling
-and a separate disposable-cluster setup.
+Docker discovery scans the entire daemon, so a Compose network alone would not
+isolate scaling. Only a disposable `docker:28-dind` engine runs on the host;
+router, backends, probes, and optional Swarm live inside it. The router receives
+only the inner socket. No ports are published. Swarm is initialized only inside
+the disposable engine, leaving host Swarm and existing deployments untouched.
 
-Lifecycle timing assertions are manual. The probe checks its container's final
-exit status and prints its logs after completion, with a default overall limit
-of 180 seconds (`SMOKE_PROBE_TIMEOUT` can override that limit). Keep run-specific
-versions, timestamps, and observations in local reports or CI artifacts rather
-than tracked result files.
+Kubernetes is not included. It needs its own tooling and disposable-cluster
+fixture. The verifier explicitly records unavailable and unverified scenarios;
+it does not label missing provider coverage as a pass.
 
-## Isolation
+## Automated verification
 
-mc-router's Docker discovery scans the whole daemon. A Compose network alone
-would not prevent it from scaling unrelated labelled containers. Therefore, the
-host daemon runs only a disposable `docker:28-dind` engine for this project. The
-router, backends, client probes, and optional Swarm all run inside that engine.
-The router never receives the host Docker socket.
-
-The nested engine requires a privileged container on a development Docker host.
-It listens on its internal Unix socket; no host ports are published. Swarm mode
-is initialized only inside this disposable engine. No host Swarm configuration,
-Kubernetes context, or existing deployment is modified. Each project has its own
-engine and storage. Do not reuse a project name belonging to another run.
-
-## Preflight and setup
-
-Run from this directory. Python is supplied by the probe image; host Python is
-only needed for optional syntax checks.
+From this directory:
 
 ```bash
 ./smoke.sh check
-export SMOKE_PROJECT="mc-router-smoke-$(date +%s)-${RANDOM}"
-# Choose one provider for this project:
-./smoke.sh up docker
-# Or use another unique project name and explicitly choose:
-# ./smoke.sh up swarm
+./smoke.sh verify docker --artifacts /tmp/mc-router-smoke-docker
+./smoke.sh verify swarm --artifacts /tmp/mc-router-smoke-swarm
 ```
 
-`up` builds the router from the current checkout using the repository Dockerfile,
-loads that image into the inner engine, and pulls `python:3.13-alpine` there.
-It then starts two backends and the router:
+`verify` chooses a unique project automatically unless `SMOKE_PROJECT` is set.
+It refuses an existing project/image before taking ownership. Use different
+projects and artifact directories for parallel provider runs. The default
+verification budget is 600 seconds, including a maximum 240-second setup command;
+change it with `--timeout SECONDS`. Each Docker command is bounded. Diagnostics
+and cleanup have a separate 90-second budget.
 
-| Backend | Hostnames | Delay |
-| --- | --- | --- |
-| `inherited` | `inherited.smoke.test` | global `60s` |
-| `override` | `override.smoke.test`, `alias.smoke.test` | override `15s` |
+| Check | Assertions |
+| --- | --- |
+| Global inheritance | `inherited.smoke.test` remains active during login and scales down after the global 60s delay. |
+| Resource override | `override.smoke.test` uses 15s instead of the global delay. |
+| Shared hostnames | Concurrent override/alias logins keep one target active; its delay starts after the final disconnect. |
+| Metadata update | Changing the override to 8s changes the next idle cycle. |
+| Metadata removal | Removing the setting restores the global 60s delay. |
+| Pending update (Swarm) | Changing service labels while a 15s timer is pending preserves that deadline; the next cycle uses 8s. |
 
-Docker uses container labels. Swarm uses service labels and replicated services
-on an attachable overlay network. The setup does not test Swarm global services.
-The synthetic backend handles SIGTERM so scale-down can stop it promptly.
+Docker container labels cannot be changed in place: metadata tests replace only
+the disposable override container and verify its identity changes. Swarm tests
+update service labels in place and verify the service ID stays the same.
+Consequently, Docker's metadata check does not claim in-place pending-timer
+coverage. Both aliases are preserved through changes.
 
-Startup discovery can already arm idle timers. Run probes promptly after setup;
-if a backend has already stopped, a login should wake it again. Image pulls and
-building can take time, but happen before the smoke router starts. The probes
-retry startup/wake connections for up to 90 seconds by default.
+The verifier checks probe exit codes, samples backend running/desired-replica
+state while players are active, measures idle intervals, and checks matching
+router timer/scale-down logs. Timing assertions allow 0.75s early measurement
+slack and 12s reconciliation/polling lag. The configured timer duration must also
+appear in router debug logs. A successful probe alone is not a lifecycle pass.
 
-If setup fails, collect diagnostics and run `down`; it deliberately leaves the
-project available for inspection rather than hiding failures through automatic
-cleanup. Preserve the exported project name until cleanup finishes.
+Every run writes `report.json`, setup/cleanup logs, router/engine diagnostics,
+and per-cycle probe logs under the artifact directory. Reports identify completed
+and failed checks, metadata changes, observed delays, sampled state, and coverage
+limitations. They are local/CI artifacts, not tracked `RESULTS.md` files.
+A failed setup, failed assertion, timeout, or cleanup error returns nonzero.
 
-## Observable pass/fail criteria
+Once the verifier takes ownership, it collects diagnostics and attempts cleanup
+on success, failure, or Ctrl-C. Hard termination or a daemon outage may prevent
+cleanup; retain the printed project name and run `down` manually in that case.
 
-Use the same provider argument chosen at setup. Commands below use `docker`;
-substitute `swarm` consistently for a Swarm project.
+## Manual fixture commands
 
 ```bash
+export SMOKE_PROJECT="mc-router-smoke-$(date +%s)-${RANDOM}"
+./smoke.sh up docker                 # or swarm
 ./smoke.sh probe docker override.smoke.test --hold 25
 ./smoke.sh state docker
+./smoke.sh down
 ```
 
-The probe must remain connected longer than the 15-second idle delay and exit
-successfully, reporting timestamped `CONNECTED` and `DISCONNECTED` records. Logs
-are collected when the client container finishes, rather than streamed.
-In a second terminal with the same exported project name, inspect state during
-that hold: the backend must remain running (Docker) or at one replica (Swarm).
-A probe failure or backend shutdown while connected is a **FAIL**.
+`up` creates an inherited backend (60s) and an overridden backend (15s) with
+`override.smoke.test` and `alias.smoke.test` sharing its scaling target. Startup
+can arm timers; a later login should wake a stopped backend. The synthetic
+backend handles SIGTERM so provider scale-down completes promptly.
 
-After disconnect, poll `state` every few seconds. The override must stay running
-for approximately 15 seconds, then become stopped (Docker) or desired replicas
-zero (Swarm). Router logs must identify its scale-down action. Allow several
-seconds for event delivery and reconciliation; a shutdown before the effective
-idle delay or no scale-down within 30 seconds is a **FAIL** under an otherwise
-healthy, responsive local daemon. Docker's `finished` timestamp and the probe's
-UTC timestamps help distinguish the effective delay from polling lag.
+`probe` waits for the named client container to finish, prints its UTC connection
+records, and returns its actual exit code. Its default overall limit is 180s
+(`SMOKE_PROBE_TIMEOUT` overrides it); startup/wake retries default to 90s.
+While a probe holds a connection, use `state` in another terminal with the same
+project and provider. The backend must stay running/at one desired replica.
+Manual `up` leaves a failed setup available for diagnosis; run `down` afterward.
 
-Compare inheritance in a separate cycle:
+Manual commands are intentionally lower-level than `verify`: `state` prints
+observations and does not itself assert lifecycle behavior.
 
-```bash
-./smoke.sh probe docker inherited.smoke.test --hold 5
-./smoke.sh state docker
-```
-
-After its disconnect, `inherited` must still be running after 20 seconds and stop
-around the global 60-second delay. Allow up to 75 seconds for the observed stop.
-The probe must succeed, and logs must identify the corresponding backend.
-Swarm's `state` reports desired/running replica counts: desired zero is the
-scale-down decision; terminating tasks can take additional time.
-
-To check shared-hostname activity, run these concurrently in separate terminals
-with the same project and provider, then inspect state:
+## Cleanup and diagnostics
 
 ```bash
-./smoke.sh probe docker override.smoke.test --hold 20
-./smoke.sh probe docker alias.smoke.test --hold 35
-```
-
-The shared backend must remain up while either probe is connected. Its 15-second
-idle period starts only after the **last** disconnect. The aliases must not result
-in independent stop decisions. This first fixture setup does not yet exercise
-metadata updates, invalid-value inheritance, default routes, or conflicting
-per-route timeouts; those belong to later smoke coverage.
-
-Save commands, provider/daemon versions, probe output, state observations, and
-router logs when recording a result. Infrastructure failures are inconclusive,
-not a feature pass. A successful syntax/preflight check is not a provider pass.
-
-## Diagnostics and cleanup
-
-```bash
-./smoke.sh state docker  # or swarm
-# Outer-engine diagnostics if the inner daemon failed:
+./smoke.sh state docker              # or swarm
+# If the inner daemon fails:
 docker compose -f compose.yaml -p "$SMOKE_PROJECT" logs --tail 100 engine
 ./smoke.sh down
-# Must return no container IDs:
+# Must show no remaining containers:
 docker ps -aq --filter "label=com.docker.compose.project=$SMOKE_PROJECT"
 ```
 
-`down` removes the project's engine, its anonymous storage volumes, and the
-uniquely named local router image. Removing the engine removes all of its inner
-containers, Swarm services, networks, and images. It does not prune unrelated
-host images, build caches, networks, or volumes; pulled host base images and build
-cache may remain. It is safe to repeat `down` for the same project.
+`down` removes this project's engine, anonymous storage, and uniquely named
+router image, thereby removing all inner containers/services/networks/images.
+It does not prune unrelated host resources, build cache, or downloaded base
+images. No host `docker swarm leave`, global prune, or cluster deletion is needed.
+The verifier checks for remaining project-labelled containers, networks, and
+volumes after cleanup.
 
-Run cleanup after successful checks, failures, or interruption. No `docker swarm
-leave`, cluster deletion, global prune, or removal of existing deployments is
-needed. No API is exposed on a host port, and no authentication tokens or real
-server data are required.
+## Coverage limits and future GitHub Actions integration
 
-## Future CI integration
+Not covered: Kubernetes, real Minecraft servers, Swarm VIP/multi-node networking,
+Swarm global services, default routes, live invalid-value fallback, and conflicting
+per-route settings on the same physical target. Unit tests cover several of
+these policy cases, but that is distinct from real-provider verification.
 
-Keep this folder in a separate test-only commit so reverting it does not affect
-production code, Go tests, or existing CI. There is no workflow added by this
-setup. A future automation commit can add:
-
-1. A bounded verification command that asserts running/replica state and elapsed
-   idle time, rather than treating a successful login probe as a complete pass.
-2. An opt-in GitHub Actions workflow on a standard Ubuntu VM runner, initially
-   using manual dispatch and a Docker/Swarm provider matrix. Manual dispatch
-   requires the workflow to exist on the default branch.
-3. A unique project name for each run/job, a job timeout, log artifacts, and an
-   unconditional cleanup step (`if: always()`).
-4. Explicit nonzero results for lifecycle failures. Keep the active-target
-   regression covered before making the provider matrix a required check.
-
-Use the nested daemon isolation even on CI so the router cannot discover other
-job containers. The runner needs privileged-container support. Kubernetes would
-need an additional disposable-cluster fixture and is not covered here.
+No workflow is added here. A later optional workflow can call `verify` on a
+standard disposable Ubuntu VM with a Docker/Swarm matrix, unique project names,
+read-only repository permissions, uploaded artifacts, and unconditional cleanup.
+Allow a job timeout longer than verification plus cleanup. `workflow_dispatch`
+requires the workflow to exist on the default branch. Avoid persistent shared
+runners for this privileged fixture. Keep infrastructure tests separate from the
+ordinary Go test job and retain this folder as independently removable test code.

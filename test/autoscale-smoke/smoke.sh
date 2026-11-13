@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Opt-in manual fixture management. Never called by go test or CI.
+# Opt-in fixture management. Never called by ordinary Go tests or existing CI.
 set -euo pipefail
 fixture_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_dir=$(cd -- "$fixture_dir/../.." && pwd)
@@ -8,8 +8,9 @@ provider=${2:-docker}
 
 usage() {
   cat <<'HELP'
-Usage: SMOKE_PROJECT=mc-router-smoke-<unique> ./smoke.sh <action> [docker|swarm] [probe arguments]
+Usage: SMOKE_PROJECT=mc-router-smoke-<unique> ./smoke.sh <action> [docker|swarm] [arguments]
   check                 Read Docker/Compose availability; creates nothing
+  verify docker|swarm   Run lifecycle assertions (--artifacts DIR, --timeout SECONDS); clean up
   up docker|swarm       Build this checkout and create an isolated nested engine
   state docker|swarm    Show backend running/replica state and router logs
   probe docker|swarm HOST [--hold SECONDS] [--wait SECONDS]
@@ -31,14 +32,22 @@ if [[ "$action" == check ]]; then
   echo 'Nested-engine and image availability require an explicit up; not verified by check.'
   exit 0
 fi
+if [[ "$action" == verify ]]; then
+  export SMOKE_PROJECT=${SMOKE_PROJECT:-mc-router-smoke-$(date +%s)-${RANDOM}}
+fi
 if [[ ! ${SMOKE_PROJECT:-} =~ ^mc-router-smoke-[a-z0-9-]+$ ]]; then
   echo 'Set SMOKE_PROJECT to a unique mc-router-smoke-<lowercase suffix> name.' >&2
   exit 2
 fi
 if [[ "$provider" != docker && "$provider" != swarm ]]; then usage; exit 2; fi
 router_image="${SMOKE_PROJECT}-router:local"
+export SMOKE_BACKEND_IMAGE=${SMOKE_BACKEND_IMAGE:-python:3.13-alpine@sha256:9ef1a599f863231c3d91e941389bfdc4a2d6070557243d54df1a4e57015b960e}
 
 case "$action" in
+  verify)
+    shift 2
+    exec python3 "$fixture_dir/verify.py" "$provider" --project "$SMOKE_PROJECT" "$@"
+    ;;
   up)
     # Refuse to repurpose an existing project. A failed setup is removed by down.
     if [[ -n $(compose ps -a -q) ]]; then
@@ -54,7 +63,7 @@ case "$action" in
     docker cp "$fixture_dir/backend.py" "$engine_id:/fixtures/backend.py"
     docker cp "$fixture_dir/probe.py" "$engine_id:/fixtures/probe.py"
     docker image save "$router_image" | inner image load
-    inner image pull python:3.13-alpine
+    inner image pull "$SMOKE_BACKEND_IMAGE"
     if [[ "$provider" == docker ]]; then
       inner network create backends
       for backend in inherited override; do
@@ -64,12 +73,12 @@ case "$action" in
         fi
         inner run -d --name "$backend" --network backends "${labels[@]}" \
           --mount type=bind,source=/fixtures/backend.py,target=/backend.py,readonly \
-          python:3.13-alpine python -u /backend.py
+          "$SMOKE_BACKEND_IMAGE" python -u /backend.py
       done
       inner run -d --name router --network backends --user 0 \
         --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
         -e IN_DOCKER=true -e AUTO_SCALE_UP=true -e AUTO_SCALE_DOWN=true \
-        -e AUTO_SCALE_DOWN_AFTER=60s "$router_image"
+        -e AUTO_SCALE_DOWN_AFTER=60s -e DEBUG=true "$router_image"
     else
       # This changes only the freshly-created inner daemon, never the host swarm.
       inner swarm init --advertise-addr eth0
@@ -82,13 +91,13 @@ case "$action" in
         inner service create --no-resolve-image --name "$backend" --network backends --replicas 1 \
           --endpoint-mode dnsrr "${labels[@]}" \
           --mount type=bind,source=/fixtures/backend.py,target=/backend.py,readonly \
-          python:3.13-alpine python -u /backend.py
+          "$SMOKE_BACKEND_IMAGE" python -u /backend.py
       done
       inner service create --no-resolve-image --name router --network backends --user 0 --replicas 1 \
         --constraint node.role==manager \
         --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
         --env IN_DOCKER_SWARM=true --env AUTO_SCALE_UP=true --env AUTO_SCALE_DOWN=true \
-        --env AUTO_SCALE_DOWN_AFTER=60s "$router_image"
+        --env AUTO_SCALE_DOWN_AFTER=60s --env DEBUG=true "$router_image"
     fi
     echo 'Fixtures started. Run probe immediately; see README.md for state checks and cleanup.'
     ;;
@@ -103,7 +112,7 @@ case "$action" in
     trap 'inner rm -f "$probe_name" >/dev/null 2>&1 || true' EXIT
     inner run -d --name "$probe_name" --network backends \
       --mount type=bind,source=/fixtures/probe.py,target=/probe.py,readonly \
-      python:3.13-alpine python -u /probe.py "$@" >/dev/null
+      "$SMOKE_BACKEND_IMAGE" python -u /probe.py "$@" >/dev/null
     deadline=$((SECONDS + probe_timeout))
     while (( SECONDS < deadline )); do
       status=$(inner inspect --format '{{.State.Running}} {{.State.ExitCode}}' "$probe_name" 2>/dev/null || true)
