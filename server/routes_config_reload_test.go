@@ -12,10 +12,24 @@ import (
 )
 
 func TestRouteConfigReloadDoesNotScaleDownActiveConnection(t *testing.T) {
+	for _, override := range []bool{false, true} {
+		t.Run(map[bool]string{false: "inherited", true: "override"}[override], func(t *testing.T) {
+			testRouteConfigReloadDoesNotScaleDownActiveConnection(t, override)
+		})
+	}
+}
+
+func testRouteConfigReloadDoesNotScaleDownActiveConnection(t *testing.T, override bool) {
 	const scaleDownDelay = 500 * time.Millisecond
 	const serverAddress = "mc.example.com"
 
-	downScaler := NewDownScaler(true, scaleDownDelay)
+	globalDelay := scaleDownDelay
+	var downAfter *time.Duration
+	if override {
+		globalDelay = time.Hour
+		downAfter = new(scaleDownDelay)
+	}
+	downScaler := NewDownScaler(true, globalDelay)
 	routes := NewRoutes(t.Context()).WithDownScaler(downScaler)
 	target := TestingScalingTarget("reload-test-backend")
 	var connector *Connector
@@ -38,7 +52,7 @@ func TestRouteConfigReloadDoesNotScaleDownActiveConnection(t *testing.T) {
 	}()
 
 	backendAddress := backendListener.Addr().String()
-	routes.CreateMapping(serverAddress, backendAddress, target, RouteOptions{Sleeper: sleeper})
+	routes.CreateMapping(serverAddress, backendAddress, target, RouteOptions{Sleeper: sleeper, AutoScaleDownAfter: downAfter})
 
 	connector = NewConnector(
 		t.Context(),
@@ -84,7 +98,7 @@ func TestRouteConfigReloadDoesNotScaleDownActiveConnection(t *testing.T) {
 
 	// RoutesConfigLoader.Load calls BulkRegister after a watched file change,
 	// which calls CreateMapping again for this unchanged, already-active route.
-	routes.CreateMapping(serverAddress, backendAddress, target, RouteOptions{Sleeper: sleeper})
+	routes.CreateMapping(serverAddress, backendAddress, target, RouteOptions{Sleeper: sleeper, AutoScaleDownAfter: downAfter})
 
 	select {
 	case activeConnections := <-scaleDownCalled:

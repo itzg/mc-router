@@ -1,0 +1,14 @@
+# Only the disposable engine runs on the host daemon. Router and backend
+# containers/services run inside this engine and cannot discover host resources.
+services:
+  engine:
+    image: ${SMOKE_ENGINE_IMAGE:-docker:28-dind@sha256:2a232a42256f70d78e3cc5d2b5d6b3276710a0de0596c145f627ecfae90282ac}
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    command: ["dockerd", "--host=unix:///var/run/docker.sock", "--storage-driver=vfs"]
+    healthcheck:
+      test: ["CMD", "docker", "--host=unix:///var/run/docker.sock", "info"]
+      interval: 2s
+      timeout: 5s
+      retries: 60

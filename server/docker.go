@@ -31,6 +31,7 @@ const (
 	DockerRouterLabelDefault                   = "mc-router.default"
 	DockerRouterLabelNetwork                   = "mc-router.network"
 	DockerRouterLabelAutoScaleUp               = "mc-router.auto-scale-up"
+	DockerRouterLabelAutoScaleDownAfter        = "mc-router.auto-scale-down-after"
 	DockerRouterLabelAutoScaleDown             = "mc-router.auto-scale-down"
 	DockerRouterLabelAutoScaleAsleepMOTD       = "mc-router.auto-scale-asleep-motd"
 	DockerRouterLabelAutoScaleLoadingMOTD      = "mc-router.auto-scale-loading-motd"
@@ -304,6 +305,7 @@ func (w *dockerWatcherImpl) containersForID(ctx context.Context, containerId str
 			containerId:          containerId,
 			autoScaleUp:          data.autoScaleUp,
 			autoScaleDown:        data.autoScaleDown,
+			autoScaleDownAfter:   data.autoScaleDownAfter,
 			autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
 			autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
 			proxyProtocol:        data.proxyProtocol,
@@ -317,6 +319,7 @@ func (w *dockerWatcherImpl) containersForID(ctx context.Context, containerId str
 			containerId:          containerId,
 			autoScaleUp:          data.autoScaleUp,
 			autoScaleDown:        data.autoScaleDown,
+			autoScaleDownAfter:   data.autoScaleDownAfter,
 			autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
 			autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
 			proxyProtocol:        data.proxyProtocol,
@@ -358,11 +361,12 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerId string, desir
 			wakerFunc := w.makeWakerFunc(rs)
 			sleeperFunc := w.makeSleeperFunc(rs)
 			options := RouteOptions{
-				Waker:         wakerFunc,
-				Sleeper:       sleeperFunc,
-				AsleepMOTD:    rs.autoScaleAsleepMOTD,
-				LoadingMOTD:   rs.autoScaleLoadingMOTD,
-				ProxyProtocol: rs.proxyProtocol,
+				Waker:              wakerFunc,
+				Sleeper:            sleeperFunc,
+				AutoScaleDownAfter: rs.autoScaleDownAfter,
+				AsleepMOTD:         rs.autoScaleAsleepMOTD,
+				LoadingMOTD:        rs.autoScaleLoadingMOTD,
+				ProxyProtocol:      rs.proxyProtocol,
 			}
 			if rs.externalName != "" {
 				w.routes.CreateMapping(rs.externalName, rs.containerEndpoint, rs.scalingTarget, options)
@@ -379,11 +383,12 @@ func (w *dockerWatcherImpl) applyContainerRoutesLocked(containerId string, desir
 		wakerFunc := w.makeWakerFunc(rs)
 		sleeperFunc := w.makeSleeperFunc(rs)
 		options := RouteOptions{
-			Waker:         wakerFunc,
-			Sleeper:       sleeperFunc,
-			AsleepMOTD:    rs.autoScaleAsleepMOTD,
-			LoadingMOTD:   rs.autoScaleLoadingMOTD,
-			ProxyProtocol: rs.proxyProtocol,
+			Waker:              wakerFunc,
+			Sleeper:            sleeperFunc,
+			AutoScaleDownAfter: rs.autoScaleDownAfter,
+			AsleepMOTD:         rs.autoScaleAsleepMOTD,
+			LoadingMOTD:        rs.autoScaleLoadingMOTD,
+			ProxyProtocol:      rs.proxyProtocol,
 		}
 		if rs.externalName != "" {
 			w.routes.UpdateMapping(rs.externalName, rs.containerEndpoint, rs.scalingTarget, options)
@@ -536,6 +541,7 @@ func newRoutableContainer(endpoint string, host string, containerId string, data
 		containerId:          containerId,
 		autoScaleUp:          data.autoScaleUp,
 		autoScaleDown:        data.autoScaleDown,
+		autoScaleDownAfter:   data.autoScaleDownAfter,
 		autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
 		autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
 		proxyProtocol:        data.proxyProtocol,
@@ -551,6 +557,7 @@ type parsedDockerContainerData struct {
 	network              *string
 	ip                   string
 	autoScaleDown        bool
+	autoScaleDownAfter   *time.Duration
 	autoScaleUp          bool
 	autoScaleAsleepMOTD  string
 	autoScaleLoadingMOTD string
@@ -657,6 +664,19 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 			}
 			data.autoScaleDown = autoScaleDown
 		}
+		if key == DockerRouterLabelAutoScaleDownAfter {
+			duration, err := discoveryconfig.ParsePositiveDuration(value)
+			if err != nil {
+				logrus.
+					WithError(err).
+					WithField("containerId", container.ID).
+					WithField("label", key).
+					WithField("value", value).
+					Warn("Invalid scale-down delay label, inheriting global setting")
+			} else {
+				data.autoScaleDownAfter = &duration
+			}
+		}
 		if key == DockerRouterLabelAutoScaleAsleepMOTD {
 			data.autoScaleAsleepMOTD = value
 		}
@@ -744,6 +764,7 @@ type routableContainer struct {
 	containerId          string
 	autoScaleUp          bool
 	autoScaleDown        bool
+	autoScaleDownAfter   *time.Duration
 	autoScaleAsleepMOTD  string
 	autoScaleLoadingMOTD string
 	proxyProtocol        *bool
@@ -760,6 +781,8 @@ func (r *routableContainer) Equal(other *routableContainer) bool {
 		r.containerId == other.containerId &&
 		r.autoScaleUp == other.autoScaleUp &&
 		r.autoScaleDown == other.autoScaleDown &&
+		(r.autoScaleDownAfter == other.autoScaleDownAfter ||
+			(r.autoScaleDownAfter != nil && other.autoScaleDownAfter != nil && *r.autoScaleDownAfter == *other.autoScaleDownAfter)) &&
 		r.autoScaleAsleepMOTD == other.autoScaleAsleepMOTD &&
 		r.autoScaleLoadingMOTD == other.autoScaleLoadingMOTD &&
 		(r.proxyProtocol == other.proxyProtocol ||
