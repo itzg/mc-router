@@ -12,7 +12,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apps "k8s.io/api/apps/v1"
+	autoscaling "k8s.io/api/autoscaling/v1"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 type MockedRoutesHandler struct {
@@ -587,4 +594,84 @@ func TestK8s_motdAnnotations(t *testing.T) {
 	routesHandler.AssertCalled(t, "CreateMapping", "mc.example.com", "10.0.0.5:25565", NewK8sScalingTarget("default", "mc-example"), mock.MatchedBy(func(options RouteOptions) bool {
 		return options.AsleepMOTD == "Server is sleeping" && options.LoadingMOTD == "Server is starting"
 	}))
+}
+
+func statefulSetIn(namespace string, name string, serviceName string) *apps.StatefulSet {
+	return &apps.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+		Spec:       apps.StatefulSetSpec{ServiceName: serviceName},
+	}
+}
+
+// Services of the same name in different namespaces are separate backends, each governing the
+// StatefulSet in its own namespace.
+func TestK8s_statefulSetMappingIsNamespaced(t *testing.T) {
+	watcher := &K8sWatcher{
+		autoScaleUp: true,
+		mappings:    make(map[types.NamespacedName]string),
+	}
+
+	watcher.handleAddStatefulSet()(statefulSetIn("team-a", "survival-a", "survival"))
+	watcher.handleAddStatefulSet()(statefulSetIn("team-b", "survival-b", "survival"))
+
+	name, exists := watcher.statefulSetForService("team-a", "survival")
+	assert.True(t, exists)
+	assert.Equal(t, "survival-a", name)
+	name, exists = watcher.statefulSetForService("team-b", "survival")
+	assert.True(t, exists)
+	assert.Equal(t, "survival-b", name)
+
+	watcher.handleUpdateStatefulSet()(
+		statefulSetIn("team-b", "survival-b", "survival"),
+		statefulSetIn("team-b", "survival-b", "creative"))
+
+	name, exists = watcher.statefulSetForService("team-a", "survival")
+	assert.True(t, exists, "updating a StatefulSet must not drop another namespace's mapping")
+	assert.Equal(t, "survival-a", name)
+	_, exists = watcher.statefulSetForService("team-b", "survival")
+	assert.False(t, exists)
+
+	watcher.handleAddStatefulSet()(statefulSetIn("team-b", "survival-b2", "survival"))
+	watcher.handleDeleteStatefulSet()(statefulSetIn("team-b", "survival-b2", "survival"))
+
+	name, exists = watcher.statefulSetForService("team-a", "survival")
+	assert.True(t, exists, "deleting a StatefulSet must not drop another namespace's mapping")
+	assert.Equal(t, "survival-a", name)
+	_, exists = watcher.statefulSetForService("team-b", "survival")
+	assert.False(t, exists)
+}
+
+// Waking a Service scales the StatefulSet of its own namespace, also when a Service of the same
+// name exists in another namespace.
+func TestK8s_scaleUpTargetsStatefulSetInServiceNamespace(t *testing.T) {
+	clientset := fake.NewClientset()
+	clientset.PrependReactor("get", "statefulsets", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "scale" {
+			return false, nil, nil
+		}
+		return true, &autoscaling.Scale{Status: autoscaling.ScaleStatus{Replicas: 0}}, nil
+	})
+	type patched struct{ namespace, name, patch string }
+	var patches []patched
+	clientset.PrependReactor("patch", "statefulsets", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		patch := action.(k8stesting.PatchAction)
+		patches = append(patches, patched{patch.GetNamespace(), patch.GetName(), string(patch.GetPatch())})
+		return true, &apps.StatefulSet{}, nil
+	})
+
+	watcher := &K8sWatcher{
+		autoScaleUp: true,
+		mappings:    make(map[types.NamespacedName]string),
+		clientset:   clientset,
+	}
+	watcher.handleAddStatefulSet()(statefulSetIn("team-a", "survival-a", "survival"))
+	// Registered later, so it would win in a mapping keyed by the Service name alone
+	watcher.handleAddStatefulSet()(statefulSetIn("team-b", "survival-b", "survival"))
+
+	service := &v1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "survival"}}
+	scaleUp := watcher.buildScaleFunction(service, 0, 1)
+	require.NotNil(t, scaleUp)
+	require.NoError(t, scaleUp(t.Context()))
+
+	assert.Equal(t, []patched{{"team-a", "survival-a", `{"spec":{"replicas":1}}`}}, patches)
 }
