@@ -12,9 +12,21 @@ import (
 )
 
 func TestRouteConfigReloadDoesNotScaleDownActiveConnection(t *testing.T) {
-	for _, override := range []bool{false, true} {
-		t.Run(map[bool]string{false: "inherited", true: "override"}[override], func(t *testing.T) {
-			testRouteConfigReloadDoesNotScaleDownActiveConnection(t, override)
+	tests := []struct {
+		name     string
+		override bool
+	}{
+		{
+			name: "inherited",
+		},
+		{
+			name:     "override",
+			override: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testRouteConfigReloadDoesNotScaleDownActiveConnection(t, tt.override)
 		})
 	}
 }

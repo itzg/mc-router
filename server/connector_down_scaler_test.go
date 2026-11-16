@@ -14,7 +14,7 @@ import (
 
 func TestConnectorScaleDownDelayAfterDisconnect(t *testing.T) {
 	const idleDelay = 400 * time.Millisecond
-	for _, tt := range []struct {
+	tests := []struct {
 		name     string
 		global   time.Duration
 		override *time.Duration
@@ -33,8 +33,10 @@ func TestConnectorScaleDownDelayAfterDisconnect(t *testing.T) {
 			global:   50 * time.Millisecond,
 			override: new(idleDelay),
 		},
-	} {
+	}
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Compare the configured global delay with the route override using the same lifecycle.
 			downScaler := NewDownScaler(true, tt.global).(*downScalerImpl)
 			t.Cleanup(downScaler.Reset)
 			routes := NewRoutes(t.Context()).WithDownScaler(downScaler)
@@ -53,6 +55,7 @@ func TestConnectorScaleDownDelayAfterDisconnect(t *testing.T) {
 				},
 			}
 
+			// Keep backend connections open until each test client disconnects.
 			backend, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = backend.Close() })
@@ -75,6 +78,8 @@ func TestConnectorScaleDownDelayAfterDisconnect(t *testing.T) {
 			for _, host := range []string{"first.example.com", "second.example.com"} {
 				routes.CreateMapping(host, backend.Addr().String(), target, options)
 			}
+
+			// Observe timer state under its lock; packet reads below confirm login admission.
 			timerPending := func() bool {
 				downScaler.Lock()
 				defer downScaler.Unlock()
@@ -109,6 +114,7 @@ func TestConnectorScaleDownDelayAfterDisconnect(t *testing.T) {
 				}
 			}
 
+			// Establish one player, then disconnect to create the timer that reconnect must cancel.
 			first := login("first.example.com")
 			require.Eventually(t, func() bool {
 				return connector.scaleActiveConnections.GetCount(target.ScalingKey()) == 1 && !timerPending()
@@ -131,6 +137,7 @@ func TestConnectorScaleDownDelayAfterDisconnect(t *testing.T) {
 			require.False(t, timerPending(), "one remaining player must prevent idle scheduling")
 			assertAwake()
 
+			// Only the last player leaving may start the full effective idle delay.
 			lastDisconnect := time.Now()
 			require.NoError(t, third.Close())
 			select {

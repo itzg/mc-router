@@ -14,18 +14,35 @@ import (
 
 // Reproduces a provider's delayed ready event after a successful wake/login.
 // Uses the inherited delay; the late-ready case also fails before #563.
-func TestReadyUpdateMustNotScaleDownActivePlayer(t *testing.T) {
-	testReadyUpdateOrder(t, false)
+func TestConnectorReadyUpdateOrder(t *testing.T) {
+	tests := []struct {
+		name            string
+		readyDuringWake bool
+	}{
+		{
+			name: "ready after login",
+		},
+		{
+			name:            "ready during wake and after login",
+			readyDuringWake: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testReadyUpdateOrder(t, tt.readyDuringWake)
+		})
+	}
 }
-func TestReadyUpdateDuringWakePreservesActivePlayer(t *testing.T) {
-	testReadyUpdateOrder(t, true)
-}
+
 func testReadyUpdateOrder(t *testing.T, readyDuringWake bool) {
+	t.Helper()
 	const idleDelay = 80 * time.Millisecond
 	ds := NewDownScaler(true, idleDelay)
 	t.Cleanup(ds.Reset)
 	routes := NewRoutes(t.Context()).WithDownScaler(ds)
 	target := TestingScalingTarget("delayed-ready")
+
+	// Keep a real backend connection open while discovery publishes ready events.
 	backend, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = backend.Close() })
@@ -36,6 +53,8 @@ func testReadyUpdateOrder(t *testing.T, readyDuringWake bool) {
 			accepted <- conn
 		}
 	}()
+
+	// Optionally publish readiness inside the waker while its scaling guard is held.
 	connector := NewConnector(t.Context(), routes, ds, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
 	slept := make(chan int, 1)
 	var options RouteOptions
@@ -56,6 +75,8 @@ func testReadyUpdateOrder(t *testing.T, readyDuringWake bool) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = frontend.Close() })
 	go connector.acceptConnections(frontend, 100, 0)
+
+	// Forwarding the login confirms activity was registered before the late ready event.
 	client := dialAndHandshake(t, frontend, "ready.example.com", mcproto.StateLogin)
 	require.NoError(t, writeTestPacket(client, mcproto.PacketIdLogin, func(w io.Writer) { _ = mcproto.WriteString(w, "ReadyRace") }))
 	select {
@@ -74,6 +95,7 @@ func testReadyUpdateOrder(t *testing.T, readyDuringWake bool) {
 	}
 	require.Eventually(t, func() bool { return connector.scaleActiveConnections.GetCount(target.ScalingKey()) == 1 }, time.Second, time.Millisecond)
 	require.False(t, target.IsScaling(), "wake guard must have cleared")
+
 	// Discovery has caught up after login cancelled its down timer.
 	routes.UpdateMapping("ready.example.com", backend.Addr().String(), target, options)
 	select {
@@ -81,6 +103,8 @@ func testReadyUpdateOrder(t *testing.T, readyDuringWake bool) {
 		t.Fatalf("ready update scaled down with %d active player(s)", active)
 	case <-time.After(3 * idleDelay):
 	}
+
+	// Protection during activity must not prevent shutdown after the player leaves.
 	require.NoError(t, client.Close())
 	select {
 	case active := <-slept:
