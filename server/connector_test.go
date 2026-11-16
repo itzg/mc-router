@@ -12,6 +12,8 @@ import (
 
 	"github.com/itzg/mc-router/mcproto"
 	"github.com/pires/go-proxyproto"
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -588,6 +590,131 @@ func TestConnectorNAT64UseProxyProtocol(t *testing.T) {
 			assert.Equal(t, test.wantProtocol, header.TransportProtocol)
 			assert.Equal(t, test.wantSource, header.SourceAddr.String())
 			assert.Equal(t, test.wantDest, header.DestinationAddr.String())
+		})
+	}
+}
+
+func TestConnectorStatusConnectionsLogAtDebug(t *testing.T) {
+	const (
+		nextStateTransfer = 3
+
+		connecting       = "Connecting to backend"
+		relayedToBackend = "Finished relay frontend->backend"
+		relayedToClient  = "Finished relay backend->frontend"
+		closed           = "Closed connection to backend"
+	)
+	connectionMessages := []string{connecting, relayedToBackend, relayedToClient, closed}
+
+	tests := []struct {
+		name      string
+		nextState mcproto.State
+		wantLevel logrus.Level
+	}{
+		{name: "status", nextState: mcproto.StateStatus, wantLevel: logrus.DebugLevel},
+		{name: "login", nextState: mcproto.StateLogin, wantLevel: logrus.InfoLevel},
+		{name: "transfer", nextState: nextStateTransfer, wantLevel: logrus.InfoLevel},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// The connector logs via the global logger, so capture at debug level
+			// and restore the logger afterwards.
+			logger := logrus.StandardLogger()
+			origLevel, origHooks, origOut := logger.GetLevel(), logger.Hooks, logger.Out
+			hook := logrustest.NewGlobal()
+			logger.SetLevel(logrus.DebugLevel)
+			logger.SetOutput(io.Discard)
+			defer func() {
+				logger.SetLevel(origLevel)
+				logger.SetOutput(origOut)
+				logger.ReplaceHooks(origHooks)
+			}()
+
+			routes := NewRoutes(t.Context())
+			downScaler := NewDownScaler(false, 5*time.Second)
+
+			backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			defer backendListener.Close()
+
+			backendConnChan := make(chan net.Conn, 1)
+			go func() {
+				conn, acceptErr := backendListener.Accept()
+				if acceptErr == nil {
+					backendConnChan <- conn
+				}
+			}()
+
+			routes.CreateMapping("mc.example.com", backendListener.Addr().String(), nil, RouteOptions{})
+
+			c := NewConnector(t.Context(), routes, downScaler, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
+
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			defer ln.Close()
+			go c.acceptConnections(ln, 100, 0)
+
+			// Only what the connection itself logs is of interest
+			hook.Reset()
+
+			clientConn, err := net.Dial("tcp", ln.Addr().String())
+			require.NoError(t, err)
+			defer clientConn.Close()
+
+			err = writeTestPacket(clientConn, 0x00, func(w io.Writer) {
+				_ = mcproto.WriteVarInt(w, 758)
+				_ = mcproto.WriteString(w, "mc.example.com")
+				w.Write([]byte{0x63, 0xdd})
+				_ = mcproto.WriteVarInt(w, int32(test.nextState))
+			})
+			require.NoError(t, err)
+			if test.nextState == mcproto.StateLogin {
+				// Login Start
+				err = writeTestPacket(clientConn, 0x00, func(w io.Writer) {
+					_ = mcproto.WriteString(w, "player")
+				})
+			} else {
+				// Status Request, and stands in for what follows a transfer handshake
+				err = writeTestPacket(clientConn, 0x00, nil)
+			}
+			require.NoError(t, err)
+
+			var backendConn net.Conn
+			select {
+			case backendConn = <-backendConnChan:
+			case <-time.After(5 * time.Second):
+				t.Fatal("backend did not receive a connection")
+			}
+			// Both sides hang up, as after a server list ping
+			require.NoError(t, backendConn.Close())
+			require.NoError(t, clientConn.Close())
+
+			levels := func() map[string]logrus.Level {
+				found := make(map[string]logrus.Level)
+				for _, entry := range hook.AllEntries() {
+					found[entry.Message] = entry.Level
+				}
+				return found
+			}
+			require.Eventually(t, func() bool {
+				found := levels()
+				for _, message := range connectionMessages {
+					if _, ok := found[message]; !ok {
+						return false
+					}
+				}
+				return true
+			}, 5*time.Second, 10*time.Millisecond, "expected all connection messages to be logged")
+
+			found := levels()
+			for _, message := range connectionMessages {
+				assert.Equal(t, test.wantLevel, found[message], "unexpected level of %q", message)
+			}
+			if test.wantLevel == logrus.DebugLevel {
+				for _, entry := range hook.AllEntries() {
+					assert.NotEqual(t, logrus.InfoLevel, entry.Level, "unexpected info entry %q", entry.Message)
+				}
+			}
 		})
 	}
 }
