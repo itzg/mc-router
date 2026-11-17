@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net"
 	"sync/atomic"
@@ -296,137 +295,77 @@ func TestConnectorBackgroundWakeIdleOverride(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Use a long global delay so shutdown proves that the route override was used.
-			ds := NewDownScaler(true, time.Hour).(*downScalerImpl)
-			t.Cleanup(ds.Reset)
-			routes := NewRoutes(t.Context()).WithDownScaler(ds)
-			target := TestingScalingTarget("background-override")
-			connector := NewConnector(t.Context(), routes, ds, discardMetricsBuilder{}.BuildConnectorMetrics(), false, false, nil, false)
-			connector.UseWakeKickMessage(wakeKickMessage)
+			f, wakeStarted, releaseWake := setupBackgroundWakeIdleTest(t, host, idleDelay)
 
-			// Block the first wake until the kicked login has left without an active player.
-			backend, err := net.Listen("tcp", "127.0.0.1:0")
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = backend.Close() })
-			releaseWake := make(chan struct{})
-			wakeStarted := make(chan struct{})
-			t.Cleanup(func() {
-				select {
-				case <-releaseWake:
-				default:
-					close(releaseWake)
-				}
-			})
-			// Record shutdown time and activity independently of the wake completion signal.
-			var wakeCalls atomic.Int32
-			type sleepEvent struct {
-				at     time.Time
-				active int
-			}
-			slept := make(chan sleepEvent, 1)
-			var options RouteOptions
-			options = RouteOptions{
-				AutoScaleDownAfter: new(idleDelay),
-				Waker: func(ctx context.Context) (string, error) {
-					if wakeCalls.Add(1) == 1 {
-						close(wakeStarted)
-						select {
-						case <-releaseWake:
-						case <-ctx.Done():
-							return "", ctx.Err()
-						}
-					}
-					// Simulate discovery catching up during wake, while the scaling guard
-					// is held. That update must not be the source of the idle timer.
-					routes.UpdateMapping(host, backend.Addr().String(), target, options)
-					return backend.Addr().String(), nil
-				},
-				Sleeper: func(context.Context) error {
-					slept <- sleepEvent{at: time.Now(), active: connector.scaleActiveConnections.GetCount(target.ScalingKey())}
-					return nil
-				},
-			}
-			routes.CreateMapping(host, "", target, options)
-			frontend, err := net.Listen("tcp", "127.0.0.1:0")
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = frontend.Close() })
-			go connector.acceptConnections(frontend, 100, 0)
-
-			// A real login must be kicked while the wake continues in the background.
-			require.Equal(t, wakeKickMessage, loginAndReadDisconnect(t, frontend, host))
+			// The kicked player leaves while the first wake remains blocked.
+			require.Equal(t, wakeKickMessage, loginAndReadDisconnect(t, f.frontend, host))
 			select {
 			case <-wakeStarted:
 			case <-time.After(2 * time.Second):
 				t.Fatal("kicked login did not start a background wake")
 			}
-			require.True(t, connector.isWakeInProgress(host))
-			require.Zero(t, connector.scaleActiveConnections.GetCount(target.ScalingKey()))
-			timerPending := func() bool {
-				ds.Lock()
-				defer ds.Unlock()
-				return ds.timers[target.ScalingKey()] != nil
-			}
-			require.False(t, timerPending(), "sleeping route must not schedule before wake completes")
+			require.True(t, f.connector.isWakeInProgress(host))
+			require.Zero(t, f.connector.scaleActiveConnections.GetCount(f.target.ScalingKey()))
+			require.False(t, f.timerPending(), "sleeping route must not schedule before wake completes")
 
-			// Completing a successful wake must arm the idle timer even without a player.
+			// Successful wake completion starts the route's delay even without a player.
 			releasedAt := time.Now()
 			close(releaseWake)
-
 			if !tt.returns {
-				// Without a returning player, shutdown must follow the override delay.
-				select {
-				case event := <-slept:
-					require.Zero(t, event.active)
-					require.GreaterOrEqual(t, event.at.Sub(releasedAt), idleDelay, "background wake must use the route delay after completion")
-				case <-time.After(idleDelay + 2*time.Second):
-					t.Fatal("successful background wake did not schedule the override timeout")
-				}
-				require.False(t, connector.isWakeInProgress(host))
+				f.assertSleepsAfter(releasedAt, idleDelay)
+				require.False(t, f.connector.isWakeInProgress(host))
 				return
 			}
 
 			// Wait for the background timer before reconnecting, so cancellation is observable.
-			require.Eventually(t, func() bool { return !connector.isWakeInProgress(host) && timerPending() }, 2*time.Second, time.Millisecond, "background wake must arm an idle timer before the player returns")
-			client := dialAndHandshake(t, frontend, host, mcproto.StateLogin)
-			require.NoError(t, writeTestPacket(client, mcproto.PacketIdLogin, func(w io.Writer) { _ = mcproto.WriteString(w, "ReturningPlayer") }))
-			require.NoError(t, backend.(*net.TCPListener).SetDeadline(time.Now().Add(2*time.Second)))
-			for {
-				conn, err := backend.Accept()
-				require.NoError(t, err)
-				require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
-				reader := bufio.NewReader(conn)
-				_, err = mcproto.ReadPacket(reader, conn.RemoteAddr(), mcproto.StateHandshaking)
-				if errors.Is(err, io.EOF) {
-					// Wake-kick readiness checks connect without sending a handshake.
-					_ = conn.Close()
-					continue
-				}
-				t.Cleanup(func() { _ = conn.Close() })
-				require.NoError(t, err)
-				_, err = mcproto.ReadPacket(reader, conn.RemoteAddr(), mcproto.StateLogin)
-				require.NoError(t, err)
-				break
-			}
-
-			// The forwarded login confirms admission; the target must stay awake past the old deadline.
-			require.Equal(t, 1, connector.scaleActiveConnections.GetCount(target.ScalingKey()))
-			require.False(t, timerPending(), "returning player's login must cancel the background idle timer")
-			select {
-			case event := <-slept:
-				t.Fatalf("background timer fired with %d active player(s)", event.active)
-			case <-time.After(2 * idleDelay):
-			}
+			require.Eventually(t, func() bool {
+				return !f.connector.isWakeInProgress(host) && f.timerPending()
+			}, 2*time.Second, time.Millisecond, "background wake must arm an idle timer before the player returns")
+			client := f.login(host)
+			f.assertActiveWithoutTimer(1)
+			f.assertAwake(2 * idleDelay)
 
 			// The final disconnect starts a fresh full delay rather than reviving the old timer.
 			disconnectedAt := time.Now()
 			require.NoError(t, client.Close())
-			select {
-			case event := <-slept:
-				require.Zero(t, event.active)
-				require.GreaterOrEqual(t, event.at.Sub(disconnectedAt), idleDelay, "last disconnect must start a fresh override timeout")
-			case <-time.After(idleDelay + 2*time.Second):
-				t.Fatal("returning player's final disconnect did not schedule scale-down")
-			}
+			f.assertSleepsAfter(disconnectedAt, idleDelay)
 		})
 	}
+}
+
+func setupBackgroundWakeIdleTest(t *testing.T, host string, idleDelay time.Duration) (*connectorIdleTest, <-chan struct{}, chan struct{}) {
+	t.Helper()
+	// A long global delay makes shutdown demonstrate use of the route override.
+	f := setupConnectorIdleTest(t, time.Hour)
+	f.connector.UseWakeKickMessage(wakeKickMessage)
+	wakeStarted := make(chan struct{})
+	releaseWake := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-releaseWake:
+		default:
+			close(releaseWake)
+		}
+	})
+	var wakeCalls atomic.Int32
+	var options RouteOptions
+	options = RouteOptions{
+		AutoScaleDownAfter: new(idleDelay),
+		Waker: func(ctx context.Context) (string, error) {
+			if wakeCalls.Add(1) == 1 {
+				close(wakeStarted)
+				select {
+				case <-releaseWake:
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+			}
+			// Discovery catches up while the wake guard is held; it must not arm the timer.
+			f.routes.UpdateMapping(host, f.backend.Addr().String(), f.target, options)
+			return f.backend.Addr().String(), nil
+		},
+		Sleeper: f.recordSleep,
+	}
+	f.routes.CreateMapping(host, "", f.target, options)
+	return f, wakeStarted, releaseWake
 }
