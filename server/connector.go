@@ -556,6 +556,16 @@ func sanitizeUTF8(s string) string {
 	return strings.ToValidUTF8(s, "")
 }
 
+// connectionLogLevel is the level for the messages that every proxied connection
+// produces. Status connections (server list pings) are frequent and are not player
+// activity, so they are only logged at debug.
+func connectionLogLevel(nextState mcproto.State) logrus.Level {
+	if nextState == mcproto.StateStatus {
+		return logrus.DebugLevel
+	}
+	return logrus.InfoLevel
+}
+
 func (c *Connector) cleanupBackendConnection(
 	clientAddr net.Addr,
 	serverAddress string,
@@ -564,6 +574,7 @@ func (c *Connector) cleanupBackendConnection(
 	scalingTarget ScalingTarget,
 	cleanupMetrics bool,
 	checkScaleDown bool,
+	logLevel logrus.Level,
 ) {
 	if c.connectionNotifier != nil {
 		err := c.connectionNotifier.NotifyDisconnected(c.ctx, clientAddr, serverAddress, playerInfo, backendHostPort)
@@ -595,7 +606,7 @@ func (c *Connector) cleanupBackendConnection(
 		WithField("backendHostPort", backendHostPort).
 		WithField("player", playerInfo).
 		WithField("connectionCount", c.activeConnections.GetCount(backendHostPort)).
-		Info("Closed connection to backend")
+		Log(logLevel, "Closed connection to backend")
 	if scalingTarget != nil && checkScaleDown {
 		scaleCount := c.scaleActiveConnections.GetCount(scalingTarget.ScalingKey())
 		logrus.WithField("scalingTarget", scalingTarget).
@@ -618,9 +629,10 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 	backendHostPort, resolvedHost, scalingTarget, waker, _, proxyOverride := c.routes.FindBackendForServerAddress(c.ctx, serverAddress)
 	cleanupMetrics := false
 	cleanupCheckScaleDown := false
+	logLevel := connectionLogLevel(nextState)
 
 	defer func() {
-		c.cleanupBackendConnection(clientAddr, serverAddress, playerInfo, backendHostPort, scalingTarget, cleanupMetrics, cleanupCheckScaleDown)
+		c.cleanupBackendConnection(clientAddr, serverAddress, playerInfo, backendHostPort, scalingTarget, cleanupMetrics, cleanupCheckScaleDown, logLevel)
 	}()
 
 	if waker != nil && nextState > mcproto.StateStatus {
@@ -728,7 +740,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		WithField("server", serverAddress).
 		WithField("backendHostPort", backendHostPort).
 		WithField("player", playerInfo).
-		Info("Connecting to backend")
+		Log(logLevel, "Connecting to backend")
 
 	//goland:noinspection GoResourceLeak ownership transferred to pumpConnections and closed with return statements below
 	backendConn, err := net.DialTimeout("tcp", backendHostPort, c.backendDialTimeout)
@@ -895,10 +907,10 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		return
 	}
 
-	c.pumpConnections(frontendConn, backendConn, clientAddr, playerInfo)
+	c.pumpConnections(frontendConn, backendConn, clientAddr, playerInfo, logLevel)
 }
 
-func (c *Connector) pumpConnections(frontendConn, backendConn net.Conn, clientAddr net.Addr, playerInfo *PlayerInfo) {
+func (c *Connector) pumpConnections(frontendConn, backendConn net.Conn, clientAddr net.Addr, playerInfo *PlayerInfo, logLevel logrus.Level) {
 	//noinspection GoUnhandledErrorResult
 	defer backendConn.Close()
 
@@ -906,8 +918,8 @@ func (c *Connector) pumpConnections(frontendConn, backendConn net.Conn, clientAd
 
 	errorsChan := make(chan error, 2)
 
-	go c.pumpFrames(backendConn, frontendConn, errorsChan, "backend", "frontend", clientAddr, playerInfo)
-	go c.pumpFrames(frontendConn, backendConn, errorsChan, "frontend", "backend", clientAddr, playerInfo)
+	go c.pumpFrames(backendConn, frontendConn, errorsChan, "backend", "frontend", clientAddr, playerInfo, logLevel)
+	go c.pumpFrames(frontendConn, backendConn, errorsChan, "frontend", "backend", clientAddr, playerInfo, logLevel)
 
 	select {
 	case err := <-errorsChan:
@@ -924,13 +936,13 @@ func (c *Connector) pumpConnections(frontendConn, backendConn net.Conn, clientAd
 }
 
 func (c *Connector) pumpFrames(incoming io.Reader, outgoing io.Writer, errors chan<- error, from, to string,
-	clientAddr net.Addr, playerInfo *PlayerInfo) {
+	clientAddr net.Addr, playerInfo *PlayerInfo, logLevel logrus.Level) {
 	amount, err := io.Copy(outgoing, incoming)
 	logrus.
 		WithField("client", clientAddr).
 		WithField("amount", amount).
 		WithField("player", playerInfo).
-		Infof("Finished relay %s->%s", from, to)
+		Logf(logLevel, "Finished relay %s->%s", from, to)
 
 	c.metrics.AddBytesTransmitted(amount)
 
