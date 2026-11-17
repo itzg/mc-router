@@ -11,21 +11,35 @@ import (
 )
 
 func TestReadyServerWithoutPlayersStillScalesDown(t *testing.T) {
-	for _, defaultRoute := range []bool{false, true} {
-		t.Run(map[bool]string{false: "named", true: "default"}[defaultRoute], func(t *testing.T) {
+	tests := []struct {
+		name         string
+		defaultRoute bool
+	}{
+		{
+			name: "named",
+		},
+		{
+			name:         "default",
+			defaultRoute: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			ds := NewDownScaler(true, 20*time.Millisecond)
 			t.Cleanup(ds.Reset)
 			routes := NewRoutes(t.Context()).WithDownScaler(ds)
 			target := TestingScalingTarget("ready-idle")
 			slept := make(chan struct{}, 1)
 			options := RouteOptions{Sleeper: func(context.Context) error { slept <- struct{}{}; return nil }}
-			if defaultRoute {
+			// A ready transition without players must still schedule idle shutdown.
+			if tt.defaultRoute {
 				routes.SetDefaultRoute("", target, options)
 				routes.SetDefaultRoute("backend:25565", target, options)
 			} else {
 				routes.CreateMapping("host", "", target, options)
 				routes.UpdateMapping("host", "backend:25565", target, options)
 			}
+
 			select {
 			case <-slept:
 			case <-time.After(time.Second):
@@ -42,8 +56,11 @@ func TestScaleDownActivitySharedTargetAndReset(t *testing.T) {
 	target := TestingScalingTarget("shared-active")
 	options := RouteOptions{Sleeper: func(context.Context) error { return nil }}
 	routes.CreateMapping("first", "backend", target, options)
+
+	// Two connections share one target, even when its routes are re-registered.
 	ds.ConnectionOpened(target)
 	ds.ConnectionOpened(target)
+
 	// Route reload resets timers, not active connections.
 	ds.Reset()
 	routes.CreateMapping("second", "backend", target, options)
@@ -51,11 +68,14 @@ func TestScaleDownActivitySharedTargetAndReset(t *testing.T) {
 	ds.Lock()
 	assert.Empty(t, ds.timers)
 	ds.Unlock()
+
 	ds.ConnectionClosed(target)
 	ds.Start(t.Context(), target, routes, routes.GetScaleDownPolicy(target))
 	ds.Lock()
 	assert.Empty(t, ds.timers, "one player remains on this target")
 	ds.Unlock()
+
+	// Only the final close allows scheduling and removes the activity entry.
 	ds.ConnectionClosed(target)
 	ds.Start(t.Context(), target, routes, routes.GetScaleDownPolicy(target))
 	ds.Lock()
@@ -95,6 +115,8 @@ func TestCancelledScaleDownCallbackCannotReplaceNewTimer(t *testing.T) {
 			close(blocked.release)
 		}
 	}()
+
+	// Pause an expired callback before it can check whether cancellation invalidated it.
 	ds.Start(t.Context(), target, blocked, ScaleDownPolicy{})
 	select {
 	case <-blocked.resolving:
@@ -102,12 +124,15 @@ func TestCancelledScaleDownCallbackCannotReplaceNewTimer(t *testing.T) {
 		t.Fatal("timer callback did not start")
 	}
 	ds.ConnectionOpened(target) // Timer.Stop can no longer prevent this callback.
+
 	ds.ConnectionClosed(target)
 	ds.Start(t.Context(), target, blocked, ScaleDownPolicy{longestOverride: time.Hour})
 	ds.Lock()
 	replacement := ds.timers[target.ScalingKey()]
 	ds.Unlock()
 	require.NotNil(t, replacement)
+
+	// Releasing the stale callback must neither shut down nor remove the replacement timer.
 	close(blocked.release)
 	select {
 	case <-slept:

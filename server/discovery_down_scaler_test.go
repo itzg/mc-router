@@ -18,6 +18,65 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+type scaleDownDelayStep struct {
+	name    string
+	value   string
+	present bool
+	want    *time.Duration
+}
+
+// setupScaleDownDelaySteps returns fresh data for each provider and route variant.
+// Keep the order: invalid values follow valid overrides to verify stale values are cleared.
+func setupScaleDownDelaySteps() []scaleDownDelayStep {
+	return []scaleDownDelayStep{
+		{name: "inherit"},
+		{
+			name:    "add",
+			value:   "12h",
+			present: true,
+			want:    new(12 * time.Hour),
+		},
+		{
+			name:    "timeout-only update",
+			value:   "5m",
+			present: true,
+			want:    new(5 * time.Minute),
+		},
+		{name: "remove"},
+		{
+			name:    "trim",
+			value:   " 30s ",
+			present: true,
+			want:    new(30 * time.Second),
+		},
+		{
+			name:    "invalid clears override",
+			value:   "forever",
+			present: true,
+		},
+		{
+			name:    "restore",
+			value:   "1h",
+			present: true,
+			want:    new(time.Hour),
+		},
+		{
+			name:    "zero",
+			value:   "0s",
+			present: true,
+		},
+		{
+			name:    "negative",
+			value:   "-1h",
+			present: true,
+		},
+		{
+			name:    "empty",
+			present: true,
+		},
+	}
+}
+
 func TestDockerDiscoveryScaleDownDelay(t *testing.T) {
 	// The sequence exercises creation, override-only updates, removal, and invalid
 	// input after a valid override. All other discovery metadata stays unchanged.
@@ -38,58 +97,8 @@ func TestDockerDiscoveryScaleDownDelay(t *testing.T) {
 				labels[DockerRouterLabelDefault] = "true"
 			}
 
-			for _, step := range []struct {
-				name    string
-				value   string
-				present bool
-				want    *time.Duration
-			}{
-				{name: "inherit"},
-				{
-					name:    "add",
-					value:   "12h",
-					present: true,
-					want:    new(12 * time.Hour),
-				},
-				{
-					name:    "timeout-only update",
-					value:   "5m",
-					present: true,
-					want:    new(5 * time.Minute),
-				},
-				{name: "remove"},
-				{
-					name:    "trim",
-					value:   " 30s ",
-					present: true,
-					want:    new(30 * time.Second),
-				},
-				{
-					name:    "invalid clears override",
-					value:   "forever",
-					present: true,
-				},
-				{
-					name:    "restore",
-					value:   "1h",
-					present: true,
-					want:    new(time.Hour),
-				},
-				{
-					name:    "zero",
-					value:   "0s",
-					present: true,
-				},
-				{
-					name:    "negative",
-					value:   "-1h",
-					present: true,
-				},
-				{
-					name:    "empty",
-					present: true,
-				},
-			} {
+			steps := setupScaleDownDelaySteps()
+			for _, step := range steps {
 				t.Run(step.name, func(t *testing.T) {
 					delete(labels, DockerRouterLabelAutoScaleDownAfter)
 					if step.present {
@@ -200,58 +209,8 @@ func TestSwarmDiscoveryScaleDownDelay(t *testing.T) {
 				serviceMap: map[string]*routableSwarmService{},
 			}
 
-			for _, step := range []struct {
-				name    string
-				value   string
-				present bool
-				want    *time.Duration
-			}{
-				{name: "inherit"},
-				{
-					name:    "add",
-					value:   "12h",
-					present: true,
-					want:    new(12 * time.Hour),
-				},
-				{
-					name:    "timeout-only update",
-					value:   "5m",
-					present: true,
-					want:    new(5 * time.Minute),
-				},
-				{name: "remove"},
-				{
-					name:    "trim",
-					value:   " 30s ",
-					present: true,
-					want:    new(30 * time.Second),
-				},
-				{
-					name:    "invalid clears override",
-					value:   "forever",
-					present: true,
-				},
-				{
-					name:    "restore",
-					value:   "1h",
-					present: true,
-					want:    new(time.Hour),
-				},
-				{
-					name:    "zero",
-					value:   "0s",
-					present: true,
-				},
-				{
-					name:    "negative",
-					value:   "-1h",
-					present: true,
-				},
-				{
-					name:    "empty",
-					present: true,
-				},
-			} {
+			steps := setupScaleDownDelaySteps()
+			for _, step := range steps {
 				t.Run(step.name, func(t *testing.T) {
 					delete(labels, DockerRouterLabelAutoScaleDownAfter)
 					if step.present {
@@ -301,58 +260,8 @@ func TestKubernetesDiscoveryScaleDownDelay(t *testing.T) {
 			watcher := &K8sWatcher{routesHandler: routes, autoScaleDown: true}
 			var previous *core.Service
 
-			for _, step := range []struct {
-				name    string
-				value   string
-				present bool
-				want    *time.Duration
-			}{
-				{name: "inherit"},
-				{
-					name:    "add",
-					value:   "12h",
-					present: true,
-					want:    new(12 * time.Hour),
-				},
-				{
-					name:    "timeout-only update",
-					value:   "5m",
-					present: true,
-					want:    new(5 * time.Minute),
-				},
-				{name: "remove"},
-				{
-					name:    "trim",
-					value:   " 30s ",
-					present: true,
-					want:    new(30 * time.Second),
-				},
-				{
-					name:    "invalid clears override",
-					value:   "forever",
-					present: true,
-				},
-				{
-					name:    "restore",
-					value:   "1h",
-					present: true,
-					want:    new(time.Hour),
-				},
-				{
-					name:    "zero",
-					value:   "0s",
-					present: true,
-				},
-				{
-					name:    "negative",
-					value:   "-1h",
-					present: true,
-				},
-				{
-					name:    "empty",
-					present: true,
-				},
-			} {
+			steps := setupScaleDownDelaySteps()
+			for _, step := range steps {
 				t.Run(step.name, func(t *testing.T) {
 					annotations := map[string]string{AnnotationExternalServerName: "mc.example.com"}
 					if defaultRoute {

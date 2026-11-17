@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -10,8 +11,20 @@ import (
 )
 
 func TestScaleDownDelaySharedTargets(t *testing.T) {
-	for _, reverse := range []bool{false, true} {
-		t.Run(map[bool]string{false: "forward", true: "reverse"}[reverse], func(t *testing.T) {
+	tests := []struct {
+		name    string
+		reverse bool
+	}{
+		{
+			name: "forward",
+		},
+		{
+			name:    "reverse",
+			reverse: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			routes := NewRoutes(t.Context())
 			target := TestingScalingTarget("shared")
 			sleeper := func(context.Context) error { return nil }
@@ -32,24 +45,34 @@ func TestScaleDownDelaySharedTargets(t *testing.T) {
 					delay: nil,
 				},
 			}
-			for i := range aliases {
-				if reverse {
-					i = len(aliases) - 1 - i
-				}
-				alias := aliases[i]
+			// Each case owns a fresh slice; reverse it to verify registration-order independence.
+			if tt.reverse {
+				slices.Reverse(aliases)
+			}
+			for _, alias := range aliases {
 				routes.CreateMapping(alias.host, "backend", target, RouteOptions{Sleeper: sleeper, AutoScaleDownAfter: alias.delay})
 			}
 			// Another target sharing the proxy backend must not affect this policy.
 			routes.CreateMapping("other", "backend", TestingScalingTarget("other"), RouteOptions{Sleeper: sleeper, AutoScaleDownAfter: new(24 * time.Hour)})
 			// A route without a sleeper does not veto another alias's scaling policy.
 			routes.CreateMapping("unscaled", "backend", target, RouteOptions{AutoScaleDownAfter: new(48 * time.Hour)})
+
+			// The longest explicit override wins over the inherited ten-minute delay.
 			assert.Equal(t, 12*time.Hour, routes.GetScaleDownPolicy(target).resolve(10*time.Minute))
+
+			// Removing twelve hours leaves inheritance longer than the five-minute override.
 			routes.RemoveMapping("long")
 			assert.Equal(t, 10*time.Minute, routes.GetScaleDownPolicy(target).resolve(10*time.Minute))
+
+			// With no inheriting alias, only the five-minute override remains.
 			routes.RemoveMapping("inherit")
 			assert.Equal(t, 5*time.Minute, routes.GetScaleDownPolicy(target).resolve(10*time.Minute))
+
+			// Default routes participate in the same target-wide policy.
 			routes.SetDefaultRoute("backend", target, RouteOptions{Sleeper: sleeper, AutoScaleDownAfter: new(time.Hour)})
 			assert.Equal(t, time.Hour, routes.GetScaleDownPolicy(target).resolve(10*time.Minute))
+
+			// Without a scaling target, policy resolution falls back to the global delay.
 			assert.Equal(t, 10*time.Minute, routes.GetScaleDownPolicy(nil).resolve(10*time.Minute))
 		})
 	}
@@ -98,6 +121,8 @@ func TestScaleDownPolicyUpdatePreservesTimerState(t *testing.T) {
 	original := ds.timers[target.ScalingKey()]
 	ds.Unlock()
 	require.NotNil(t, original)
+
+	// Updating metadata changes future policy, not the timer already pending.
 	options.AutoScaleDownAfter = new(2 * time.Hour)
 	routes.UpdateMapping("host", "backend", target, options)
 	ds.Start(t.Context(), target, routes, routes.GetScaleDownPolicy(target))
@@ -105,6 +130,7 @@ func TestScaleDownPolicyUpdatePreservesTimerState(t *testing.T) {
 	assert.Same(t, original, ds.timers[target.ScalingKey()])
 	ds.Unlock()
 	assert.Equal(t, 2*time.Hour, routes.GetScaleDownPolicy(target).resolve(time.Minute))
+
 	// A qualifying active connection has cancelled the timer. A metadata update
 	// must not recreate it. The next idle cycle explicitly calls Start.
 	ds.Cancel(target)
@@ -114,6 +140,8 @@ func TestScaleDownPolicyUpdatePreservesTimerState(t *testing.T) {
 	ds.Lock()
 	assert.Empty(t, ds.timers)
 	ds.Unlock()
+
+	// Starting the next idle cycle may create a new timer with the updated policy.
 	ds.Start(t.Context(), target, routes, routes.GetScaleDownPolicy(target))
 	ds.Lock()
 	assert.NotNil(t, ds.timers[target.ScalingKey()])
