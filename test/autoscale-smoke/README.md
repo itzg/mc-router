@@ -9,9 +9,9 @@ connection, then disconnects. No Minecraft download or EULA acceptance is needed
 ## Requirements and isolation
 
 Use a Linux Docker host that supports privileged containers, Docker Compose,
-Bash, and host Python 3 for automated verification. The repository Dockerfile
-builds the router from the current checkout. Registry access is required for
-build images and fixture images. The engine and Python image defaults are pinned
+and host Python 3. The harness uses only the Python standard library. The
+repository Dockerfile builds the router from the current checkout. Registry
+access is required for build images and fixture images. The engine and Python image defaults are pinned
 by digest; `SMOKE_ENGINE_IMAGE` and `SMOKE_BACKEND_IMAGE` can override them for
 compatibility testing. Actual Docker versions and the backend image reference
 are recorded in each run's report.
@@ -31,15 +31,16 @@ it does not label missing provider coverage as a pass.
 From this directory:
 
 ```bash
-./smoke.sh check
-./smoke.sh verify docker --artifacts /tmp/mc-router-smoke-docker
-./smoke.sh verify swarm --artifacts /tmp/mc-router-smoke-swarm
+python3 smoke.py check
+python3 smoke.py verify docker --artifacts /tmp/mc-router-smoke-docker
+python3 smoke.py verify swarm --artifacts /tmp/mc-router-smoke-swarm
 ```
 
-`verify` chooses a unique project automatically unless `SMOKE_PROJECT` is set.
+`verify` chooses a unique project automatically unless `--project` or
+`SMOKE_PROJECT` is set. Manual commands require one of those project settings.
 It refuses an existing project/image before taking ownership. Use different
 projects and artifact directories for parallel provider runs. The default
-verification budget is 600 seconds, including a maximum 240-second setup command;
+verification budget is 600 seconds, including a maximum 240-second setup phase;
 change it with `--timeout SECONDS`. Each Docker command is bounded. Diagnostics
 and cleanup have a separate 90-second budget.
 
@@ -77,11 +78,11 @@ cleanup; retain the printed project name and run `down` manually in that case.
 ## Manual fixture commands
 
 ```bash
-export SMOKE_PROJECT="mc-router-smoke-$(date +%s)-${RANDOM}"
-./smoke.sh up docker                 # or swarm
-./smoke.sh probe docker override.smoke.test --hold 25
-./smoke.sh state docker
-./smoke.sh down
+export SMOKE_PROJECT="mc-router-smoke-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])')"
+python3 smoke.py up docker                 # or swarm
+python3 smoke.py probe docker override.smoke.test --hold 25
+python3 smoke.py state docker
+python3 smoke.py down
 ```
 
 `up` creates an inherited backend (60s) and an overridden backend (15s) with
@@ -102,13 +103,16 @@ observations and does not itself assert lifecycle behavior.
 ## Cleanup and diagnostics
 
 ```bash
-./smoke.sh state docker              # or swarm
+python3 smoke.py state docker              # or swarm
 # If the inner daemon fails:
 docker compose -f compose.yaml -p "$SMOKE_PROJECT" logs --tail 100 engine
-./smoke.sh down
+python3 smoke.py down
 # Must show no remaining containers:
 docker ps -aq --filter "label=com.docker.compose.project=$SMOKE_PROJECT"
 ```
+
+The router image is transferred into the nested daemon using a temporary host
+archive, which is removed after transfer. Allow temporary disk space for that archive.
 
 `down` removes this project's engine, anonymous storage, and uniquely named
 router image, thereby removing all inner containers/services/networks/images.
