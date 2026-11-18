@@ -351,6 +351,7 @@ These are the labels on the containers are scanned for discovery and auto-scalin
 - `mc-router.auto-scale-up`: Per-container/service override to enable/disable auto scale up for Docker/Swarm. When true (or left unspecified and the global `-auto-scale-up` flag is enabled), mc-router will start the container or scale up the Swarm service when a client connects.
 - `mc-router.auto-scale-down`: Per-container/service override to enable/disable auto scale down for Docker/Swarm. When true (or left unspecified and the global `-auto-scale-down` flag is enabled), mc-router will stop the container or scale down the Swarm service to 0 after it has been idle.
 - `mc-router.auto-scale-asleep-motd`: Per-container/service override for MOTD to show when scaled to zero. If empty or not set the host will appear unresponsive.
+- `mc-router.auto-scale-down-after`: Override the idle delay for this container or replicated Swarm service, for example `"1h"` for a vanilla server or `"12h"` for a modded server. Omit the label to inherit `-auto-scale-down-after`. Values must be positive Go durations such as `30s`, `10m`, or `12h`; invalid, empty, zero, or negative values log a warning and inherit the global delay. This setting does not enable auto scale down; use the existing global and per-resource enablement options.
 - `mc-router.auto-scale-loading-motd`: Per-container/service override for MOTD to show while waking up. Supports replacing the `{duration}` token with the remaining Swarm restart delay if the task is waiting to retry. If empty or not set, the global `-auto-scale-loading-motd` value is used.
 - `mc-router.auto-scale-wait-timeout`: Configure the maximum duration the router waits for the container or Swarm task to become reachable after scaling up (e.g. `"5m"` or `"300s"`). Defaults to 60s. Note: Since the Minecraft Java client has a strict connection timeout of 30 seconds, configuring this value above 30s is not recommended for player join connections.
 - `mc-router.auto-scale-restart-delay-motd`: MOTD to show while the service is in a temporary restart delay (e.g. `"Server failed to start. Retrying in {duration}."`). Supports the `{duration}` countdown token, which dynamically updates.
@@ -388,6 +389,8 @@ Behavior:
 
 Refer to [this example compose file](docs/sd-docker.docker-compose.yml) to see how to
 configure two different Minecraft servers and a `mc-router` instance for use with Docker service discovery.
+
+The idle delay belongs to the scaling target, so all hostnames for the same container or service share one timer. If routes sharing a target specify different delays, the longest resolved delay among routes with scale-down callbacks is used, including the default route. An omitted override participates with the global delay. Changing a delay does not move a pending timer's deadline; the new delay applies the next time a timer is started. Player connections continue to cancel the timer, and status requests only reset it when `-auto-scale-status-resets-down-timer` is enabled.
 
 #### Example Docker Swarm deployment
 
@@ -686,6 +689,16 @@ spec:
 You can also opt-out of auto-scaling per server by setting the following annotations on the `Service` object:
 - `mc-router.itzg.me/autoScaleUp=false`
 - `mc-router.itzg.me/autoScaleDown=false`
+
+Set `mc-router.itzg.me/autoScaleDownAfter` on the **Service** to override its idle delay:
+
+```yaml
+metadata:
+  annotations:
+    mc-router.itzg.me/autoScaleDownAfter: "12h"
+```
+
+Omitting this annotation inherits `-auto-scale-down-after`. Values must be positive Go durations; invalid, empty, zero, or negative values log a warning and inherit the global delay. This annotation changes the delay only: it does not enable autoscaling when the global scaling machinery is disabled. All hostnames for the same Service share a timer, including its default route; conflicting aliases use the longest resolved delay. Existing timer deadlines are preserved when the annotation changes.
 
 Example server with auto-scaling disabled explicitly:
 ```yaml

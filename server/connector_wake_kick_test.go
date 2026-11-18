@@ -277,3 +277,95 @@ func TestConnectorWakeKickStaticBackendAwake(t *testing.T) {
 	var netErr net.Error
 	require.ErrorAs(t, err, &netErr, "a reachable backend must not be answered with a kick")
 }
+
+func TestConnectorBackgroundWakeIdleOverride(t *testing.T) {
+	const idleDelay = 300 * time.Millisecond
+	const host = "background.example.com"
+	tests := []struct {
+		name    string
+		returns bool
+	}{
+		{
+			name: "no returning player",
+		},
+		{
+			name:    "returning player cancels timer",
+			returns: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, wakeStarted, releaseWake := setupBackgroundWakeIdleTest(t, host, idleDelay)
+
+			// The kicked player leaves while the first wake remains blocked.
+			require.Equal(t, wakeKickMessage, loginAndReadDisconnect(t, f.frontend, host))
+			select {
+			case <-wakeStarted:
+			case <-time.After(2 * time.Second):
+				t.Fatal("kicked login did not start a background wake")
+			}
+			require.True(t, f.connector.isWakeInProgress(host))
+			require.Zero(t, f.connector.scaleActiveConnections.GetCount(f.target.ScalingKey()))
+			require.False(t, f.timerPending(), "sleeping route must not schedule before wake completes")
+
+			// Successful wake completion starts the route's delay even without a player.
+			releasedAt := time.Now()
+			close(releaseWake)
+			if !tt.returns {
+				f.assertSleepsAfter(releasedAt, idleDelay)
+				require.False(t, f.connector.isWakeInProgress(host))
+				return
+			}
+
+			// Wait for the background timer before reconnecting, so cancellation is observable.
+			require.Eventually(t, func() bool {
+				return !f.connector.isWakeInProgress(host) && f.timerPending()
+			}, 2*time.Second, time.Millisecond, "background wake must arm an idle timer before the player returns")
+			client := f.login(host)
+			f.assertActiveWithoutTimer(1)
+			f.assertAwake(2 * idleDelay)
+
+			// The final disconnect starts a fresh full delay rather than reviving the old timer.
+			disconnectedAt := time.Now()
+			require.NoError(t, client.Close())
+			f.assertSleepsAfter(disconnectedAt, idleDelay)
+		})
+	}
+}
+
+func setupBackgroundWakeIdleTest(t *testing.T, host string, idleDelay time.Duration) (*connectorIdleTest, <-chan struct{}, chan struct{}) {
+	t.Helper()
+	// A long global delay makes shutdown demonstrate use of the route override.
+	f := setupConnectorIdleTest(t, time.Hour)
+	f.connector.UseWakeKickMessage(wakeKickMessage)
+	wakeStarted := make(chan struct{})
+	releaseWake := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-releaseWake:
+		default:
+			close(releaseWake)
+		}
+	})
+	var wakeCalls atomic.Int32
+	var options RouteOptions
+	options = RouteOptions{
+		AutoScaleDownAfter: new(idleDelay),
+		Waker: func(ctx context.Context) (string, error) {
+			if wakeCalls.Add(1) == 1 {
+				close(wakeStarted)
+				select {
+				case <-releaseWake:
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+			}
+			// Discovery catches up while the wake guard is held; it must not arm the timer.
+			f.routes.UpdateMapping(host, f.backend.Addr().String(), f.target, options)
+			return f.backend.Addr().String(), nil
+		},
+		Sleeper: f.recordSleep,
+	}
+	f.routes.CreateMapping(host, "", f.target, options)
+	return f, wakeStarted, releaseWake
+}

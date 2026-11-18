@@ -27,6 +27,8 @@ type RouteOptions struct {
 	AsleepMOTD    string
 	LoadingMOTD   string
 	ProxyProtocol *bool
+	// AutoScaleDownAfter overrides the global idle delay; nil inherits it.
+	AutoScaleDownAfter *time.Duration
 }
 
 var tcpShieldPattern = regexp.MustCompile("///.*")
@@ -76,6 +78,8 @@ type IRoutes interface {
 	FindBackendForServerAddress(ctx context.Context, serverAddress string) (string, string, ScalingTarget, WakerFunc, SleeperFunc, *bool)
 	HasRoute(serverAddress string) bool
 	GetSleeper(scalingTarget ScalingTarget) SleeperFunc
+	// GetScaleDownPolicy snapshots idle-delay policy across aliases with sleepers.
+	GetScaleDownPolicy(scalingTarget ScalingTarget) ScaleDownPolicy
 	GetMappings() map[string]RouteConfig
 	GetDefaultRoute() (string, ScalingTarget, WakerFunc, SleeperFunc)
 	GetAsleepMOTD(serverAddress string) string
@@ -102,14 +106,15 @@ func NewRoutes(ctx context.Context) IRoutes {
 }
 
 type mapping struct {
-	backend           string
-	waker             WakerFunc
-	sleeper           SleeperFunc
-	asleepMOTD        string
-	loadingMOTD       string
-	proxyProtocol     *bool
-	scalingTarget     ScalingTarget // The endpoint to scale (may differ from backend when using proxy)
-	countdownDeadline time.Time
+	backend            string
+	waker              WakerFunc
+	sleeper            SleeperFunc
+	asleepMOTD         string
+	loadingMOTD        string
+	proxyProtocol      *bool
+	autoScaleDownAfter *time.Duration
+	scalingTarget      ScalingTarget // The endpoint to scale (may differ from backend when using proxy)
+	countdownDeadline  time.Time
 }
 
 type routesImpl struct {
@@ -171,13 +176,14 @@ func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget ScalingTarget
 	defer r.Unlock()
 
 	r.defaultRoute = &mapping{
-		backend:       backend,
-		scalingTarget: scalingTarget,
-		waker:         options.Waker,
-		sleeper:       options.Sleeper,
-		asleepMOTD:    options.AsleepMOTD,
-		loadingMOTD:   options.LoadingMOTD,
-		proxyProtocol: options.ProxyProtocol,
+		backend:            backend,
+		scalingTarget:      scalingTarget,
+		waker:              options.Waker,
+		sleeper:            options.Sleeper,
+		asleepMOTD:         options.AsleepMOTD,
+		loadingMOTD:        options.LoadingMOTD,
+		proxyProtocol:      options.ProxyProtocol,
+		autoScaleDownAfter: options.AutoScaleDownAfter,
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -190,7 +196,7 @@ func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget ScalingTarget
 
 	// Trigger auto-scale down for default route on creation, same as CreateMapping.
 	if r.downScaler != nil && scalingTarget != nil && backend != "" {
-		r.downScaler.Start(r.ctx, scalingTarget, r)
+		r.downScaler.Start(r.ctx, scalingTarget, r, r.scaleDownPolicyLocked(scalingTarget))
 	}
 }
 
@@ -409,6 +415,52 @@ func (r *routesImpl) GetSleeper(scalingTarget ScalingTarget) SleeperFunc {
 	return nil
 }
 
+// ScaleDownPolicy snapshots target-wide idle-delay settings. Inheritance is
+// resolved by DownScaler, which owns the global fallback. A policy is immutable
+// once passed to the scheduler; pending timers retain their original deadline.
+type ScaleDownPolicy struct {
+	longestOverride time.Duration
+	inherit         bool
+}
+
+func (p ScaleDownPolicy) resolve(fallback time.Duration) time.Duration {
+	if p.longestOverride <= 0 || (p.inherit && fallback > p.longestOverride) {
+		return fallback
+	}
+	return p.longestOverride
+}
+
+func (r *routesImpl) GetScaleDownPolicy(target ScalingTarget) ScaleDownPolicy {
+	r.RLock()
+	defer r.RUnlock()
+	return r.scaleDownPolicyLocked(target)
+}
+
+// scaleDownPolicyLocked includes the default route. Caller holds the route lock.
+func (r *routesImpl) scaleDownPolicyLocked(target ScalingTarget) ScaleDownPolicy {
+	var policy ScaleDownPolicy
+	if target == nil {
+		return policy
+	}
+	include := func(m mapping) {
+		if m.scalingTarget == nil || m.scalingTarget.ScalingKey() != target.ScalingKey() || m.sleeper == nil {
+			return
+		}
+		if m.autoScaleDownAfter == nil || *m.autoScaleDownAfter <= 0 {
+			policy.inherit = true
+		} else if *m.autoScaleDownAfter > policy.longestOverride {
+			policy.longestOverride = *m.autoScaleDownAfter
+		}
+	}
+	for _, m := range r.mappings {
+		include(m)
+	}
+	if r.defaultRoute != nil {
+		include(*r.defaultRoute)
+	}
+	return policy
+}
+
 func (r *routesImpl) GetMappings() map[string]RouteConfig {
 	r.RLock()
 	defer r.RUnlock()
@@ -471,13 +523,14 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, scaling
 	}).Info("Created route mapping")
 	previous, hasPrevious := r.mappings[serverAddress]
 	r.mappings[serverAddress] = mapping{
-		backend:       backend,
-		scalingTarget: scalingTarget,
-		waker:         options.Waker,
-		sleeper:       options.Sleeper,
-		asleepMOTD:    options.AsleepMOTD,
-		loadingMOTD:   options.LoadingMOTD,
-		proxyProtocol: options.ProxyProtocol,
+		backend:            backend,
+		scalingTarget:      scalingTarget,
+		waker:              options.Waker,
+		sleeper:            options.Sleeper,
+		asleepMOTD:         options.AsleepMOTD,
+		loadingMOTD:        options.LoadingMOTD,
+		proxyProtocol:      options.ProxyProtocol,
+		autoScaleDownAfter: options.AutoScaleDownAfter,
 	}
 
 	for _, listener := range r.routesListeners {
@@ -490,7 +543,7 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, scaling
 	shouldStartDownTimer := scalingTarget != nil && (!hasPrevious || previous.backend == "" || previous.scalingTarget == nil ||
 		previous.scalingTarget.ScalingKey() != scalingTarget.ScalingKey())
 	if r.downScaler != nil && backend != "" && shouldStartDownTimer {
-		r.downScaler.Start(r.ctx, scalingTarget, r)
+		r.downScaler.Start(r.ctx, scalingTarget, r, r.scaleDownPolicyLocked(scalingTarget))
 	}
 }
 
@@ -510,13 +563,14 @@ func (r *routesImpl) UpdateMapping(serverAddress string, backend string, scaling
 	}).Info("Updated route mapping")
 	prev, hasPrevious := r.mappings[serverAddress]
 	r.mappings[serverAddress] = mapping{
-		backend:       backend,
-		scalingTarget: scalingTarget,
-		waker:         options.Waker,
-		sleeper:       options.Sleeper,
-		asleepMOTD:    options.AsleepMOTD,
-		loadingMOTD:   options.LoadingMOTD,
-		proxyProtocol: options.ProxyProtocol,
+		backend:            backend,
+		scalingTarget:      scalingTarget,
+		waker:              options.Waker,
+		sleeper:            options.Sleeper,
+		asleepMOTD:         options.AsleepMOTD,
+		loadingMOTD:        options.LoadingMOTD,
+		proxyProtocol:      options.ProxyProtocol,
+		autoScaleDownAfter: options.AutoScaleDownAfter,
 	}
 
 	for _, listener := range r.routesListeners {
@@ -530,7 +584,7 @@ func (r *routesImpl) UpdateMapping(serverAddress string, backend string, scaling
 			r.downScaler.Cancel(scalingTarget)
 			// start timer on a backend transition from down/waking to ready
 		} else if hasPrevious && prev.backend == "" && !scalingTarget.IsScaling() {
-			r.downScaler.Start(r.ctx, scalingTarget, r)
+			r.downScaler.Start(r.ctx, scalingTarget, r, r.scaleDownPolicyLocked(scalingTarget))
 		}
 	}
 }
