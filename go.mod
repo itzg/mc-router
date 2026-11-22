@@ -23,7 +23,7 @@ require (
 	golang.org/x/text v0.44.0
 	k8s.io/api v0.37.2
 	k8s.io/apimachinery v0.37.2
-	k8s.io/client-go v0.37.2
+	k8s.io/client-go v11.0.0+incompatible
 )
 
 // go-kit pulls in old, ambiguous package
