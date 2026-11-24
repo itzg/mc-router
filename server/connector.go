@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,19 +44,6 @@ const (
 	backendReadyConnectTimeout = 250 * time.Millisecond
 	backendReadyRetryMaxDelay  = 1 * time.Second
 )
-
-const (
-	// wakeHoldChannel names the login plugin requests that keep a held login alive. No client
-	// knows it, so each request is answered as not understood.
-	wakeHoldChannel = "mc-router:wait"
-	// defaultWakeHoldInterval is well within the 30 seconds the Java client waits for any
-	// packet before it gives up on a connection.
-	defaultWakeHoldInterval = 10 * time.Second
-	// wakeHoldDrainTimeout bounds the wait for outstanding responses once the backend is ready
-	wakeHoldDrainTimeout = 5 * time.Second
-)
-
-var errUnexpectedWakeHoldContent = errors.New("unexpected content from held client")
 
 var noDeadline time.Time
 
@@ -168,14 +154,6 @@ type Connector struct {
 	wakeHold                   time.Duration
 	wakeHoldInterval           time.Duration
 	backendDialTimeout         time.Duration
-}
-
-// wakeSignal announces the end of a background wake to the logins held for it
-type wakeSignal struct {
-	done chan struct{}
-	// backendHostPort and err are the waker's result, valid once done is closed
-	backendHostPort string
-	err             error
 }
 
 func (c *Connector) UseConnectionNotifier(notifier ConnectionNotifier) {
@@ -347,10 +325,10 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 	defer logrus.WithField("client", clientAddr).Debug("Closing frontend connection")
 
 	// Tee-off the inspected content to a buffer so that we can retransmit it to the backend connection
-	inspectionBuffer := new(bytes.Buffer)
-	inspectionReader := io.TeeReader(frontendConn, inspectionBuffer)
+	preReadContent := new(bytes.Buffer)
+	inspectionReader := io.TeeReader(frontendConn, preReadContent)
 
-	bufferedReader := bufio.NewReader(inspectionReader)
+	frontendReader := bufio.NewReader(inspectionReader)
 
 	if err := frontendConn.SetReadDeadline(time.Now().Add(handshakeTimeout)); err != nil {
 		logrus.
@@ -360,7 +338,7 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 		c.metrics.IncrementErrors("read_deadline")
 		return
 	}
-	packet, err := mcproto.ReadPacket(bufferedReader, clientAddr, c.state)
+	packet, err := mcproto.ReadPacket(frontendReader, clientAddr, c.state)
 	if err != nil {
 		logrus.WithError(err).WithField("clientAddr", clientAddr).Error("Failed to read packet")
 		c.metrics.IncrementErrors("read")
@@ -390,7 +368,7 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 
 		var playerInfo *PlayerInfo = nil
 		if handshake.NextState == mcproto.StateLogin {
-			playerInfo, err = c.readPlayerInfo(handshake.ProtocolVersion, bufferedReader, clientAddr, handshake.NextState)
+			playerInfo, err = c.readPlayerInfo(handshake.ProtocolVersion, frontendReader, clientAddr, handshake.NextState)
 			if err != nil {
 				if errors.Is(err, io.EOF) {
 					logrus.
@@ -413,7 +391,8 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 				Debug("Got user info")
 		}
 
-		c.findAndConnectBackend(frontendConn, clientAddr, bufferedReader, inspectionBuffer, packet.Length, handshake.ServerAddress, playerInfo, handshake.NextState, false, int(handshake.ProtocolVersion))
+		buffers := frontendBuffers{frontendReader: frontendReader, preReadContent: preReadContent, handshakeBytes: packet.Length}
+		c.findAndConnectBackend(frontendConn, clientAddr, buffers, handshake.ServerAddress, playerInfo, handshake.NextState, false, int(handshake.ProtocolVersion))
 
 	} else if packet.PacketID == mcproto.PacketIdLegacyServerListPing {
 		handshake, ok := packet.Data.(*mcproto.LegacyServerListPing)
@@ -433,7 +412,8 @@ func (c *Connector) HandleConnection(frontendConn net.Conn) {
 
 		serverAddress := handshake.ServerAddress
 
-		c.findAndConnectBackend(frontendConn, clientAddr, bufferedReader, inspectionBuffer, 0, serverAddress, nil, mcproto.StateStatus, true, 0)
+		buffers := frontendBuffers{frontendReader: frontendReader, preReadContent: preReadContent}
+		c.findAndConnectBackend(frontendConn, clientAddr, buffers, serverAddress, nil, mcproto.StateStatus, true, 0)
 	} else {
 		logrus.
 			WithField("client", clientAddr).
@@ -645,8 +625,19 @@ func (c *Connector) cleanupBackendConnection(
 	c.connectionsCond.Signal()
 }
 
+// frontendBuffers bundles what was read from a client connection before its backend is known
+type frontendBuffers struct {
+	// frontendReader is what the client is read through, which fills preReadContent
+	frontendReader *bufio.Reader
+	// preReadContent is everything read from the client so far, to relay to the backend
+	preReadContent *bytes.Buffer
+	// handshakeBytes is the length of the handshake frame that preReadContent starts with,
+	// or zero for a legacy server list ping
+	handshakeBytes int
+}
+
 func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
-	clientAddr net.Addr, frontendReader *bufio.Reader, preReadContent *bytes.Buffer, handshakeBytes int, serverAddress string, playerInfo *PlayerInfo, nextState mcproto.State, isLegacy bool, clientProtocol int) {
+	clientAddr net.Addr, buffers frontendBuffers, serverAddress string, playerInfo *PlayerInfo, nextState mcproto.State, isLegacy bool, clientProtocol int) {
 
 	// Normalize once so that wake tracking and MOTD lookups agree with route lookups,
 	// e.g. "host.example." (SRV target) and "host.example" are the same server.
@@ -678,7 +669,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 				c.kickWhileWaking(frontendConn, clientAddr, serverAddress, playerInfo)
 				return
 			}
-			backendHostPort = c.holdWhileWaking(frontendConn, clientAddr, frontendReader, preReadContent, serverAddress, playerInfo)
+			backendHostPort = c.holdWhileWaking(frontendConn, clientAddr, buffers.frontendReader, buffers.preReadContent, serverAddress, playerInfo)
 			if backendHostPort == "" {
 				return
 			}
@@ -746,8 +737,8 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 
 			// continue from content already buffered during handshake inspection,
 			// skipping the handshake frame, then fall through to the live connection
-			_, _ = io.CopyN(io.Discard, preReadContent, int64(handshakeBytes))
-			br := bufio.NewReader(io.MultiReader(preReadContent, frontendConn))
+			_, _ = io.CopyN(io.Discard, buffers.preReadContent, int64(buffers.handshakeBytes))
+			br := bufio.NewReader(io.MultiReader(buffers.preReadContent, frontendConn))
 			if isLegacy {
 				c.serveLegacyStatus(frontendConn, serverAddress)
 			} else {
@@ -810,8 +801,8 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 
 			// Continue from content already buffered during handshake inspection,
 			// skipping the handshake frame, then fall through to the live connection
-			_, _ = io.CopyN(io.Discard, preReadContent, int64(handshakeBytes))
-			br := bufio.NewReader(io.MultiReader(preReadContent, frontendConn))
+			_, _ = io.CopyN(io.Discard, buffers.preReadContent, int64(buffers.handshakeBytes))
+			br := bufio.NewReader(io.MultiReader(buffers.preReadContent, frontendConn))
 			if isLegacy {
 				c.serveLegacyStatus(frontendConn, resolvedHost)
 			} else {
@@ -925,7 +916,7 @@ func (c *Connector) findAndConnectBackend(frontendConn net.Conn,
 		}
 	}
 
-	amount, err := io.Copy(backendConn, preReadContent)
+	amount, err := io.Copy(backendConn, buffers.preReadContent)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to write handshake to backend connection")
 		c.metrics.IncrementErrors("backend_failed")
@@ -1079,185 +1070,6 @@ func (c *Connector) wakeInBackground(serverAddress string, scalingTarget Scaling
 			c.downScaler.Start(c.ctx, scalingTarget, c.routes)
 		}
 	}()
-}
-
-func (c *Connector) kickWhileWaking(frontendConn net.Conn, clientAddr net.Addr, serverAddress string, playerInfo *PlayerInfo) {
-	_ = frontendConn.SetWriteDeadline(time.Now().Add(handshakeTimeout))
-	if err := mcproto.WriteLoginDisconnect(frontendConn, c.wakeKickMessage); err != nil {
-		logrus.WithError(err).
-			WithField("client", clientAddr).
-			Warn("Failed to write wake-up disconnect message")
-		return
-	}
-	logrus.WithFields(logrus.Fields{
-		"client":        clientAddr,
-		"serverAddress": serverAddress,
-		"player":        playerInfo,
-	}).Info("Disconnected player with wake-up message while backend starts")
-}
-
-// holdWhileWaking keeps a login waiting for the background wake of its backend. The backend
-// sends nothing during that time, so a login plugin request per interval resets the client's
-// read timeout, and the client's responses are consumed here. Returns the backend to relay the
-// login to, with preReadContent holding what the client sent before the hold, or an empty
-// string when the client was disconnected instead. Giving up on a client never stops the wake.
-func (c *Connector) holdWhileWaking(frontendConn net.Conn, clientAddr net.Addr, frontendReader *bufio.Reader,
-	preReadContent *bytes.Buffer, serverAddress string, playerInfo *PlayerInfo) string {
-
-	signal, waking := c.wakeSignals.Load(serverAddress)
-	// A client sends nothing after its login start until the server responds
-	if !waking || frontendReader.Buffered() > 0 {
-		c.kickWhileWaking(frontendConn, clientAddr, serverAddress, playerInfo)
-		return ""
-	}
-	wake := signal.(*wakeSignal)
-	preReadLen := preReadContent.Len()
-
-	logger := logrus.WithFields(logrus.Fields{
-		"client":        clientAddr,
-		"serverAddress": serverAddress,
-		"player":        playerInfo,
-	})
-	logger.Info("Holding login while backend starts")
-	c.metrics.IncrementWakeHolds(wakeHoldStarted)
-
-	// Responses arrive at the pace of the requests rather than within the handshake timeout
-	_ = frontendConn.SetReadDeadline(noDeadline)
-	responses := make(chan int32)
-	readerDone := make(chan error, 1)
-	stopped := make(chan struct{})
-	stopReader := sync.OnceFunc(func() { close(stopped) })
-	defer stopReader()
-	go func() {
-		readerDone <- readWakeHoldResponses(frontendReader, clientAddr, responses, stopped)
-	}()
-
-	var nextMessageID int32
-	outstanding := make(map[int32]struct{})
-	requestResponse := func() bool {
-		_ = frontendConn.SetWriteDeadline(time.Now().Add(handshakeTimeout))
-		if err := mcproto.WriteLoginPluginRequest(frontendConn, nextMessageID, wakeHoldChannel, nil); err != nil {
-			logger.WithError(err).Debug("Failed to write to held login")
-			return false
-		}
-		outstanding[nextMessageID] = struct{}{}
-		nextMessageID++
-		return true
-	}
-	if !requestResponse() {
-		return ""
-	}
-
-	ticker := time.NewTicker(c.wakeHoldInterval)
-	defer ticker.Stop()
-	expired := time.NewTimer(c.wakeHold)
-	defer expired.Stop()
-	keepAlive, ready := ticker.C, wake.done
-	var drained <-chan time.Time
-
-	// The backend must never see a response to one of our requests, so even when it is ready
-	// the login is only relayed after every request got its response
-	for ready != nil || len(outstanding) > 0 {
-		select {
-		case <-keepAlive:
-			if len(outstanding) > 1 {
-				logger.Info("Held login stopped responding")
-				return ""
-			}
-			if !requestResponse() {
-				return ""
-			}
-
-		case messageID := <-responses:
-			if _, ok := outstanding[messageID]; !ok {
-				logger.WithField("messageID", messageID).Warn("Unexpected login plugin response from held login")
-				c.metrics.IncrementErrors("unexpected_content")
-				return ""
-			}
-			delete(outstanding, messageID)
-
-		case err := <-readerDone:
-			if errors.Is(err, errUnexpectedWakeHoldContent) {
-				logger.WithError(err).Warn("Unexpected content from held login")
-				c.metrics.IncrementErrors("unexpected_content")
-			} else {
-				logger.WithError(err).Info("Held login left while backend starts")
-				c.metrics.IncrementWakeHolds(wakeHoldGaveUp)
-			}
-			return ""
-
-		case <-ready:
-			if wake.err != nil || wake.backendHostPort == "" || !c.backendAcceptsConnections(wake.backendHostPort) {
-				// the wake failed or timed out, which has been reported by wakeInBackground
-				c.kickWhileWaking(frontendConn, clientAddr, serverAddress, playerInfo)
-				return ""
-			}
-			keepAlive, ready = nil, nil
-			drained = time.After(wakeHoldDrainTimeout)
-
-		case <-drained:
-			logger.Info("Held login did not respond in time to be connected")
-			return ""
-
-		case <-expired.C:
-			c.metrics.IncrementWakeHolds(wakeHoldExpired)
-			c.kickWhileWaking(frontendConn, clientAddr, serverAddress, playerInfo)
-			return ""
-
-		case <-c.ctx.Done():
-			return ""
-		}
-	}
-
-	// Stop the reader, which waits for a packet that will not come, by expiring its read
-	stopReader()
-	if err := frontendConn.SetReadDeadline(time.Now()); err != nil {
-		logger.WithError(err).Error("Failed to set read deadline")
-		c.metrics.IncrementErrors("read_deadline")
-		return ""
-	}
-	err := <-readerDone
-	if !errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, errUnexpectedWakeHoldContent) || frontendReader.Buffered() > 0 {
-		logger.WithError(err).Warn("Unexpected content from held login")
-		c.metrics.IncrementErrors("unexpected_content")
-		return ""
-	}
-	if err := frontendConn.SetWriteDeadline(noDeadline); err != nil {
-		logger.WithError(err).Error("Failed to clear write deadline")
-		return ""
-	}
-	// Drop the responses, so that the backend gets the handshake and login start only
-	preReadContent.Truncate(preReadLen)
-
-	logger.WithField("backendHostPort", wake.backendHostPort).Info("Backend is ready for held login")
-	return wake.backendHostPort
-}
-
-// readWakeHoldResponses passes on the message ID of each login plugin response read from a held
-// client, until reading fails or stopped is closed. An error that is not
-// errUnexpectedWakeHoldContent occurred between packets, so nothing of the client's was lost.
-func readWakeHoldResponses(reader *bufio.Reader, clientAddr net.Addr, responses chan<- int32, stopped <-chan struct{}) error {
-	for {
-		if _, err := reader.Peek(1); err != nil {
-			return err
-		}
-		packet, err := mcproto.ReadPacket(reader, clientAddr, mcproto.StateLogin)
-		if err != nil {
-			return fmt.Errorf("%w: %w", errUnexpectedWakeHoldContent, err)
-		}
-		if packet.PacketID != mcproto.PacketIdLoginPluginResponse {
-			return fmt.Errorf("%w: packet ID %d", errUnexpectedWakeHoldContent, packet.PacketID)
-		}
-		messageID, _, err := mcproto.DecodeLoginPluginResponse(packet.Data)
-		if err != nil {
-			return fmt.Errorf("%w: %w", errUnexpectedWakeHoldContent, err)
-		}
-		select {
-		case responses <- messageID:
-		case <-stopped:
-			return errUnexpectedWakeHoldContent
-		}
-	}
 }
 
 // backendAcceptsConnections reports whether a backend that has an address accepts a TCP

@@ -150,7 +150,7 @@ func startWakeHoldClient(t *testing.T, ln net.Listener, protocol mcproto.Protoco
 	require.NoError(t, writeTestPacket(&sent, mcproto.PacketIdHandshake, func(w io.Writer) {
 		_ = mcproto.WriteVarInt(w, int32(protocol))
 		_ = mcproto.WriteString(w, "mc.example.com")
-		_, _ = w.Write([]byte{0x63, 0xdd})
+		_, _ = w.Write([]byte{0x63, 0xdd}) // server port 25565 as an unsigned short
 		_ = mcproto.WriteVarInt(w, int32(mcproto.StateLogin))
 	}))
 	require.NoError(t, writeTestPacket(&sent, mcproto.PacketIdLogin, func(w io.Writer) {
@@ -187,7 +187,7 @@ func (c *wakeHoldClient) run() {
 		}
 		messageID, _ := mcproto.ReadVarInt(payload)
 		channel, _ := mcproto.ReadString(payload)
-		if channel != "mc-router:wait" || payload.Len() != 0 {
+		if channel != wakeHoldChannel || payload.Len() != 0 {
 			c.ended <- frame.Payload
 			return
 		}
@@ -225,9 +225,11 @@ func (c *wakeHoldClient) disconnectReason(t *testing.T) string {
 		require.Equal(t, mcproto.PacketIdLoginDisconnect, packetID)
 		reason, err := mcproto.ReadString(payload)
 		require.NoError(t, err)
-		var component map[string]string
+		var component struct {
+			Text string `json:"text"`
+		}
 		require.NoError(t, json.Unmarshal([]byte(reason), &component))
-		return component["text"]
+		return component.Text
 	case <-time.After(5 * time.Second):
 		t.Fatal("client is still held")
 		return ""
@@ -414,7 +416,9 @@ func TestConnectorWakeHoldUnexpectedContent(t *testing.T) {
 		packetID int32
 		payload  []byte
 	}{
+		// message ID 42, not understood
 		{name: "response to a request never sent", packetID: mcproto.PacketIdLoginPluginResponse, payload: []byte{0x2a, 0x00}},
+		// 0x01 is the encryption response, which no client sends before it was asked to
 		{name: "other packet", packetID: 0x01, payload: []byte{0x00}},
 	}
 

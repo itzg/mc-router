@@ -100,8 +100,11 @@ var wakeHoldEventHelp = map[string]string{
 	wakeHoldExpired:   "The total number of held logins disconnected because the backend was not ready in time",
 }
 
+// counterCreator creates the counter of an event that is counted by the metric of the given name
+type counterCreator func(event string, name string) metrics.Counter
+
 // buildWakeHoldCounters creates the counter of each wake hold event from its metric name
-func buildWakeHoldCounters(newCounter func(event string, name string) metrics.Counter) map[string]metrics.Counter {
+func buildWakeHoldCounters(newCounter counterCreator) map[string]metrics.Counter {
 	counters := make(map[string]metrics.Counter, len(wakeHoldEventHelp))
 	for event := range wakeHoldEventHelp {
 		counters[event] = newCounter(event, "wake_hold_"+event)
