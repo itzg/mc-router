@@ -47,7 +47,12 @@ type K8sWatcher struct {
 	namespace     string
 	// The key in mappings is the namespace and name of a Service, and the value the name of the
 	// StatefulSet in that namespace that the Service governs
-	mappings      map[types.NamespacedName]string
+	mappings map[types.NamespacedName]string
+	// Policy is keyed by the StatefulSet being scaled, not its Service/hostname.
+	statefulSetPolicies map[types.NamespacedName]ScaleDownPolicy
+	services            map[types.NamespacedName]*core.Service
+	// Serialize informer reconciliation; never hold RWMutex while calling routes.
+	reconcileMu   sync.Mutex
 	routesHandler RoutesHandler
 	clientset     kubernetes.Interface
 }
@@ -97,6 +102,10 @@ func (w *K8sWatcher) Start(ctx context.Context, handler RoutesHandler) error {
 	}
 	w.clientset = clientset
 
+	w.mappings = make(map[types.NamespacedName]string)
+	w.statefulSetPolicies = make(map[types.NamespacedName]ScaleDownPolicy)
+	w.services = make(map[types.NamespacedName]*core.Service)
+
 	_, serviceController := cache.NewInformerWithOptions(cache.InformerOptions{
 		ListerWatcher: cache.NewListWatchFromClient(
 			clientset.CoreV1().RESTClient(),
@@ -114,7 +123,6 @@ func (w *K8sWatcher) Start(ctx context.Context, handler RoutesHandler) error {
 	logrus.Debug("Starting service informer")
 	go serviceController.RunWithContext(ctx)
 
-	w.mappings = make(map[types.NamespacedName]string)
 	if w.autoScaleUp || w.autoScaleDown {
 		_, statefulSetController := cache.NewInformerWithOptions(cache.InformerOptions{
 			ListerWatcher: cache.NewListWatchFromClient(
@@ -145,30 +153,101 @@ func (w *K8sWatcher) handleAddStatefulSet() func(obj any) {
 		if !ok {
 			return
 		}
-		logrus.WithField("statefulSet", infoForSts(statefulSet)).
-			Debug("ADD")
-		w.Lock()
-		defer w.Unlock()
-		w.mappings[serviceKeyOf(statefulSet)] = statefulSet.Name
+		w.reconcileMu.Lock()
+		defer w.reconcileMu.Unlock()
+		logrus.WithField("statefulSet", infoForSts(statefulSet)).Debug("ADD")
+		w.updateStatefulSetPolicy(nil, statefulSet)
+		w.refreshServicePolicy(serviceKeyOf(statefulSet))
 	}
 }
 
 func (w *K8sWatcher) handleUpdateStatefulSet() func(oldObj any, newObj any) {
 	return func(oldObj, newObj any) {
-		oldStatefulSet, ok := oldObj.(*apps.StatefulSet)
-		if !ok {
+		oldSet, oldOK := oldObj.(*apps.StatefulSet)
+		newSet, newOK := newObj.(*apps.StatefulSet)
+		if !oldOK || !newOK {
 			return
 		}
-		newStatefulSet, ok := newObj.(*apps.StatefulSet)
-		if !ok {
-			return
-		}
-		logrus.WithFields(logrus.Fields{"old": infoForSts(oldStatefulSet), "new": infoForSts(newStatefulSet)}).
+		logrus.WithFields(logrus.Fields{"old": infoForSts(oldSet), "new": infoForSts(newSet)}).
 			Debug("UPDATE")
-		w.Lock()
-		defer w.Unlock()
-		delete(w.mappings, serviceKeyOf(oldStatefulSet))
-		w.mappings[serviceKeyOf(newStatefulSet)] = newStatefulSet.Name
+		oldValue, oldPresent := oldSet.Annotations[AnnotationAutoScaleDownAfter]
+		newValue, newPresent := newSet.Annotations[AnnotationAutoScaleDownAfter]
+		if oldSet.Name == newSet.Name && serviceKeyOf(oldSet) == serviceKeyOf(newSet) &&
+			oldValue == newValue && oldPresent == newPresent {
+			// Replica/status changes do not change timeout ownership or policy.
+			return
+		}
+		w.reconcileMu.Lock()
+		defer w.reconcileMu.Unlock()
+		w.updateStatefulSetPolicy(oldSet, newSet)
+		oldKey, newKey := serviceKeyOf(oldSet), serviceKeyOf(newSet)
+		if oldKey != newKey {
+			w.refreshServicePolicy(oldKey)
+		}
+		w.refreshServicePolicy(newKey)
+	}
+}
+
+// updateStatefulSetPolicy reads only the new timeout here. Existing scaling
+// enablement and routing annotations remain on Services for compatibility.
+func (w *K8sWatcher) updateStatefulSetPolicy(previous, statefulSet *apps.StatefulSet) {
+	policy := ScaleDownPolicy{}
+	if statefulSet != nil {
+		if value, exists := statefulSet.Annotations[AnnotationAutoScaleDownAfter]; exists {
+			duration, err := discoveryconfig.ParsePositiveDuration(value)
+			if err != nil {
+				logrus.
+					WithError(err).
+					WithField("statefulSet", statefulSet.Name).
+					WithField("namespace", statefulSet.Namespace).
+					WithField("annotation", AnnotationAutoScaleDownAfter).
+					WithField("value", value).
+					Warn("Invalid scale-down delay annotation, inheriting global setting")
+			} else {
+				policy.delay = duration
+			}
+		}
+	}
+	w.Lock()
+	defer w.Unlock()
+	if w.mappings == nil {
+		w.mappings = make(map[types.NamespacedName]string)
+	}
+	if w.statefulSetPolicies == nil {
+		w.statefulSetPolicies = make(map[types.NamespacedName]ScaleDownPolicy)
+	}
+	// Keep association replacement atomic for concurrent scaling callbacks.
+	if previous != nil {
+		key := serviceKeyOf(previous)
+		if w.mappings[key] == previous.Name {
+			delete(w.mappings, key)
+		}
+		delete(w.statefulSetPolicies, types.NamespacedName{Namespace: previous.Namespace, Name: previous.Name})
+	}
+	if statefulSet != nil {
+		w.mappings[serviceKeyOf(statefulSet)] = statefulSet.Name
+		w.statefulSetPolicies[types.NamespacedName{Namespace: statefulSet.Namespace, Name: statefulSet.Name}] = policy
+	}
+}
+
+func (w *K8sWatcher) scaleDownPolicyForService(service *core.Service) ScaleDownPolicy {
+	w.RLock()
+	defer w.RUnlock()
+	name, exists := w.mappings[types.NamespacedName{Namespace: service.Namespace, Name: service.Name}]
+	if !exists {
+		return ScaleDownPolicy{pending: true}
+	}
+	policy, exists := w.statefulSetPolicies[types.NamespacedName{Namespace: service.Namespace, Name: name}]
+	if !exists {
+		return ScaleDownPolicy{pending: true}
+	}
+	return policy
+}
+
+// Caller holds reconcileMu, which also protects the cached Service snapshots.
+func (w *K8sWatcher) refreshServicePolicy(key types.NamespacedName) {
+	if service := w.services[key]; service != nil && w.routesHandler != nil {
+		w.handleServiceUpdate(service, service)
 	}
 }
 
@@ -202,16 +281,50 @@ func (w *K8sWatcher) handleDeleteStatefulSet() func(obj any) {
 		if !ok {
 			return
 		}
-		logrus.WithField("statefulSet", infoForSts(statefulSet)).
-			Debug("DELETE")
-		w.Lock()
-		defer w.Unlock()
-		delete(w.mappings, serviceKeyOf(statefulSet))
+		w.reconcileMu.Lock()
+		defer w.reconcileMu.Unlock()
+		logrus.WithField("statefulSet", infoForSts(statefulSet)).Debug("DELETE")
+		w.updateStatefulSetPolicy(statefulSet, nil)
+		w.refreshServicePolicy(serviceKeyOf(statefulSet))
 	}
 }
 
+// rememberService retains a copy so later StatefulSet metadata events can
+// refresh route bindings without waiting for a Service change.
+func (w *K8sWatcher) rememberService(obj any) {
+	if service, ok := obj.(*core.Service); ok {
+		if w.services == nil {
+			w.services = make(map[types.NamespacedName]*core.Service)
+		}
+		w.services[types.NamespacedName{Namespace: service.Namespace, Name: service.Name}] = service.DeepCopy()
+	}
+}
+
+func (w *K8sWatcher) handleAdd(obj any) {
+	w.reconcileMu.Lock()
+	defer w.reconcileMu.Unlock()
+	w.rememberService(obj)
+	w.handleServiceAdd(obj)
+}
+
+func (w *K8sWatcher) handleUpdate(oldObj, newObj any) {
+	w.reconcileMu.Lock()
+	defer w.reconcileMu.Unlock()
+	w.rememberService(newObj)
+	w.handleServiceUpdate(oldObj, newObj)
+}
+
+func (w *K8sWatcher) handleDelete(obj any) {
+	w.reconcileMu.Lock()
+	defer w.reconcileMu.Unlock()
+	if service, ok := obj.(*core.Service); ok {
+		delete(w.services, types.NamespacedName{Namespace: service.Namespace, Name: service.Name})
+	}
+	w.handleServiceDelete(obj)
+}
+
 // oldObj and newObj are expected to be *v1.Service
-func (w *K8sWatcher) handleUpdate(oldObj any, newObj any) {
+func (w *K8sWatcher) handleServiceUpdate(oldObj any, newObj any) {
 	newServices := w.extractRoutableServices(newObj)
 
 	// Build a set of new service names for quick lookup
@@ -251,7 +364,7 @@ func (w *K8sWatcher) handleUpdate(oldObj any, newObj any) {
 }
 
 // obj is expected to be a *v1.Service
-func (w *K8sWatcher) handleDelete(obj any) {
+func (w *K8sWatcher) handleServiceDelete(obj any) {
 	routableServices := w.extractRoutableServices(obj)
 	for _, routableService := range routableServices {
 		if routableService != nil {
@@ -267,7 +380,7 @@ func (w *K8sWatcher) handleDelete(obj any) {
 }
 
 // obj is expected to be a *v1.Service
-func (w *K8sWatcher) handleAdd(obj any) {
+func (w *K8sWatcher) handleServiceAdd(obj any) {
 	routableServices := w.extractRoutableServices(obj)
 	for _, routableService := range routableServices {
 		if routableService != nil {
@@ -381,21 +494,6 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 		}
 	}
 
-	var downAfter *time.Duration
-	if value, exists := service.Annotations[AnnotationAutoScaleDownAfter]; exists {
-		duration, err := discoveryconfig.ParsePositiveDuration(value)
-		if err != nil {
-			logrus.
-				WithError(err).
-				WithField("service", service.Name).
-				WithField("annotation", AnnotationAutoScaleDownAfter).
-				WithField("value", value).
-				Warn("Invalid scale-down delay annotation, inheriting global setting")
-		} else {
-			downAfter = &duration
-		}
-	}
-
 	var proxyProtocol *bool
 	if value, exists := service.Annotations[AnnotationProxyProtocol]; exists {
 		enabled, err := discoveryconfig.ParseBool(value)
@@ -409,16 +507,17 @@ func (w *K8sWatcher) buildDetails(service *core.Service, externalServiceName str
 			proxyProtocol = &enabled
 		}
 	}
-	if downAfter != nil {
-		scalingTarget.SetScaleDownPolicy(ScaleDownPolicy{delay: *downAfter})
-	}
 	wakerFunc := w.buildScaleFunction(service, 0, 1)
+	sleeperFunc := w.buildScaleFunction(service, 1, 0)
+	if wakerFunc != nil || sleeperFunc != nil {
+		scalingTarget.SetScaleDownPolicy(w.scaleDownPolicyForService(service))
+	}
 	rs := &routableService{
 		externalServiceName:  externalServiceName,
 		containerEndpoint:    routingEndpoint,
 		scalingTarget:        scalingTarget,
 		autoScaleUp:          buildK8sWaker(routingEndpoint, wakerFunc, waitTimeout),
-		autoScaleDown:        w.buildScaleFunction(service, 1, 0),
+		autoScaleDown:        sleeperFunc,
 		autoScaleAsleepMOTD:  autoScaleAsleepMOTD,
 		autoScaleLoadingMOTD: autoScaleLoadingMOTD,
 		proxyProtocol:        proxyProtocol,

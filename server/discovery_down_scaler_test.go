@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apps "k8s.io/api/apps/v1"
 	core "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -261,7 +262,7 @@ func TestKubernetesDiscoveryScaleDownDelay(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			routes := NewRoutes(t.Context())
 			watcher := &K8sWatcher{routesHandler: routes, autoScaleDown: true}
-			var previous *core.Service
+			var previous *apps.StatefulSet
 
 			steps := setupScaleDownDelaySteps()
 			for _, step := range steps {
@@ -270,9 +271,7 @@ func TestKubernetesDiscoveryScaleDownDelay(t *testing.T) {
 					if defaultRoute {
 						annotations = map[string]string{AnnotationDefaultServer: "true"}
 					}
-					if step.present {
-						annotations[AnnotationAutoScaleDownAfter] = step.value
-					}
+					annotations[AnnotationAutoScaleDownAfter] = "24h" // Service value must not override the StatefulSet.
 					svc := &core.Service{
 						ObjectMeta: metav1.ObjectMeta{
 							Name:        "minecraft",
@@ -281,12 +280,18 @@ func TestKubernetesDiscoveryScaleDownDelay(t *testing.T) {
 						},
 						Spec: core.ServiceSpec{ClusterIP: "10.0.0.1"},
 					}
+					statefulSet := statefulSetIn("default", "minecraft-server", "minecraft")
+					statefulSet.Annotations = map[string]string{}
+					if step.present {
+						statefulSet.Annotations[AnnotationAutoScaleDownAfter] = step.value
+					}
 					if previous == nil {
 						watcher.handleAdd(svc)
+						watcher.handleAddStatefulSet()(statefulSet)
 					} else {
-						watcher.handleUpdate(previous, svc)
+						watcher.handleUpdateStatefulSet()(previous, statefulSet)
 					}
-					previous = svc
+					previous = statefulSet
 
 					host := "mc.example.com"
 					if defaultRoute {

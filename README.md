@@ -690,7 +690,7 @@ You can also opt-out of auto-scaling per server by setting the following annotat
 - `mc-router.itzg.me/autoScaleUp=false`
 - `mc-router.itzg.me/autoScaleDown=false`
 
-Set `mc-router.itzg.me/autoScaleDownAfter` on the **Service** to override its idle delay:
+Set `mc-router.itzg.me/autoScaleDownAfter` on the **StatefulSet metadata** (not its pod template or Service) to override its idle delay:
 
 ```yaml
 metadata:
@@ -698,7 +698,7 @@ metadata:
     mc-router.itzg.me/autoScaleDownAfter: "12h"
 ```
 
-Omitting this annotation inherits `-auto-scale-down-after`. Values must be positive Go durations; invalid, empty, zero, or negative values log a warning and inherit the global delay. This annotation changes the delay only: it does not enable autoscaling when the global scaling machinery is disabled. All hostnames for the same Service share a timer, including its default route. Existing timer deadlines are preserved when the annotation changes.
+Omitting this annotation inherits `-auto-scale-down-after`. Values must be positive Go durations; invalid, empty, zero, or negative values log a warning and inherit the global delay. This annotation changes the delay only: it does not enable autoscaling when the global scaling machinery is disabled. All hostnames for the same Service reference its StatefulSet policy, including its default route. The Service annotation is ignored. Initial idle scheduling waits until the StatefulSet metadata has been discovered. Existing timer deadlines are preserved when the annotation changes.
 
 Example server with auto-scaling disabled explicitly:
 ```yaml

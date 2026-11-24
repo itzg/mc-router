@@ -458,7 +458,9 @@ func TestK8s_proxyServerNameScaleEndpoint(t *testing.T) {
 	watcher.handleAdd(&svc)
 
 	// Verify CreateMapping was called with the correct scaleKey (original endpoint)
-	routesHandler.AssertCalled(t, "CreateMapping", "mc.example.com", "velocity:25577", NewK8sScalingTarget("default", "mc-example"), mock.Anything)
+	routesHandler.AssertCalled(t, "CreateMapping", "mc.example.com", "velocity:25577", mock.MatchedBy(func(target ScalingTarget) bool {
+		return target.ScalingKey() == NewK8sScalingTarget("default", "mc-example").ScalingKey()
+	}), mock.Anything)
 }
 
 func setupRoutesHandlerMock() *MockedRoutesHandler {
@@ -515,7 +517,9 @@ func TestK8s_autoScaleWithoutProxy(t *testing.T) {
 
 	// CRITICAL: Verify scaleKey is set to the service endpoint (not empty)
 	// This ensures auto-scaling targets the correct StatefulSet
-	routesHandler.AssertCalled(t, "CreateMapping", "atm-10.example.com", "10.0.0.10:25565", NewK8sScalingTarget("default", "atm-10"), mock.Anything)
+	routesHandler.AssertCalled(t, "CreateMapping", "atm-10.example.com", "10.0.0.10:25565", mock.MatchedBy(func(target ScalingTarget) bool {
+		return target.ScalingKey() == NewK8sScalingTarget("default", "atm-10").ScalingKey()
+	}), mock.Anything)
 }
 
 func TestBuildK8sWaker_NilScaleUp(t *testing.T) {
@@ -591,7 +595,9 @@ func TestK8s_motdAnnotations(t *testing.T) {
 
 	watcher.handleAdd(&svc)
 
-	routesHandler.AssertCalled(t, "CreateMapping", "mc.example.com", "10.0.0.5:25565", NewK8sScalingTarget("default", "mc-example"), mock.MatchedBy(func(options RouteOptions) bool {
+	routesHandler.AssertCalled(t, "CreateMapping", "mc.example.com", "10.0.0.5:25565", mock.MatchedBy(func(target ScalingTarget) bool {
+		return target.ScalingKey() == NewK8sScalingTarget("default", "mc-example").ScalingKey()
+	}), mock.MatchedBy(func(options RouteOptions) bool {
 		return options.AsleepMOTD == "Server is sleeping" && options.LoadingMOTD == "Server is starting"
 	}))
 }
