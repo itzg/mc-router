@@ -70,14 +70,14 @@ func TestScaleDownActivitySharedTargetAndReset(t *testing.T) {
 	ds.Unlock()
 
 	ds.ConnectionClosed(target)
-	ds.Start(t.Context(), target, routes, routes.GetScaleDownPolicy(target))
+	ds.Start(t.Context(), target, routes)
 	ds.Lock()
 	assert.Empty(t, ds.timers, "one player remains on this target")
 	ds.Unlock()
 
 	// Only the final close allows scheduling and removes the activity entry.
 	ds.ConnectionClosed(target)
-	ds.Start(t.Context(), target, routes, routes.GetScaleDownPolicy(target))
+	ds.Start(t.Context(), target, routes)
 	ds.Lock()
 	assert.NotNil(t, ds.timers[target.ScalingKey()])
 	assert.Empty(t, ds.active, "completed connections must not leak target counts")
@@ -117,7 +117,7 @@ func TestCancelledScaleDownCallbackCannotReplaceNewTimer(t *testing.T) {
 	}()
 
 	// Pause an expired callback before it can check whether cancellation invalidated it.
-	ds.Start(t.Context(), target, blocked, ScaleDownPolicy{})
+	ds.Start(t.Context(), target, blocked)
 	select {
 	case <-blocked.resolving:
 	case <-time.After(time.Second):
@@ -126,7 +126,8 @@ func TestCancelledScaleDownCallbackCannotReplaceNewTimer(t *testing.T) {
 	ds.ConnectionOpened(target) // Timer.Stop can no longer prevent this callback.
 
 	ds.ConnectionClosed(target)
-	ds.Start(t.Context(), target, blocked, ScaleDownPolicy{longestOverride: time.Hour})
+	target.SetScaleDownPolicy(ScaleDownPolicy{delay: time.Hour})
+	ds.Start(t.Context(), target, blocked)
 	ds.Lock()
 	replacement := ds.timers[target.ScalingKey()]
 	ds.Unlock()

@@ -33,8 +33,7 @@ class Harness:
             "provider": self.provider, "project": self.project, "checks": [],
             "unavailable": ["Kubernetes: not provisioned by these fixtures"],
             "unverified": ["real Minecraft servers", "Swarm VIP and multi-node networking",
-                           "default routes", "invalid-duration fallback on live providers",
-                           "conflicting per-route timeouts on one target"],
+                           "default routes", "invalid-duration fallback on live providers"],
         }
 
     def command(self, args, *, timeout=30, check=True, cleanup=False):

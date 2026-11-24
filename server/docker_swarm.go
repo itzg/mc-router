@@ -44,7 +44,6 @@ type routableSwarmService struct {
 	networkID                 string
 	autoScaleUp               bool
 	autoScaleDown             bool
-	autoScaleDownAfter        *time.Duration
 	autoScaleAsleepMOTD       string
 	autoScaleLoadingMOTD      string
 	proxyProtocol             *bool
@@ -68,8 +67,7 @@ func (r *routableSwarmService) Equal(other *routableSwarmService) bool {
 		r.networkID == other.networkID &&
 		r.autoScaleUp == other.autoScaleUp &&
 		r.autoScaleDown == other.autoScaleDown &&
-		(r.autoScaleDownAfter == other.autoScaleDownAfter ||
-			(r.autoScaleDownAfter != nil && other.autoScaleDownAfter != nil && *r.autoScaleDownAfter == *other.autoScaleDownAfter)) &&
+		r.scaleDownPolicy() == other.scaleDownPolicy() &&
 		r.autoScaleAsleepMOTD == other.autoScaleAsleepMOTD &&
 		r.autoScaleLoadingMOTD == other.autoScaleLoadingMOTD &&
 		(r.proxyProtocol == other.proxyProtocol ||
@@ -375,12 +373,11 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 
 			wakerFunc, sleeperFunc := w.makeServiceLifecycleFuncs(rs)
 			options := RouteOptions{
-				Waker:              wakerFunc,
-				Sleeper:            sleeperFunc,
-				AutoScaleDownAfter: rs.autoScaleDownAfter,
-				AsleepMOTD:         rs.autoScaleAsleepMOTD,
-				LoadingMOTD:        rs.autoScaleLoadingMOTD,
-				ProxyProtocol:      rs.proxyProtocol,
+				Waker:         wakerFunc,
+				Sleeper:       sleeperFunc,
+				AsleepMOTD:    rs.autoScaleAsleepMOTD,
+				LoadingMOTD:   rs.autoScaleLoadingMOTD,
+				ProxyProtocol: rs.proxyProtocol,
 			}
 			if rs.externalServiceName != "" {
 				w.routes.CreateMapping(rs.externalServiceName, rs.containerEndpoint, rs.scalingTarget, options)
@@ -406,12 +403,11 @@ func (w *dockerSwarmWatcherImpl) reconcileServices(ctx context.Context) error {
 			w.serviceMap[rs.externalServiceName] = rs
 			wakerFunc, sleeperFunc := w.makeServiceLifecycleFuncs(rs)
 			options := RouteOptions{
-				Waker:              wakerFunc,
-				Sleeper:            sleeperFunc,
-				AutoScaleDownAfter: rs.autoScaleDownAfter,
-				AsleepMOTD:         rs.autoScaleAsleepMOTD,
-				LoadingMOTD:        rs.autoScaleLoadingMOTD,
-				ProxyProtocol:      rs.proxyProtocol,
+				Waker:         wakerFunc,
+				Sleeper:       sleeperFunc,
+				AsleepMOTD:    rs.autoScaleAsleepMOTD,
+				LoadingMOTD:   rs.autoScaleLoadingMOTD,
+				ProxyProtocol: rs.proxyProtocol,
 			}
 			if rs.externalServiceName != "" {
 				w.routes.UpdateMapping(rs.externalServiceName, rs.containerEndpoint, rs.scalingTarget, options)
@@ -572,6 +568,13 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 }
 
 func newRoutableSwarmService(endpoint string, host string, data parsedDockerServiceData, target *DockerSwarmScalingTarget) *routableSwarmService {
+	policy := ScaleDownPolicy{}
+	if data.autoScaleDownAfter != nil {
+		policy.delay = *data.autoScaleDownAfter
+	}
+	if target != nil {
+		target.SetScaleDownPolicy(policy)
+	}
 	return &routableSwarmService{
 		containerEndpoint:         endpoint,
 		externalServiceName:       host,
@@ -580,7 +583,6 @@ func newRoutableSwarmService(endpoint string, host string, data parsedDockerServ
 		networkID:                 data.networkID,
 		autoScaleUp:               data.autoScaleUp,
 		autoScaleDown:             data.autoScaleDown,
-		autoScaleDownAfter:        data.autoScaleDownAfter,
 		autoScaleAsleepMOTD:       data.autoScaleAsleepMOTD,
 		autoScaleLoadingMOTD:      data.autoScaleLoadingMOTD,
 		proxyProtocol:             data.proxyProtocol,
@@ -1036,4 +1038,11 @@ func (t *DockerSwarmScalingTarget) String() string {
 
 func (t *DockerSwarmScalingTarget) ScalingKey() string {
 	return t.serviceID
+}
+
+func (r *routableSwarmService) scaleDownPolicy() ScaleDownPolicy {
+	if r.scalingTarget == nil {
+		return ScaleDownPolicy{}
+	}
+	return r.scalingTarget.ScaleDownPolicy()
 }

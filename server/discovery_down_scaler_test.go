@@ -120,7 +120,11 @@ func TestDockerDiscoveryScaleDownDelay(t *testing.T) {
 					// Startup list conversion and incremental inspect conversion both
 					// need to preserve the override, including default-route aliases.
 					startup := newRoutableContainer("10.0.0.1:25565", "mc.example.com", "container", data, NewDockerScalingTarget("container", "minecraft"))
-					assert.Equal(t, step.want, startup.autoScaleDownAfter)
+					expected := ScaleDownPolicy{}
+					if step.want != nil {
+						expected.delay = *step.want
+					}
+					assert.Equal(t, expected, startup.scalingTarget.ScaleDownPolicy())
 					api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						if !strings.HasSuffix(r.URL.Path, "/containers/container/json") {
 							http.NotFound(w, r)
@@ -144,9 +148,8 @@ func TestDockerDiscoveryScaleDownDelay(t *testing.T) {
 					repeated := make([]*routableContainer, len(desired))
 					for i, route := range desired {
 						copy := *route
-						if route.autoScaleDownAfter != nil {
-							copy.autoScaleDownAfter = new(*route.autoScaleDownAfter)
-						}
+						copy.scalingTarget = NewDockerScalingTarget("container", "minecraft")
+						copy.scalingTarget.SetScaleDownPolicy(route.scalingTarget.ScaleDownPolicy())
 						repeated[i] = &copy
 					}
 					watcher.applyContainerRoutesLocked("container", repeated)
@@ -162,7 +165,7 @@ func TestDockerDiscoveryScaleDownDelay(t *testing.T) {
 					if step.want != nil {
 						want = *step.want
 					}
-					assert.Equal(t, want, routes.GetScaleDownPolicy(target).resolve(10*time.Minute))
+					assert.Equal(t, want, target.ScaleDownPolicy().resolve(10*time.Minute))
 
 				})
 			}
@@ -239,7 +242,7 @@ func TestSwarmDiscoveryScaleDownDelay(t *testing.T) {
 					if step.want != nil {
 						want = *step.want
 					}
-					assert.Equal(t, want, routes.GetScaleDownPolicy(target).resolve(10*time.Minute))
+					assert.Equal(t, want, target.ScaleDownPolicy().resolve(10*time.Minute))
 
 				})
 			}
@@ -295,7 +298,7 @@ func TestKubernetesDiscoveryScaleDownDelay(t *testing.T) {
 					if step.want != nil {
 						want = *step.want
 					}
-					assert.Equal(t, want, routes.GetScaleDownPolicy(target).resolve(10*time.Minute))
+					assert.Equal(t, want, target.ScaleDownPolicy().resolve(10*time.Minute))
 
 				})
 			}

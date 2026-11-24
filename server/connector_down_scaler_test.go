@@ -38,7 +38,10 @@ func TestConnectorScaleDownDelayAfterDisconnect(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := setupConnectorIdleTest(t, tt.global)
-			options := RouteOptions{Sleeper: f.recordSleep, AutoScaleDownAfter: tt.override}
+			if tt.override != nil {
+				f.target.SetScaleDownPolicy(ScaleDownPolicy{delay: *tt.override})
+			}
+			options := RouteOptions{Sleeper: f.recordSleep}
 			// Both hostnames share one target and therefore one connection count and timer.
 			f.routes.CreateMapping("first.example.com", f.backend.Addr().String(), f.target, options)
 			f.routes.CreateMapping("second.example.com", f.backend.Addr().String(), f.target, options)

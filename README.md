@@ -390,7 +390,7 @@ Behavior:
 Refer to [this example compose file](docs/sd-docker.docker-compose.yml) to see how to
 configure two different Minecraft servers and a `mc-router` instance for use with Docker service discovery.
 
-The idle delay belongs to the scaling target, so all hostnames for the same container or service share one timer. If routes sharing a target specify different delays, the longest resolved delay among routes with scale-down callbacks is used, including the default route. An omitted override participates with the global delay. Changing a delay does not move a pending timer's deadline; the new delay applies the next time a timer is started. Player connections continue to cancel the timer, and status requests only reset it when `-auto-scale-status-resets-down-timer` is enabled.
+The idle delay belongs to the scaling target, so all hostnames for the same container or service share one timer. The delay is configured on the scalable resource, so aliases do not supply competing timeout values. An omitted override inherits the global delay. Changing a delay does not move a pending timer's deadline; the new delay applies the next time a timer is started. Player connections continue to cancel the timer, and status requests only reset it when `-auto-scale-status-resets-down-timer` is enabled.
 
 #### Example Docker Swarm deployment
 
@@ -698,7 +698,7 @@ metadata:
     mc-router.itzg.me/autoScaleDownAfter: "12h"
 ```
 
-Omitting this annotation inherits `-auto-scale-down-after`. Values must be positive Go durations; invalid, empty, zero, or negative values log a warning and inherit the global delay. This annotation changes the delay only: it does not enable autoscaling when the global scaling machinery is disabled. All hostnames for the same Service share a timer, including its default route; conflicting aliases use the longest resolved delay. Existing timer deadlines are preserved when the annotation changes.
+Omitting this annotation inherits `-auto-scale-down-after`. Values must be positive Go durations; invalid, empty, zero, or negative values log a warning and inherit the global delay. This annotation changes the delay only: it does not enable autoscaling when the global scaling machinery is disabled. All hostnames for the same Service share a timer, including its default route. Existing timer deadlines are preserved when the annotation changes.
 
 Example server with auto-scaling disabled explicitly:
 ```yaml

@@ -337,6 +337,7 @@ func setupBackgroundWakeIdleTest(t *testing.T, host string, idleDelay time.Durat
 	t.Helper()
 	// A long global delay makes shutdown demonstrate use of the route override.
 	f := setupConnectorIdleTest(t, time.Hour)
+	f.target.SetScaleDownPolicy(ScaleDownPolicy{delay: idleDelay})
 	f.connector.UseWakeKickMessage(wakeKickMessage)
 	wakeStarted := make(chan struct{})
 	releaseWake := make(chan struct{})
@@ -350,7 +351,6 @@ func setupBackgroundWakeIdleTest(t *testing.T, host string, idleDelay time.Durat
 	var wakeCalls atomic.Int32
 	var options RouteOptions
 	options = RouteOptions{
-		AutoScaleDownAfter: new(idleDelay),
 		Waker: func(ctx context.Context) (string, error) {
 			if wakeCalls.Add(1) == 1 {
 				close(wakeStarted)

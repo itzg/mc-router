@@ -518,7 +518,3 @@ func Test_routesImpl_ReusesScalingTargetByKey(t *testing.T) {
 		assert.False(t, st.StartScaling(), host)
 	}
 }
-
-func (m *MockRoutes) GetScaleDownPolicy(target ScalingTarget) ScaleDownPolicy {
-	return ScaleDownPolicy{}
-}

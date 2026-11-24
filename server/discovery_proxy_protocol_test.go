@@ -98,9 +98,9 @@ func TestDockerDiscoveryProxyProtocol(t *testing.T) {
 					}
 					data, ok := watcher.parseContainerData(inspect)
 					require.True(t, ok)
-					desired := []*routableContainer{newRoutableContainer("10.0.0.1:25565", "mc.example.com", "container", data, nil)}
+					desired := []*routableContainer{newRoutableContainer("10.0.0.1:25565", "mc.example.com", "container", data, NewDockerScalingTarget("container", "minecraft"))}
 					if defaultRoute {
-						desired = append(desired, newRoutableContainer("10.0.0.1:25565", "", "container", data, nil))
+						desired = append(desired, newRoutableContainer("10.0.0.1:25565", "", "container", data, NewDockerScalingTarget("container", "minecraft")))
 					}
 					watcher.applyContainerRoutesLocked("container", desired)
 

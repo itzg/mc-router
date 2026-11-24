@@ -13,7 +13,7 @@ import (
 
 type IDownScaler interface {
 	Reset()
-	Start(ctx context.Context, scalingTarget ScalingTarget, routes IRoutes, policy ScaleDownPolicy)
+	Start(ctx context.Context, scalingTarget ScalingTarget, routes IRoutes)
 	Cancel(scalingTarget ScalingTarget)
 	// ConnectionOpened/Closed track only connections configured to reset idle timers.
 	ConnectionOpened(scalingTarget ScalingTarget)
@@ -51,15 +51,21 @@ func (ds *downScalerImpl) Reset() {
 	// Route reloads reset timers while connected players remain active.
 }
 
-func (ds *downScalerImpl) Start(ctx context.Context, scalingTarget ScalingTarget, routes IRoutes, policy ScaleDownPolicy) {
+func (ds *downScalerImpl) Start(ctx context.Context, scalingTarget ScalingTarget, routes IRoutes) {
 	if !ds.enabled || scalingTarget == nil {
 		return
 	}
-	// Policy is captured by the caller before taking the timer lock, avoiding
-	// a route-lock/timer-lock inversion during registration and cancellation.
-	delay := policy.resolve(ds.delay)
 	ds.Lock()
 	defer ds.Unlock()
+
+	// Atomic policy reads require no route lock. Read while holding the timer
+	// lock so a concurrent discovery cancellation cannot be followed by a timer
+	// started from an earlier, already-resolved policy snapshot.
+	policy := scalingTarget.ScaleDownPolicy()
+	if policy.pending {
+		return
+	}
+	delay := policy.resolve(ds.delay)
 
 	key := scalingTarget.ScalingKey()
 	if ds.active[key] > 0 {
