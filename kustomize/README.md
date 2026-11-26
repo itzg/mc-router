@@ -2,7 +2,7 @@
 
 ## Configure the deployment
 
-Create a `kustomization.yaml` in your working directory and reference the overlay you want to customize, typically one of the [role scope overlays](#role-scope).
+Create a `kustomization.yaml` in your working directory and reference the overlay you want to customize, typically one of the [role scope overlays](#role-scope-overlays).
 
 Apply your customized deployment from that directory with `kubectl apply -k .`. You can also use Kustomize patches to change deployment settings.
 
