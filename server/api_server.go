@@ -70,8 +70,9 @@ func StartApiServer(
 	})
 
 	server := &http.Server{
-		Addr:    apiConfig.Binding,
-		Handler: corsHandler.Handler(apiKeyMiddleware(apiRoutes, apiConfig.Key)),
+		Addr:              apiConfig.Binding,
+		Handler:           corsHandler.Handler(apiKeyMiddleware(apiRoutes, apiConfig.Key)),
+		ReadHeaderTimeout: handshakeTimeout,
 	}
 	server.BaseContext = func(_ net.Listener) context.Context { return ctx }
 

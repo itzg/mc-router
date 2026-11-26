@@ -1,9 +1,12 @@
 package server
 
 import (
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -68,5 +71,26 @@ func Test_apiServer_routesListHandler(t *testing.T) {
 			require.NoError(t, err)
 			assert.JSONEq(t, tt.want, string(body))
 		})
+	}
+}
+
+func Test_apiServer_closesIncompleteHeaders(t *testing.T) {
+	server, err := StartApiServer(t.Context(), ApiConfig{Binding: "127.0.0.1:0", Key: "test-key"}, new(MockRoutes), nil, nil)
+	require.NoError(t, err)
+
+	conn, err := net.Dial("tcp", server.GetAddr())
+	require.NoError(t, err)
+	//goland:noinspection GoUnhandledErrorResult
+	defer conn.Close()
+
+	// Send a request line and one header, but never the blank line that ends the headers.
+	_, err = conn.Write([]byte("GET /routes HTTP/1.1\r\nHost: localhost\r\n"))
+	require.NoError(t, err)
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(handshakeTimeout+5*time.Second)))
+	_, err = io.ReadAll(conn)
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		t.Fatal("API server kept a connection with incomplete headers open")
 	}
 }
