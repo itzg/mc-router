@@ -98,7 +98,7 @@ go build ./cmd/mc-router/
 
 ## Running in devcontainer
 
-This approach is useful for testing changes for [Docker auto scaling](#docker-auto-scale-updown).
+This approach is useful for testing changes for [Docker auto scaling](README.md#docker-auto-scale-updown).
 
 With IntelliJ Ultimate, [use these instructions](https://www.jetbrains.com/help/idea/start-dev-container-inside-ide.html). It is recommended to use the option to mount sources.
 
