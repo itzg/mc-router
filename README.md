@@ -7,7 +7,7 @@
 
 Routes Minecraft Java Edition client connections to backend servers based upon the requested server address. This is quite helpful for home network deployments where any number of Minecraft servers can be multiplexed onto a single, public IP address and standard Minecraft port. It works great with [itzg/minecraft-server](https://github.com/itzg/docker-minecraft-server), but can be used with any Minecraft server. Stand-alone binaries are also published for Linux, Mac, and Windows if not wanting to use containers at all.
 
-Some other features included:
+## Features
 
 - Dynamic auto-discovery of backend servers in Kubernetes and Docker which allows for "zero-config" mapping of your Minecraft server hostnames to backend servers protected behind mc-router.
 - Minimizes unwanted intrusions by disallowing Minecraft port scanners that are not specifying a mapped server hostname.
@@ -18,6 +18,86 @@ Some other features included:
 - or start and stop backend servers running as docker containers.
 - Built-in ngrok integration where mc-router acts as an agent
 - Exports/exposes metrics for various Prometheus and InfluxDB. If enabled, includes player login metrics.
+
+## Overview
+
+```mermaid
+flowchart TD
+    subgraph Clients["Minecraft Java Clients (Default Port 25565)"]
+        C1(["survival.example.com"])
+        C2(["creative.example.com"])
+        C3(["lobby.example.com"])
+    end
+
+    subgraph Gateway["Single Public IP / Gateway"]
+        MCR[["mc-router :25565\nInspects Handshake Hostname"]]
+    end
+
+    subgraph Backends["Backend Minecraft Servers"]
+        subgraph Containerized["Containerized Environments"]
+            DOCKER["Docker Containers (itzg/minecraft-server)\nAuto-discovered via labels • Wake on demand"]
+            K8S["Kubernetes StatefulSets\nAuto-discovered via annotations • Scale to zero (0 ↔ 1)"]
+        end
+
+        subgraph NonContainerized["Non-Containerized Environments"]
+            STANDALONE["Bare Metal, VMs & Dedicated Hosts\nStatic / API routing • Webhook auto-scaling"]
+        end
+    end
+
+    C1 --> MCR
+    C2 --> MCR
+    C3 --> MCR
+
+    MCR -->|"Routes: survival"| DOCKER
+    MCR -->|"Routes: creative"| K8S
+    MCR -->|"Routes: lobby"| STANDALONE
+```
+
+Service discovery and scaling:
+
+```mermaid
+flowchart LR
+    MCR[["mc-router"]]
+
+    subgraph Kubernetes
+        K8S_SVC["Service\nexternalServerName annotation"]
+        K8S_SS["StatefulSet"]
+    end
+
+    subgraph Docker
+        DOCKER_CONTAINER["Container\nmc-router.host label"]
+    end
+
+    subgraph Swarm["Docker Swarm"]
+        SWARM_SERVICE["Service\nmc-router.host label"]
+    end
+
+    K8S_SVC -->|"Discovers route"| MCR
+    MCR <-->|"Wake / idle scale-down\nreplicas 0 ↔ 1"| K8S_SS
+    DOCKER_CONTAINER -->|"Discovers route"| MCR
+    MCR <-->|"Start / stop on demand"| DOCKER_CONTAINER
+    SWARM_SERVICE -->|"Discovers route"| MCR
+    MCR <-->|"Wake / idle scale-down\nreplicas 0 ↔ 1"| SWARM_SERVICE
+```
+
+Optional integrations can also be enabled:
+
+```mermaid
+flowchart LR
+    MCR[["mc-router"]]
+    API_CLIENT["API Client"]
+    API["REST API"]
+    WEBHOOK["Webhook Receiver"]
+    SCALER["Webhook Scaler"]
+    PROM["Prometheus"]
+
+    MCR -.->|"Connection events"| WEBHOOK
+    MCR -.->|"Scale requests"| SCALER
+    PROM -.->|"Scrapes metrics"| MCR
+    API_CLIENT -.->|"REST API requests"| API
+    API <-->|"Hosted by mc-router"| MCR
+```
+
 
 ## Usage
 
@@ -42,6 +122,8 @@ Some other features included:
     	MOTD to display while auto-scaled Docker servers are waking up; if empty, asleep status will be served (env AUTO_SCALE_LOADING_MOTD)
   -auto-scale-up
     	Scale from zero on access. For Kubernetes, increases StatefulSet replicas from 0 to 1. For Docker, starts or unpauses the container when accessed (env AUTO_SCALE_UP)
+  -auto-scale-wake-hold duration
+    	If set along with -auto-scale-wake-kick-message, the login of a 1.13 or newer client to a scaled-down or still waking server is held for up to this long and relayed once the server is ready, while login plugin requests keep the client from timing out. Older clients, and held ones when the time is up, are disconnected with the wake kick message (env AUTO_SCALE_WAKE_HOLD)
   -auto-scale-wake-kick-message string
     	If set, a player logging in to a scaled-down or still waking server is immediately disconnected with this message while the server keeps waking up, instead of holding the login until the server is ready (the Java client gives up after about 30 seconds) (env AUTO_SCALE_WAKE_KICK_MESSAGE)
   -auto-scale-webhook-headers value
@@ -381,6 +463,7 @@ Behavior:
 - While that wake-up is in progress and status pings are received, mc-router can return a loading MOTD (per-container override or `-auto-scale-loading-motd`).
 - When no clients remain connected and the idle timer elapses (`-auto-scale-down-after`), mc-router gracefully stops the container.
 - With `-auto-scale-wake-kick-message` set, a login to a stopped or still waking container is answered right away with a disconnect screen showing that message, while the container keeps starting in the background. Without it, the login is held until the container is reachable, which can exceed the Java client's ~30 second timeout. A server woken this way is scheduled to scale down like any other, even if the player never comes back.
+- With `-auto-scale-wake-hold` set as well, such as `3m`, the login of a 1.13 or newer client is held instead and joins the server as soon as it is reachable, without having to join again. A login plugin request on the channel `mc-router:wait` every 10 seconds keeps the client, which shows "Negotiating...", from timing out. Older clients are still disconnected with the wake kick message, and so is a held client when the server is not reachable within the given duration. The wake itself gives up after its own timeout of 60 seconds by default, which ends the hold with the wake kick message, so raise that timeout (for Kubernetes the `mc-router.itzg.me/autoScaleWaitTimeout` annotation, for the scaler webhook `-auto-scale-webhook-wake-timeout`) along with the hold.
 
 > [!NOTE]
 > Native Swarm service scaling via `-auto-scale-up`/`-auto-scale-down` is supported in both VIP (Virtual IP) and DNSRR (DNS Round-Robin) modes. Bypassing the VIP (by routing directly to the task container IP) is automatically enabled when `replicas == 1` to prevent VIP routing delay. Note that DNSRR mode has not been actively tested.
