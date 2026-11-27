@@ -87,7 +87,7 @@ func Test_apiServer_closesIncompleteHeaders(t *testing.T) {
 	_, err = conn.Write([]byte("GET /routes HTTP/1.1\r\nHost: localhost\r\n"))
 	require.NoError(t, err)
 
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(handshakeTimeout+5*time.Second)))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(apiReadHeaderTimeout+5*time.Second)))
 	_, err = io.ReadAll(conn)
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {

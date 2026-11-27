@@ -7,12 +7,17 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
 )
+
+// apiReadHeaderTimeout is how long an API client has to send its request
+// headers before the connection is closed.
+const apiReadHeaderTimeout = 5 * time.Second
 
 // ApiServer holds the dependencies the REST handlers need, injected at startup
 // rather than reached for as globals.
@@ -72,7 +77,7 @@ func StartApiServer(
 	server := &http.Server{
 		Addr:              apiConfig.Binding,
 		Handler:           corsHandler.Handler(apiKeyMiddleware(apiRoutes, apiConfig.Key)),
-		ReadHeaderTimeout: handshakeTimeout,
+		ReadHeaderTimeout: apiReadHeaderTimeout,
 	}
 	server.BaseContext = func(_ net.Listener) context.Context { return ctx }
 
