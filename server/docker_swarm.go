@@ -67,6 +67,7 @@ func (r *routableSwarmService) Equal(other *routableSwarmService) bool {
 		r.networkID == other.networkID &&
 		r.autoScaleUp == other.autoScaleUp &&
 		r.autoScaleDown == other.autoScaleDown &&
+		r.scaleDownPolicy() == other.scaleDownPolicy() &&
 		r.autoScaleAsleepMOTD == other.autoScaleAsleepMOTD &&
 		r.autoScaleLoadingMOTD == other.autoScaleLoadingMOTD &&
 		(r.proxyProtocol == other.proxyProtocol ||
@@ -567,6 +568,13 @@ func (w *dockerSwarmWatcherImpl) listServices(ctx context.Context) ([]*routableS
 }
 
 func newRoutableSwarmService(endpoint string, host string, data parsedDockerServiceData, target *DockerSwarmScalingTarget) *routableSwarmService {
+	policy := ScaleDownPolicy{}
+	if data.autoScaleDownAfter != nil {
+		policy.delay = *data.autoScaleDownAfter
+	}
+	if target != nil {
+		target.SetScaleDownPolicy(policy)
+	}
 	return &routableSwarmService{
 		containerEndpoint:         endpoint,
 		externalServiceName:       host,
@@ -617,6 +625,7 @@ type parsedDockerServiceData struct {
 	serviceName               string
 	autoScaleUp               bool
 	autoScaleDown             bool
+	autoScaleDownAfter        *time.Duration
 	autoScaleAsleepMOTD       string
 	autoScaleLoadingMOTD      string
 	proxyProtocol             *bool
@@ -759,6 +768,19 @@ func (w *dockerSwarmWatcherImpl) parseServiceLabels(service *swarm.Service, data
 				return false
 			}
 			data.autoScaleDown = autoScaleDown
+
+		case DockerRouterLabelAutoScaleDownAfter:
+			duration, err := discoveryconfig.ParsePositiveDuration(value)
+			if err != nil {
+				logrus.
+					WithError(err).
+					WithField("serviceId", service.ID).
+					WithField("label", key).
+					WithField("value", value).
+					Warn("Invalid scale-down delay label, inheriting global setting")
+			} else {
+				data.autoScaleDownAfter = &duration
+			}
 
 		case DockerRouterLabelAutoScaleAsleepMOTD:
 			data.autoScaleAsleepMOTD = value
@@ -1016,4 +1038,11 @@ func (t *DockerSwarmScalingTarget) String() string {
 
 func (t *DockerSwarmScalingTarget) ScalingKey() string {
 	return t.serviceID
+}
+
+func (r *routableSwarmService) scaleDownPolicy() ScaleDownPolicy {
+	if r.scalingTarget == nil {
+		return ScaleDownPolicy{}
+	}
+	return r.scalingTarget.ScaleDownPolicy()
 }

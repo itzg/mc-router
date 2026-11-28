@@ -169,6 +169,7 @@ func (r *routesImpl) Reset() {
 func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget ScalingTarget, options RouteOptions) {
 	r.Lock()
 	defer r.Unlock()
+	scalingTarget = r.sharedTarget(scalingTarget)
 
 	r.defaultRoute = &mapping{
 		backend:       backend,
@@ -189,7 +190,9 @@ func (r *routesImpl) SetDefaultRoute(backend string, scalingTarget ScalingTarget
 	}
 
 	// Trigger auto-scale down for default route on creation, same as CreateMapping.
-	if r.downScaler != nil && scalingTarget != nil && backend != "" {
+	if r.downScaler != nil && scalingTarget != nil && scalingTarget.ScaleDownPolicy().pending {
+		r.downScaler.Cancel(scalingTarget)
+	} else if r.downScaler != nil && scalingTarget != nil && backend != "" {
 		r.downScaler.Start(r.ctx, scalingTarget, r)
 	}
 }
@@ -452,8 +455,13 @@ func (r *routesImpl) sharedTarget(scalingTarget ScalingTarget) ScalingTarget {
 	key := scalingTarget.ScalingKey()
 	for _, m := range r.mappings {
 		if m.scalingTarget != nil && m.scalingTarget.ScalingKey() == key {
+			m.scalingTarget.SetScaleDownPolicy(scalingTarget.ScaleDownPolicy())
 			return m.scalingTarget
 		}
+	}
+	if r.defaultRoute != nil && r.defaultRoute.scalingTarget != nil && r.defaultRoute.scalingTarget.ScalingKey() == key {
+		r.defaultRoute.scalingTarget.SetScaleDownPolicy(scalingTarget.ScaleDownPolicy())
+		return r.defaultRoute.scalingTarget
 	}
 	return scalingTarget
 }
@@ -463,6 +471,10 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, scaling
 	defer r.Unlock()
 
 	serverAddress = strings.ToLower(serverAddress)
+	previousPolicyPending := false
+	if previous, ok := r.mappings[serverAddress]; ok && previous.scalingTarget != nil {
+		previousPolicyPending = previous.scalingTarget.ScaleDownPolicy().pending
+	}
 	scalingTarget = r.sharedTarget(scalingTarget)
 
 	logrus.WithFields(logrus.Fields{
@@ -487,9 +499,11 @@ func (r *routesImpl) CreateMapping(serverAddress string, backend string, scaling
 	// Trigger auto-scale down when a mapping first makes a scaling target routable to ensure servers
 	// are shut down if the router restarts. Re-registering an already-routable target must preserve
 	// its timer state since an active connection may have cancelled the timer in the meantime.
-	shouldStartDownTimer := scalingTarget != nil && (!hasPrevious || previous.backend == "" || previous.scalingTarget == nil ||
+	shouldStartDownTimer := scalingTarget != nil && (previousPolicyPending || !hasPrevious || previous.backend == "" || previous.scalingTarget == nil ||
 		previous.scalingTarget.ScalingKey() != scalingTarget.ScalingKey())
-	if r.downScaler != nil && backend != "" && shouldStartDownTimer {
+	if r.downScaler != nil && scalingTarget != nil && scalingTarget.ScaleDownPolicy().pending {
+		r.downScaler.Cancel(scalingTarget)
+	} else if r.downScaler != nil && backend != "" && shouldStartDownTimer {
 		r.downScaler.Start(r.ctx, scalingTarget, r)
 	}
 }
@@ -502,6 +516,10 @@ func (r *routesImpl) UpdateMapping(serverAddress string, backend string, scaling
 	defer r.Unlock()
 
 	serverAddress = strings.ToLower(serverAddress)
+	previousPolicyPending := false
+	if previous, ok := r.mappings[serverAddress]; ok && previous.scalingTarget != nil {
+		previousPolicyPending = previous.scalingTarget.ScaleDownPolicy().pending
+	}
 	scalingTarget = r.sharedTarget(scalingTarget)
 
 	logrus.WithFields(logrus.Fields{
@@ -526,10 +544,10 @@ func (r *routesImpl) UpdateMapping(serverAddress string, backend string, scaling
 
 	if r.downScaler != nil && scalingTarget != nil {
 		// Cancel the timer when the backend disappears (container stopped externally).
-		if backend == "" {
+		if backend == "" || scalingTarget.ScaleDownPolicy().pending {
 			r.downScaler.Cancel(scalingTarget)
 			// start timer on a backend transition from down/waking to ready
-		} else if hasPrevious && prev.backend == "" && !scalingTarget.IsScaling() {
+		} else if hasPrevious && (prev.backend == "" || previousPolicyPending) && !scalingTarget.IsScaling() {
 			r.downScaler.Start(r.ctx, scalingTarget, r)
 		}
 	}

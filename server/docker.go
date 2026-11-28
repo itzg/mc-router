@@ -31,6 +31,7 @@ const (
 	DockerRouterLabelDefault                   = "mc-router.default"
 	DockerRouterLabelNetwork                   = "mc-router.network"
 	DockerRouterLabelAutoScaleUp               = "mc-router.auto-scale-up"
+	DockerRouterLabelAutoScaleDownAfter        = "mc-router.auto-scale-down-after"
 	DockerRouterLabelAutoScaleDown             = "mc-router.auto-scale-down"
 	DockerRouterLabelAutoScaleAsleepMOTD       = "mc-router.auto-scale-asleep-motd"
 	DockerRouterLabelAutoScaleLoadingMOTD      = "mc-router.auto-scale-loading-motd"
@@ -44,11 +45,10 @@ const containerIdLen = 12
 type dockerWatcherConfig struct {
 	autoScaleUp   bool
 	autoScaleDown bool
-
-	socket     string
-	timeout    time.Duration
-	apiVersion string
-	network    string
+	socket        string
+	timeout       time.Duration
+	apiVersion    string
+	network       string
 }
 
 func (c *dockerWatcherConfig) apiVersionOpt() client.Opt {
@@ -298,30 +298,10 @@ func (w *dockerWatcherImpl) containersForID(ctx context.Context, containerId str
 	var result []*routableContainer
 	scalingTarget := NewDockerScalingTarget(containerId, data.name)
 	for _, host := range data.hosts {
-		result = append(result, &routableContainer{
-			containerEndpoint:    endpoint,
-			externalName:         host,
-			containerId:          containerId,
-			autoScaleUp:          data.autoScaleUp,
-			autoScaleDown:        data.autoScaleDown,
-			autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
-			autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
-			proxyProtocol:        data.proxyProtocol,
-			scalingTarget:        scalingTarget,
-		})
+		result = append(result, newRoutableContainer(endpoint, host, containerId, data, scalingTarget))
 	}
 	if data.def != nil && *data.def {
-		result = append(result, &routableContainer{
-			containerEndpoint:    endpoint,
-			externalName:         "",
-			containerId:          containerId,
-			autoScaleUp:          data.autoScaleUp,
-			autoScaleDown:        data.autoScaleDown,
-			autoScaleAsleepMOTD:  data.autoScaleAsleepMOTD,
-			autoScaleLoadingMOTD: data.autoScaleLoadingMOTD,
-			proxyProtocol:        data.proxyProtocol,
-			scalingTarget:        scalingTarget,
-		})
+		result = append(result, newRoutableContainer(endpoint, "", containerId, data, scalingTarget))
 	}
 	return result, nil
 }
@@ -530,6 +510,13 @@ func (w *dockerWatcherImpl) listContainers(ctx context.Context) ([]*routableCont
 }
 
 func newRoutableContainer(endpoint string, host string, containerId string, data parsedDockerContainerData, target *DockerScalingTarget) *routableContainer {
+	policy := ScaleDownPolicy{}
+	if data.autoScaleDownAfter != nil {
+		policy.delay = *data.autoScaleDownAfter
+	}
+	if target != nil {
+		target.SetScaleDownPolicy(policy)
+	}
 	return &routableContainer{
 		containerEndpoint:    endpoint,
 		externalName:         host,
@@ -551,6 +538,7 @@ type parsedDockerContainerData struct {
 	network              *string
 	ip                   string
 	autoScaleDown        bool
+	autoScaleDownAfter   *time.Duration
 	autoScaleUp          bool
 	autoScaleAsleepMOTD  string
 	autoScaleLoadingMOTD string
@@ -657,6 +645,19 @@ func (w *dockerWatcherImpl) parseContainerData(container *container.InspectRespo
 			}
 			data.autoScaleDown = autoScaleDown
 		}
+		if key == DockerRouterLabelAutoScaleDownAfter {
+			duration, err := discoveryconfig.ParsePositiveDuration(value)
+			if err != nil {
+				logrus.
+					WithError(err).
+					WithField("containerId", container.ID).
+					WithField("label", key).
+					WithField("value", value).
+					Warn("Invalid scale-down delay label, inheriting global setting")
+			} else {
+				data.autoScaleDownAfter = &duration
+			}
+		}
 		if key == DockerRouterLabelAutoScaleAsleepMOTD {
 			data.autoScaleAsleepMOTD = value
 		}
@@ -760,6 +761,7 @@ func (r *routableContainer) Equal(other *routableContainer) bool {
 		r.containerId == other.containerId &&
 		r.autoScaleUp == other.autoScaleUp &&
 		r.autoScaleDown == other.autoScaleDown &&
+		r.scaleDownPolicy() == other.scaleDownPolicy() &&
 		r.autoScaleAsleepMOTD == other.autoScaleAsleepMOTD &&
 		r.autoScaleLoadingMOTD == other.autoScaleLoadingMOTD &&
 		(r.proxyProtocol == other.proxyProtocol ||
@@ -801,4 +803,11 @@ func (t *DockerScalingTarget) ScalingKey() string {
 		return ""
 	}
 	return t.containerId
+}
+
+func (r *routableContainer) scaleDownPolicy() ScaleDownPolicy {
+	if r.scalingTarget == nil {
+		return ScaleDownPolicy{}
+	}
+	return r.scalingTarget.ScaleDownPolicy()
 }
